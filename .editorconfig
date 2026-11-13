@@ -11,5 +11,9 @@ indent_size = 4
 [*.{yml,yaml,json,md}]
 indent_size = 2
 
+# 프론트엔드는 JS/TS 관례에 맞춰 2칸을 쓴다.
+[frontend/**]
+indent_size = 2
+
 [*.bat]
 end_of_line = crlf

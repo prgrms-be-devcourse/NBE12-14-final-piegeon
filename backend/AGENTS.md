@@ -10,6 +10,7 @@
 - 테스트: JUnit, Mockito, Testcontainers(MySQL)
 
 ## 명령
+아래 명령은 모두 저장소의 `backend/` 폴더에서 실행한다. (저장소 최상위에는 `backend/`, `frontend/`가 있다.)
 - 로컬 DB 실행: `docker compose up -d`
 - 빌드와 전체 테스트: `./gradlew build` (Testcontainers를 쓰므로 Docker가 켜져 있어야 한다)
 - 테스트만: `./gradlew test`
@@ -58,6 +59,7 @@
 - 인증 흐름처럼 필터와 세션까지 확인해야 하는 테스트는 `AuthIntegrationTest`처럼 실제 서버를 띄워 HTTP로 호출한다.
 - `@DisplayName`에 검증하는 규칙을 한국어 한 문장으로 적는다.
 - 작업을 끝내기 전에 `./gradlew build`를 실행하고, 실제 출력 결과를 보고한다.
+- PR과 `dev`, `main` push에서는 `.github/workflows/backend-ci.yml`이 같은 `./gradlew build`를 실행한다.
 
 ## 하지 말 것
 - API 키와 운영 환경의 비밀번호를 코드나 설정 파일에 적지 않는다. 값은 환경변수로 받는다. 로컬 DB 계정만 예외다.
