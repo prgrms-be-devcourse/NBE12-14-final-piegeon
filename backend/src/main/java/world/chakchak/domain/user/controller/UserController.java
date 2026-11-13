@@ -1,6 +1,7 @@
 package world.chakchak.domain.user.controller;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,10 +15,10 @@ import world.chakchak.global.security.LoginUser;
 @RequiredArgsConstructor
 public class UserController {
 
-    private final UserService userService;
+  private final UserService userService;
 
-    @GetMapping("/me")
-    public UserResponse me(@AuthenticationPrincipal LoginUser loginUser) {
-        return userService.getMe(loginUser.userId());
-    }
+  @GetMapping("/me")
+  public ResponseEntity<UserResponse> me(@AuthenticationPrincipal LoginUser loginUser) {
+    return ResponseEntity.ok(userService.getMe(loginUser.userId()));
+  }
 }
