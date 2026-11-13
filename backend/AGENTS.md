@@ -14,6 +14,7 @@
 - 로컬 DB 실행: `docker compose up -d`
 - 빌드와 전체 테스트: `./gradlew build` (Testcontainers를 쓰므로 Docker가 켜져 있어야 한다)
 - 테스트만: `./gradlew test`
+- 코드 포맷 맞추기: `./gradlew spotlessApply` (검사만: `./gradlew spotlessCheck`)
 - 일부 테스트: `./gradlew test --tests "world.chakchak.domain.auth.*"`
 - 실행: `./gradlew bootRun --args='--spring.profiles.active=local'`
 - 시스템에 설치된 `gradle` 대신 항상 `./gradlew`를 쓴다.
@@ -33,6 +34,7 @@
 - 상태 전이 규칙은 엔티티 메서드에 둔다.
 - 현재 시각은 주입받은 `Clock`으로 구한다. `LocalDateTime.now()`, `Instant.now()`를 인자 없이 부르지 않는다.
 - 요청·응답 DTO는 record로 만들고 이름은 `XxxRequest`, `XxxResponse`로 끝낸다. 엔티티를 응답으로 내보내지 않는다.
+- 코드 포맷은 Google Java Format이다. 손으로 맞추지 않고 `./gradlew spotlessApply`를 실행한다. 포맷이 어긋나면 `./gradlew build`와 CI가 실패한다.
 - 의존성은 생성자 주입(`@RequiredArgsConstructor`)만 쓴다.
 - 엔티티에 `@Setter`, `@Data`를 쓰지 않는다. 연관관계는 `FetchType.LAZY`로 둔다.
 - JSON 라이브러리는 Jackson 3이다. ObjectMapper 등은 `tools.jackson.*`에서 import한다.
@@ -40,7 +42,8 @@
 
 ## API 규칙
 - 경로는 `/api/v1`로 시작하고, 자원 이름은 복수형 kebab-case를 쓴다.
-- 성공 응답은 DTO를 그대로 반환한다. 공통 래퍼를 씌우지 않는다. 목록은 `{ "items": [...] }`로 감싼다.
+- controller 메서드는 `ResponseEntity<XxxResponse>`를 반환하고 상태 코드를 여기서 정한다. (`ResponseEntity.ok(...)`, `ResponseEntity.status(HttpStatus.CREATED).body(...)`, 본문이 없으면 `ResponseEntity.noContent().build()`) `@ResponseStatus`는 쓰지 않는다.
+- 응답 본문은 DTO 그대로다. `{ "data": ... }` 같은 공통 래퍼를 씌우지 않는다. 목록은 `{ "items": [...] }`로 감싼다.
 - 실패는 `BusinessException(ErrorCode)`를 던진다. controller에서 try-catch로 에러 응답을 만들지 않는다.
 - 새 에러 코드는 해당 도메인의 `XxxErrorCode` enum에 추가하고, 팀 에러 코드 표에도 추가한다.
 - 입력 형식 검증은 요청 DTO의 Bean Validation으로, 업무 규칙 검증은 service와 엔티티에서 한다.

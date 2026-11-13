@@ -11,6 +11,11 @@ indent_size = 4
 [*.{yml,yaml,json,md}]
 indent_size = 2
 
+# Java는 Google Java Format을 따른다(2칸, 한 줄 100자). 실제 포맷은 spotless가 맞춘다.
+[*.java]
+indent_size = 2
+max_line_length = 100
+
 # 프론트엔드는 JS/TS 관례에 맞춰 2칸을 쓴다.
 [frontend/**]
 indent_size = 2

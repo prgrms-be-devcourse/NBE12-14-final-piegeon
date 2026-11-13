@@ -1,7 +1,6 @@
 package world.chakchak.global.security;
 
 import java.io.Serializable;
-
 import org.springframework.security.core.AuthenticatedPrincipal;
 
 /**
@@ -11,13 +10,12 @@ import org.springframework.security.core.AuthenticatedPrincipal;
  */
 public record LoginUser(Long userId, String email) implements AuthenticatedPrincipal, Serializable {
 
-    /**
-     * Spring Session이 세션 테이블의 PRINCIPAL_NAME(VARCHAR(100))에 저장하는 값.
-     * 정의하지 않으면 "LoginUser[userId=1, email=...]" 전체가 저장되어 이메일이 길 때 100자를 넘는다.
-     * userId로 두면 길이가 일정하고, 특정 사용자의 세션을 userId로 찾아 지울 수 있다.
-     */
-    @Override
-    public String getName() {
-        return String.valueOf(userId);
-    }
+  /**
+   * Spring Session이 세션 테이블의 PRINCIPAL_NAME(VARCHAR(100))에 저장하는 값. 정의하지 않으면 "LoginUser[userId=1,
+   * email=...]" 전체가 저장되어 이메일이 길 때 100자를 넘는다. userId로 두면 길이가 일정하고, 특정 사용자의 세션을 userId로 찾아 지울 수 있다.
+   */
+  @Override
+  public String getName() {
+    return String.valueOf(userId);
+  }
 }

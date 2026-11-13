@@ -36,9 +36,9 @@ jobs:
         with:
           cache-provider: basic
 
-      # 컴파일, 테스트(Testcontainers MySQL 포함), jar 생성까지 한 번에 한다.
+      # 컴파일, 포맷 검사(spotlessCheck, Google Java Format), 테스트(Testcontainers MySQL 포함), jar 생성까지 한 번에 한다.
       # Docker 이미지 빌드를 추가할 때는 이 job 안에서 이 스텝 뒤에 두고, 여기서 만든 jar를 그대로 쓴다.
-      - name: 빌드와 테스트
+      - name: 빌드, 포맷 검사, 테스트
         run: ./gradlew build
 
       # uses 스텝의 path는 working-directory가 적용되지 않으므로 저장소 최상위 기준으로 적는다.
