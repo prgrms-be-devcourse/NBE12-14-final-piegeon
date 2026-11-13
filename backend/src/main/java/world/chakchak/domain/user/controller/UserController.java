@@ -18,6 +18,6 @@ public class UserController {
 
     @GetMapping("/me")
     public UserResponse me(@AuthenticationPrincipal LoginUser loginUser) {
-        return userService.getById(loginUser.userId());
+        return userService.getMe(loginUser.userId());
     }
 }

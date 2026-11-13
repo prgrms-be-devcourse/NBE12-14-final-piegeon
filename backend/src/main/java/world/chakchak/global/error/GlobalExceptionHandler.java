@@ -4,6 +4,7 @@ import java.util.List;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -102,11 +103,33 @@ public class GlobalExceptionHandler {
         return toResponse(AuthErrorCode.AUTH_FORBIDDEN);
     }
 
-    /** 위에서 처리하지 못한 예외. 내부 정보가 새지 않도록 고정 문구만 응답한다. */
+    /**
+     * 위에서 처리하지 못한 예외. 내부 정보가 새지 않도록 고정 문구만 응답한다.
+     *
+     * <p>Spring이 스스로 4xx로 정한 예외(ResponseStatusException, 필수 경로 변수 누락, 업로드 크기 초과 등)는
+     * 클라이언트 잘못이므로 그 상태 코드를 유지한다. 500으로 바꾸면 사용자 실수에 알람이 울린다.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
+        if (e instanceof org.springframework.web.ErrorResponse springError
+                && springError.getStatusCode().is4xxClientError()) {
+            HttpStatusCode status = springError.getStatusCode();
+            ErrorCode code = clientErrorCodeOf(status);
+            log.warn("[{}] {} {}", code.name(), status.value(), e.getMessage());
+            return ResponseEntity.status(status).body(ErrorResponse.of(code));
+        }
         log.error("[{}] 처리하지 못한 예외", CommonErrorCode.COMMON_INTERNAL_ERROR.name(), e);
         return toResponse(CommonErrorCode.COMMON_INTERNAL_ERROR);
+    }
+
+    /** 상태 코드에 맞는 공통 에러 코드를 고른다. 따로 정해 둔 코드가 없는 4xx는 COMMON_MALFORMED_REQUEST로 응답한다. */
+    private ErrorCode clientErrorCodeOf(HttpStatusCode status) {
+        return switch (status.value()) {
+            case 404 -> CommonErrorCode.COMMON_NOT_FOUND;
+            case 405 -> CommonErrorCode.COMMON_METHOD_NOT_ALLOWED;
+            case 415 -> CommonErrorCode.COMMON_UNSUPPORTED_MEDIA_TYPE;
+            default -> CommonErrorCode.COMMON_MALFORMED_REQUEST;
+        };
     }
 
     private ResponseEntity<ErrorResponse> toResponse(ErrorCode code) {

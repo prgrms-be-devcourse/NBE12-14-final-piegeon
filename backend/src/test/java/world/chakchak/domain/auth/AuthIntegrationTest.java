@@ -10,19 +10,14 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ActiveProfiles;
-import world.chakchak.TestcontainersConfig;
+import world.chakchak.IntegrationTest;
 
 /**
  * 실제 서버를 임의 포트로 띄우고 HTTP로 호출해서 인증 흐름 전체를 확인한다.
  * 필터, 세션 저장(MySQL), 쿠키, 에러 응답 형식이 함께 검증된다.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(TestcontainersConfig.class)
-@ActiveProfiles("test")
+@IntegrationTest
 class AuthIntegrationTest {
 
     private static final String PASSWORD = "password123!";
@@ -113,6 +108,41 @@ class AuthIntegrationTest {
         assertThat(second.body()).contains("USER_EMAIL_DUPLICATED");
     }
 
+    @Test
+    @DisplayName("이메일이 길어도 가입하고 세션이 저장되어 내 정보를 조회할 수 있다")
+    void signupWithLongEmail() throws Exception {
+        String email = longEmail();
+        assertThat(email.length()).isGreaterThan(180);
+
+        HttpResponse<String> signup = postJson("/api/v1/auth/signup", signupBody(email), null);
+        assertThat(signup.statusCode()).isEqualTo(201);
+
+        HttpResponse<String> me = get("/api/v1/users/me", sessionCookieOf(signup));
+        assertThat(me.statusCode()).isEqualTo(200);
+        assertThat(me.body()).contains(email);
+    }
+
+    @Test
+    @DisplayName("이메일이 255자를 넘으면 400과 필드별 사유를 응답한다")
+    void signupWithTooLongEmail() throws Exception {
+        String email = "a".repeat(250) + "@test.com";
+
+        HttpResponse<String> signup = postJson("/api/v1/auth/signup", signupBody(email), null);
+
+        assertThat(signup.statusCode()).isEqualTo(400);
+        assertThat(signup.body()).contains("COMMON_INVALID_INPUT").contains("\"field\":\"email\"");
+    }
+
+    @Test
+    @DisplayName("로그인 비밀번호가 64자를 넘으면 400과 필드별 사유를 응답한다")
+    void loginWithTooLongPassword() throws Exception {
+        HttpResponse<String> login =
+                postJson("/api/v1/auth/login", loginBody(uniqueEmail(), "a".repeat(65)), null);
+
+        assertThat(login.statusCode()).isEqualTo(400);
+        assertThat(login.body()).contains("COMMON_INVALID_INPUT").contains("\"field\":\"password\"");
+    }
+
     private HttpResponse<String> postJson(String path, String body, String sessionCookie) throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path))
                 .header("Content-Type", "application/json")
@@ -143,6 +173,13 @@ class AuthIntegrationTest {
 
     private String uniqueEmail() {
         return "user-" + UUID.randomUUID() + "@test.com";
+    }
+
+    /** 형식은 올바르지만 긴(약 190자) 중복되지 않는 이메일. 세션 테이블의 PRINCIPAL_NAME(100자)보다 길다. */
+    private String longEmail() {
+        String unique = UUID.randomUUID().toString().replace("-", "");
+        String local = unique + "a".repeat(64 - unique.length());
+        return local + "@" + "b".repeat(60) + "." + "c".repeat(60) + ".com";
     }
 
     private String signupBody(String email) {

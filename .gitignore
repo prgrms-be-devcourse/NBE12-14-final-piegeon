@@ -29,6 +29,9 @@ bin/
 ### VS Code ###
 .vscode/
 
+### macOS ###
+.DS_Store
+
 ### 로컬 전용 ###
 .env
 CLAUDE.local.md
