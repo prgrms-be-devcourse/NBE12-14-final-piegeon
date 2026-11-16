@@ -10,7 +10,7 @@ public record SignupRequest(
                 @Email(message = "이메일 형식이 아닙니다.")
                 @Size(max = 255, message = "이메일은 255자 이하로 입력해 주세요.")
                 String email,
-        @NotBlank(message = "이름을 입력해 주세요.") @Size(max = 30, message = "이름은 30자 이하로 입력해 주세요.")
+        @NotBlank(message = "이름을 입력해 주세요.") @Size(max = 50, message = "이름은 50자 이하로 입력해 주세요.")
                 String name,
 
         // bcrypt는 앞의 72바이트까지만 쓴다. 한 글자가 1바이트인 문자만 허용해 64자가 72바이트를 넘지 않게 한다.
