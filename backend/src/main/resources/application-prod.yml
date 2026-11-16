@@ -1,0 +1,28 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+server:
+  forward-headers-strategy: native
+  servlet:
+    session:
+      cookie:
+        secure: true
+
+# actuator(health, prometheus)는 별도 포트로 연다. 이 포트는 방화벽·보안그룹으로 외부에서 막고
+# Prometheus 서버만 내부망으로 접근하게 한다.
+management:
+  server:
+    port: ${MANAGEMENT_PORT:9090}
+
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
