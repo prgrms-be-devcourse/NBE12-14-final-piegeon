@@ -1,5 +1,6 @@
 package world.chakchak.domain.auth.service;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import lombok.Getter;
@@ -18,6 +19,7 @@ public class AuthUserDetails implements UserDetails {
     private final String email;
     private final String name;
     private final String passwordHash;
+    private final LocalDateTime createdAt;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {

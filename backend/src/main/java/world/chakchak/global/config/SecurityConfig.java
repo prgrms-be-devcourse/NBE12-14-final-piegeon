@@ -36,7 +36,7 @@ public class SecurityConfig {
             AccessDeniedHandler accessDeniedHandler)
             throws Exception {
         return http
-                // CSRF 토큰 대신 SameSite=Lax 쿠키와 CORS 허용 origin 제한으로 막는다. (팀 결정 필요 항목)
+                // CSRF 토큰 대신 SameSite=Lax 쿠키와 CORS 허용 origin 제한으로 막는다. (팀 결정)
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 // 로그인·로그아웃은 AuthController가 JSON API로 직접 처리한다.
@@ -49,8 +49,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth ->
                         auth.requestMatchers(
                                         HttpMethod.POST,
-                                        "/api/v1/auth/signup",
-                                        "/api/v1/auth/login")
+                                        "/api/auth/signup",
+                                        "/api/auth/login",
+                                        // 세션이 만료된 뒤에 눌러도 성공해야 하므로 로그인 없이 허용한다.
+                                        "/api/auth/logout")
                                 .permitAll()
                                 .requestMatchers("/actuator/health", "/actuator/prometheus")
                                 .permitAll()

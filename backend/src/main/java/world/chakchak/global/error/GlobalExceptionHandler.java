@@ -2,12 +2,12 @@ package world.chakchak.global.error;
 
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import world.chakchak.global.response.ApiResponse;
 
 /** 예외를 공통 에러 응답(ErrorResponse)으로 바꾸는 한 곳. 4xx는 스택트레이스 없이 warn으로, 5xx는 스택트레이스와 함께 error로 로그를 남긴다. */
 @Slf4j
@@ -25,31 +26,33 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ErrorResponse> handleBusiness(BusinessException e) {
+    public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException e) {
         log.warn("[{}] {}", e.getErrorCode().name(), e.getMessage());
         return toResponse(e.getErrorCode());
     }
 
-    /** 요청 DTO의 검증(@Valid) 실패. 필드별 사유를 함께 보낸다. */
+    /** 요청 DTO의 검증(@Valid) 실패. 필드별 사유를 data에 담아 보낸다. */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidBody(MethodArgumentNotValidException e) {
-        List<ErrorResponse.FieldError> fieldErrors =
+    public ResponseEntity<ApiResponse<InvalidInputData>> handleInvalidBody(
+            MethodArgumentNotValidException e) {
+        List<InvalidInputData.FieldError> fieldErrors =
                 e.getBindingResult().getFieldErrors().stream()
                         .map(error ->
-                                new ErrorResponse.FieldError(
+                                new InvalidInputData.FieldError(
                                         error.getField(), error.getDefaultMessage()))
                         .toList();
-        ErrorCode code = CommonErrorCode.COMMON_INVALID_INPUT;
+        ErrorCode code = CommonErrorCode.INVALID_INPUT;
         log.warn("[{}] {}", code.name(), fieldErrors);
-        return ResponseEntity.status(code.getStatus()).body(ErrorResponse.of(code, fieldErrors));
+        return ResponseEntity.status(code.getStatus())
+                .body(ApiResponse.error(code, new InvalidInputData(fieldErrors)));
     }
 
     /** 경로 변수나 쿼리 파라미터의 검증 실패. */
     @ExceptionHandler(HandlerMethodValidationException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidParameter(
+    public ResponseEntity<ApiResponse<Void>> handleInvalidParameter(
             HandlerMethodValidationException e) {
-        log.warn("[{}] {}", CommonErrorCode.COMMON_INVALID_INPUT.name(), e.getMessage());
-        return toResponse(CommonErrorCode.COMMON_INVALID_INPUT);
+        log.warn("[{}] {}", CommonErrorCode.INVALID_INPUT.name(), e.getMessage());
+        return toResponse(CommonErrorCode.INVALID_INPUT);
     }
 
     @ExceptionHandler({
@@ -57,53 +60,57 @@ public class GlobalExceptionHandler {
         MethodArgumentTypeMismatchException.class,
         MissingServletRequestParameterException.class
     })
-    public ResponseEntity<ErrorResponse> handleMalformedRequest(Exception e) {
-        log.warn("[{}] {}", CommonErrorCode.COMMON_MALFORMED_REQUEST.name(), e.getMessage());
-        return toResponse(CommonErrorCode.COMMON_MALFORMED_REQUEST);
+    public ResponseEntity<ApiResponse<Void>> handleMalformedRequest(Exception e) {
+        log.warn("[{}] {}", CommonErrorCode.INVALID_INPUT.name(), e.getMessage());
+        return toResponse(CommonErrorCode.INVALID_INPUT);
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFound(NoResourceFoundException e) {
-        return toResponse(CommonErrorCode.COMMON_NOT_FOUND);
+    public ResponseEntity<ApiResponse<Void>> handleNotFound(NoResourceFoundException e) {
+        return toResponse(CommonErrorCode.NOT_FOUND);
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ErrorResponse> handleMethodNotAllowed(
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotAllowed(
             HttpRequestMethodNotSupportedException e) {
-        return toResponse(CommonErrorCode.COMMON_METHOD_NOT_ALLOWED);
+        return toResponse(CommonErrorCode.METHOD_NOT_ALLOWED);
     }
 
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    public ResponseEntity<ErrorResponse> handleUnsupportedMediaType(
+    public ResponseEntity<ApiResponse<Void>> handleUnsupportedMediaType(
             HttpMediaTypeNotSupportedException e) {
-        return toResponse(CommonErrorCode.COMMON_UNSUPPORTED_MEDIA_TYPE);
+        return toResponse(CommonErrorCode.UNSUPPORTED_MEDIA_TYPE);
     }
 
     /** 다른 요청이 같은 데이터를 먼저 수정하고 커밋한 경우(@Version 충돌). */
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
-    public ResponseEntity<ErrorResponse> handleVersionConflict(
+    public ResponseEntity<ApiResponse<Void>> handleVersionConflict(
             ObjectOptimisticLockingFailureException e) {
-        log.warn("[{}] {}", CommonErrorCode.COMMON_VERSION_CONFLICT.name(), e.getMessage());
-        return toResponse(CommonErrorCode.COMMON_VERSION_CONFLICT);
+        log.warn("[{}] {}", CommonErrorCode.VERSION_CONFLICT.name(), e.getMessage());
+        return toResponse(CommonErrorCode.VERSION_CONFLICT);
     }
 
-    /** 동시에 들어온 요청이 DB의 unique 제약 등에 걸린 경우. */
-    @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException e) {
-        log.warn("[{}] {}", CommonErrorCode.COMMON_CONFLICT.name(), e.getMessage());
-        return toResponse(CommonErrorCode.COMMON_CONFLICT);
+    /**
+     * 로그인 검증 도중 서버 쪽 문제(DB 장애 등)가 난 경우. AuthenticationException의 하위 타입이지만 사용자 잘못이 아니므로 401이 아니라
+     * 500으로 응답하고 error 로그를 남긴다.
+     */
+    @ExceptionHandler(AuthenticationServiceException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuthenticationFailure(
+            AuthenticationServiceException e) {
+        log.error("[{}] 인증 처리 중 오류", CommonErrorCode.INTERNAL_ERROR.name(), e);
+        return toResponse(CommonErrorCode.INTERNAL_ERROR);
     }
 
     /** 로그인 없이 보호된 API를 호출한 경우. ApiAuthenticationEntryPoint가 이쪽으로 넘긴다. */
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ErrorResponse> handleUnauthenticated(AuthenticationException e) {
-        return toResponse(AuthErrorCode.AUTH_UNAUTHENTICATED);
+    public ResponseEntity<ApiResponse<Void>> handleUnauthenticated(AuthenticationException e) {
+        return toResponse(CommonErrorCode.UNAUTHORIZED);
     }
 
     /** 권한이 없는 경우. ApiAccessDeniedHandler가 이쪽으로 넘긴다. */
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleForbidden(AccessDeniedException e) {
-        return toResponse(AuthErrorCode.AUTH_FORBIDDEN);
+    public ResponseEntity<ApiResponse<Void>> handleForbidden(AccessDeniedException e) {
+        return toResponse(CommonErrorCode.FORBIDDEN);
     }
 
     /**
@@ -113,29 +120,29 @@ public class GlobalExceptionHandler {
      * 상태 코드를 유지한다. 500으로 바꾸면 사용자 실수에 알람이 울린다.
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
+    public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception e) {
         if (e instanceof org.springframework.web.ErrorResponse springError
                 && springError.getStatusCode().is4xxClientError()) {
             HttpStatusCode status = springError.getStatusCode();
             ErrorCode code = clientErrorCodeOf(status);
             log.warn("[{}] {} {}", code.name(), status.value(), e.getMessage());
-            return ResponseEntity.status(status).body(ErrorResponse.of(code));
+            return ResponseEntity.status(status).body(ApiResponse.error(code));
         }
-        log.error("[{}] 처리하지 못한 예외", CommonErrorCode.COMMON_INTERNAL_ERROR.name(), e);
-        return toResponse(CommonErrorCode.COMMON_INTERNAL_ERROR);
+        log.error("[{}] 처리하지 못한 예외", CommonErrorCode.INTERNAL_ERROR.name(), e);
+        return toResponse(CommonErrorCode.INTERNAL_ERROR);
     }
 
-    /** 상태 코드에 맞는 공통 에러 코드를 고른다. 따로 정해 둔 코드가 없는 4xx는 COMMON_MALFORMED_REQUEST로 응답한다. */
+    /** 상태 코드에 맞는 공통 에러 코드를 고른다. 따로 정해 둔 코드가 없는 4xx는 INVALID_INPUT로 응답한다. */
     private ErrorCode clientErrorCodeOf(HttpStatusCode status) {
         return switch (status.value()) {
-            case 404 -> CommonErrorCode.COMMON_NOT_FOUND;
-            case 405 -> CommonErrorCode.COMMON_METHOD_NOT_ALLOWED;
-            case 415 -> CommonErrorCode.COMMON_UNSUPPORTED_MEDIA_TYPE;
-            default -> CommonErrorCode.COMMON_MALFORMED_REQUEST;
+            case 404 -> CommonErrorCode.NOT_FOUND;
+            case 405 -> CommonErrorCode.METHOD_NOT_ALLOWED;
+            case 415 -> CommonErrorCode.UNSUPPORTED_MEDIA_TYPE;
+            default -> CommonErrorCode.INVALID_INPUT;
         };
     }
 
-    private ResponseEntity<ErrorResponse> toResponse(ErrorCode code) {
-        return ResponseEntity.status(code.getStatus()).body(ErrorResponse.of(code));
+    private ResponseEntity<ApiResponse<Void>> toResponse(ErrorCode code) {
+        return ResponseEntity.status(code.getStatus()).body(ApiResponse.error(code));
     }
 }

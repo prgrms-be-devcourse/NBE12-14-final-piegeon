@@ -23,7 +23,7 @@
 - `world.chakchak.global`: 설정, 보안, 에러 처리, BaseEntity
 - `world.chakchak.domain.<도메인>`: auth, user, room, survey, agenda, place, schedule, comment, changelog
 - `world.chakchak.infra`: 외부 API 구현체
-- 도메인 패키지 안은 controller, service, repository, entity, dto로 나눈다.
+- 도메인 패키지 안은 controller, service, repository, entity, dto, errorcode로 나눈다.
 
 ## 코드 규칙
 - 호출 방향은 controller → service → repository다. controller에서 repository를 쓰지 않는다.
@@ -42,11 +42,14 @@
   `com.fasterxml.jackson.databind.*`는 쓰지 않는다. 어노테이션만 `com.fasterxml.jackson.annotation.*`를 쓴다.
 
 ## API 규칙
-- 경로는 `/api/v1`로 시작하고, 자원 이름은 복수형 kebab-case를 쓴다.
-- controller 메서드는 `ResponseEntity<XxxResponse>`를 반환하고 상태 코드를 여기서 정한다. (`ResponseEntity.ok(...)`, `ResponseEntity.status(HttpStatus.CREATED).body(...)`, 본문이 없으면 `ResponseEntity.noContent().build()`) `@ResponseStatus`는 쓰지 않는다.
-- 응답 본문은 DTO 그대로다. `{ "data": ... }` 같은 공통 래퍼를 씌우지 않는다. 목록은 `{ "items": [...] }`로 감싼다.
+- 경로는 `/api`로 시작하고, 자원 이름은 복수형 kebab-case를 쓴다.
+- controller 메서드는 `ResponseEntity<ApiResponse<XxxResponse>>`를 반환하고 상태 코드를 여기서 정한다. (`ResponseEntity.ok(...)`, `ResponseEntity.status(HttpStatus.CREATED).body(...)`, 본문이 없으면 `ResponseEntity.noContent().build()`) `@ResponseStatus`는 쓰지 않는다.
+- 응답 본문은 성공과 실패 모두 `ApiResponse`(`success`, `code`, `message`, `data`)로 감싼다. 성공은 `ApiResponse.success(...)`, 실패는 `GlobalExceptionHandler`가 `ApiResponse.error(...)`로 만든다.
 - 실패는 `BusinessException(ErrorCode)`를 던진다. controller에서 try-catch로 에러 응답을 만들지 않는다.
-- 새 에러 코드는 해당 도메인의 `XxxErrorCode` enum에 추가하고, 팀 에러 코드 표에도 추가한다.
+- DB unique 제약 위반(`DataIntegrityViolationException`)은 전역에서 처리하지 않는다. 중복이 예상되는 곳의 service에서 잡아 해당 도메인 에러 코드로 바꾼다. 잡지 않은 위반은 코드 버그이므로 500이 된다.
+- 에러 코드는 도메인마다 `domain.<도메인>.errorcode` 패키지의 `XxxErrorCode` enum에 둔다. enum 상수 이름이 응답의 `code`이고, API 명세의 이름을 그대로 쓴다. 여러 도메인이 함께 쓰는 코드(`UNAUTHORIZED`, `INVALID_INPUT` 등)만 `global.error.CommonErrorCode`에 둔다.
+- 성공 응답의 `code`는 `{대상}_{결과}` 형태다. (예: `USER_CREATED`, `ROOM_FETCHED`)
+- 응답의 시각은 오프셋을 붙인 `OffsetDateTime`으로 내보낸다. (예: `2026-11-01T10:00:00+09:00`) 엔티티의 `LocalDateTime`을 응답 DTO에서 `ClockConfig.SERVICE_ZONE` 기준으로 변환한다.
 - 입력 형식 검증은 요청 DTO의 Bean Validation으로, 업무 규칙 검증은 service와 엔티티에서 한다.
 - 방에 속한 API는 service 첫 줄에서 `RoomMemberService.getActiveMember(roomId, userId)`로 멤버인지 확인한다.
 

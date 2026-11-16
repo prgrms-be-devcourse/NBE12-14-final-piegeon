@@ -8,17 +8,20 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.user.dto.UserResponse;
 import world.chakchak.domain.user.service.UserService;
+import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
 
 @RestController
-@RequestMapping("/api/v1/users")
+@RequestMapping("/api/users")
 @RequiredArgsConstructor
 public class UserController {
 
     private final UserService userService;
 
     @GetMapping("/me")
-    public ResponseEntity<UserResponse> me(@AuthenticationPrincipal LoginUser loginUser) {
-        return ResponseEntity.ok(userService.getMe(loginUser.userId()));
+    public ResponseEntity<ApiResponse<UserResponse>> me(
+            @AuthenticationPrincipal LoginUser loginUser) {
+        return ResponseEntity.ok(
+                ApiResponse.success("USER_FETCHED", userService.getMe(loginUser.userId())));
     }
 }

@@ -26,7 +26,8 @@ public class AuthUserDetailsService implements UserDetailsService {
                                 credentials.userId(),
                                 credentials.email(),
                                 credentials.name(),
-                                credentials.passwordHash()))
+                                credentials.passwordHash(),
+                                credentials.createdAt()))
                 .orElseThrow(() -> new UsernameNotFoundException("등록되지 않은 이메일입니다."));
     }
 }
