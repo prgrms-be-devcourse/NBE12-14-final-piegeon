@@ -20,7 +20,9 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import world.chakchak.global.response.ApiResponse;
 
-/** 예외를 공통 에러 응답(ErrorResponse)으로 바꾸는 한 곳. 4xx는 스택트레이스 없이 warn으로, 5xx는 스택트레이스와 함께 error로 로그를 남긴다. */
+/**
+ * 예외를 공통 응답(ApiResponse)의 실패 형식으로 바꾸는 한 곳. 4xx는 스택트레이스 없이 warn으로, 5xx는 스택트레이스와 함께 error로 로그를 남긴다.
+ */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {

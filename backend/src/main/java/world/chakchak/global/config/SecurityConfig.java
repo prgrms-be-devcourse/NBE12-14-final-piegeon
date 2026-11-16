@@ -19,6 +19,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -46,6 +47,9 @@ public class SecurityConfig {
                 // SessionAuthenticator가 로그인 정보를 저장하는 저장소와 필터가 읽는 저장소를 같은 빈으로 맞춘다.
                 .securityContext(
                         context -> context.securityContextRepository(securityContextRepository))
+                // 401을 낼 때 원래 요청을 세션에 저장하지 않는다. 저장하면 비로그인 요청(봇, fetch 기본 Accept 등)마다
+                // 세션이 새로 만들어져 SPRING_SESSION에 행이 쌓인다. 로그인 후 원래 페이지로 돌려보내는 기능도 쓰지 않는다.
+                .requestCache(cache -> cache.requestCache(new NullRequestCache()))
                 .authorizeHttpRequests(auth ->
                         auth.requestMatchers(
                                         HttpMethod.POST,
