@@ -4,7 +4,7 @@
 일차별 일정, 최종 확정 순서로 진행되고, 변경은 SSE로 같은 방 멤버에게 전파한다.
 
 ## 스택
-- Java 21, Spring Boot 4.1.x, Gradle (Groovy DSL)
+- Java 21, Spring Boot 4.1.x, Gradle (Kotlin DSL)
 - Spring MVC, Spring Data JPA, Spring Security(세션 로그인), Spring Session JDBC
 - MySQL 8.4, Flyway
 - 테스트: JUnit, Mockito, Testcontainers(MySQL)
@@ -68,7 +68,7 @@
 ## 하지 말 것
 - API 키와 운영 환경의 비밀번호를 코드나 설정 파일에 적지 않는다. 값은 환경변수로 받는다. 로컬 DB 계정만 예외다.
 - 요청받지 않은 의존성을 추가하지 않는다. 필요하면 이유를 먼저 설명한다.
-- `build.gradle`에서 Spring Boot가 관리하는 의존성에 버전을 직접 적지 않는다.
+- `build.gradle.kts`에서 Spring Boot가 관리하는 의존성에 버전을 직접 적지 않는다.
 - 요청 범위 밖의 파일을 리팩터링하지 않는다.
 - `main`, `dev` 브랜치에 직접 커밋하거나 push하지 않는다.
 
