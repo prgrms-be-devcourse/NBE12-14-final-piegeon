@@ -49,7 +49,7 @@
 - DB unique 제약 위반(`DataIntegrityViolationException`)은 전역에서 처리하지 않는다. 중복이 예상되는 곳의 service에서 잡아 해당 도메인 에러 코드로 바꾼다. 잡지 않은 위반은 코드 버그이므로 500이 된다.
 - 에러 코드는 도메인마다 `domain.<도메인>.errorcode` 패키지의 `XxxErrorCode` enum에 둔다. enum 상수 이름이 응답의 `code`이고, API 명세의 이름을 그대로 쓴다. 여러 도메인이 함께 쓰는 코드(`UNAUTHORIZED`, `INVALID_INPUT` 등)만 `global.error.CommonErrorCode`에 둔다.
 - 성공 응답의 `code`는 `{대상}_{결과}` 형태다. (예: `USER_CREATED`, `ROOM_FETCHED`)
-- 응답의 시각은 오프셋을 붙인 `OffsetDateTime`으로 내보낸다. (예: `2026-11-01T10:00:00+09:00`) 엔티티의 `LocalDateTime`을 응답 DTO에서 `ClockConfig.SERVICE_ZONE` 기준으로 변환한다.
+- 요청과 응답의 시각은 오프셋 없는 `LocalDateTime`이고 한국 시간(Asia/Seoul) 기준이다. (예: `2026-11-12T21:30:00` = 한국 시각 21:30) 프론트는 사용자가 해외에 있어도 받은 값을 그대로 한국 시간으로 표시한다.
 - 입력 형식 검증은 요청 DTO의 Bean Validation으로, 업무 규칙 검증은 service와 엔티티에서 한다.
 - 방에 속한 API는 service 첫 줄에서 `RoomMemberService.getActiveMember(roomId, userId)`로 멤버인지 확인한다.
 

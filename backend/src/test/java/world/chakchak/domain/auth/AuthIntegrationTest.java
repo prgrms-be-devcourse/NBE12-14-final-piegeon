@@ -118,8 +118,7 @@ class AuthIntegrationTest {
                 .contains("\"success\":true")
                 .contains("\"code\":\"USER_CREATED\"")
                 .contains("\"message\":\"회원가입이 완료되었습니다.\"")
-                .contains("\"data\":{\"userId\"")
-                .contains("+09:00\"");
+                .contains("\"data\":{\"userId\"");
     }
 
     @Test

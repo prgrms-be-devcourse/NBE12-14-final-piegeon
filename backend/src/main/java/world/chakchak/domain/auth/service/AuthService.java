@@ -32,7 +32,7 @@ public class AuthService {
                             UsernamePasswordAuthenticationToken.unauthenticated(
                                     email, rawPassword));
             AuthUserDetails user = (AuthUserDetails) authentication.getPrincipal();
-            return UserResponse.of(
+            return new UserResponse(
                     user.getUserId(), user.getEmail(), user.getName(), user.getCreatedAt());
         } catch (BadCredentialsException e) {
             // 이메일이 없는 경우와 비밀번호가 틀린 경우 모두 이 예외로 온다. 둘을 구분해서 알려주지 않는다.
