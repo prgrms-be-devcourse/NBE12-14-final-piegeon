@@ -16,22 +16,24 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 @Component
 public class ApiAccessDeniedHandler implements AccessDeniedHandler {
 
-  private final HandlerExceptionResolver handlerExceptionResolver;
+    private final HandlerExceptionResolver handlerExceptionResolver;
 
-  public ApiAccessDeniedHandler(
-      @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver) {
-    this.handlerExceptionResolver = handlerExceptionResolver;
-  }
-
-  @Override
-  public void handle(
-      HttpServletRequest request,
-      HttpServletResponse response,
-      AccessDeniedException accessDeniedException)
-      throws IOException {
-    if (handlerExceptionResolver.resolveException(request, response, null, accessDeniedException)
-        == null) {
-      response.sendError(HttpServletResponse.SC_FORBIDDEN);
+    public ApiAccessDeniedHandler(
+            @Qualifier("handlerExceptionResolver")
+                    HandlerExceptionResolver handlerExceptionResolver) {
+        this.handlerExceptionResolver = handlerExceptionResolver;
     }
-  }
+
+    @Override
+    public void handle(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AccessDeniedException accessDeniedException)
+            throws IOException {
+        if (handlerExceptionResolver.resolveException(
+                        request, response, null, accessDeniedException)
+                == null) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+        }
+    }
 }

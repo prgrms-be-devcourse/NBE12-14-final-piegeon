@@ -9,11 +9,11 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class ClockConfig {
 
-  /** 마감일처럼 날짜로 계산하는 규칙의 기준 시간대. */
-  public static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
+    /** 마감일처럼 날짜로 계산하는 규칙의 기준 시간대. */
+    public static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
-  @Bean
-  public Clock clock() {
-    return Clock.system(SERVICE_ZONE);
-  }
+    @Bean
+    public Clock clock() {
+        return Clock.system(SERVICE_ZONE);
+    }
 }

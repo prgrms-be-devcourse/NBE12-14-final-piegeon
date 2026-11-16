@@ -14,23 +14,23 @@ import org.springframework.security.core.userdetails.UserDetails;
 @RequiredArgsConstructor
 public class AuthUserDetails implements UserDetails {
 
-  private final Long userId;
-  private final String email;
-  private final String name;
-  private final String passwordHash;
+    private final Long userId;
+    private final String email;
+    private final String name;
+    private final String passwordHash;
 
-  @Override
-  public Collection<? extends GrantedAuthority> getAuthorities() {
-    return List.of();
-  }
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of();
+    }
 
-  @Override
-  public String getPassword() {
-    return passwordHash;
-  }
+    @Override
+    public String getPassword() {
+        return passwordHash;
+    }
 
-  @Override
-  public String getUsername() {
-    return email;
-  }
+    @Override
+    public String getUsername() {
+        return email;
+    }
 }

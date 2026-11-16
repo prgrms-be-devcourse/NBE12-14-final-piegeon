@@ -74,12 +74,12 @@ tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
 }
 
-// 코드 포맷은 Google Java Format을 따른다. `./gradlew build`(check)에서 spotlessCheck가 함께 실행된다.
+// 코드 포맷은 Google Java Format의 AOSP 스타일(들여쓰기 4칸)을 따른다. `./gradlew build`(check)에서 spotlessCheck가 함께 실행된다.
 // 포맷이 어긋났으면 `./gradlew spotlessApply`로 고친다.
 // 포매터 버전이 다르면 결과가 달라지므로 버전을 고정한다.
 spotless {
     java {
-        googleJavaFormat("2.0.0")
+        googleJavaFormat("2.0.0").aosp()
     }
 }
 

@@ -14,10 +14,10 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 @ConfigurationProperties(prefix = "app.cors")
 public record CorsProperties(
-    @NotEmpty(message = "app.cors.allowed-origins를 설정해 주세요.")
-        List<
-                @Pattern(
-                    regexp = "^https?://[^/\\s]+$",
-                    message = "origin은 http(s)://호스트[:포트] 형식이어야 합니다.")
-                String>
-            allowedOrigins) {}
+        @NotEmpty(message = "app.cors.allowed-origins를 설정해 주세요.")
+                List<
+                                @Pattern(
+                                        regexp = "^https?://[^/\\s]+$",
+                                        message = "origin은 http(s)://호스트[:포트] 형식이어야 합니다.")
+                                String>
+                        allowedOrigins) {}

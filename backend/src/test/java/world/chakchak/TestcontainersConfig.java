@@ -12,9 +12,9 @@ import org.testcontainers.mysql.MySQLContainer;
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfig {
 
-  @Bean
-  @ServiceConnection
-  MySQLContainer mysqlContainer() {
-    return new MySQLContainer("mysql:8.4");
-  }
+    @Bean
+    @ServiceConnection
+    MySQLContainer mysqlContainer() {
+        return new MySQLContainer("mysql:8.4");
+    }
 }

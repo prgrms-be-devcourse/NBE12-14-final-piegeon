@@ -15,18 +15,18 @@ import world.chakchak.domain.user.service.UserService;
 @RequiredArgsConstructor
 public class AuthUserDetailsService implements UserDetailsService {
 
-  private final UserService userService;
+    private final UserService userService;
 
-  @Override
-  public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-    return userService
-        .findCredentialsByEmail(email)
-        .map(credentials ->
-            new AuthUserDetails(
-                credentials.userId(),
-                credentials.email(),
-                credentials.name(),
-                credentials.passwordHash()))
-        .orElseThrow(() -> new UsernameNotFoundException("등록되지 않은 이메일입니다."));
-  }
+    @Override
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+        return userService
+                .findCredentialsByEmail(email)
+                .map(credentials ->
+                        new AuthUserDetails(
+                                credentials.userId(),
+                                credentials.email(),
+                                credentials.name(),
+                                credentials.passwordHash()))
+                .orElseThrow(() -> new UsernameNotFoundException("등록되지 않은 이메일입니다."));
+    }
 }

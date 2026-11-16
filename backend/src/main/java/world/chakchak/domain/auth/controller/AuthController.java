@@ -22,34 +22,36 @@ import world.chakchak.global.security.SessionAuthenticator;
 @RequiredArgsConstructor
 public class AuthController {
 
-  private final AuthService authService;
-  private final SessionAuthenticator sessionAuthenticator;
+    private final AuthService authService;
+    private final SessionAuthenticator sessionAuthenticator;
 
-  /** 가입하면 바로 로그인 상태가 된다. */
-  @PostMapping("/signup")
-  public ResponseEntity<UserResponse> signup(
-      @Valid @RequestBody SignupRequest request,
-      HttpServletRequest httpRequest,
-      HttpServletResponse httpResponse) {
-    UserResponse user = authService.signup(request.email(), request.name(), request.password());
-    sessionAuthenticator.login(new LoginUser(user.id(), user.email()), httpRequest, httpResponse);
-    return ResponseEntity.status(HttpStatus.CREATED).body(user);
-  }
+    /** 가입하면 바로 로그인 상태가 된다. */
+    @PostMapping("/signup")
+    public ResponseEntity<UserResponse> signup(
+            @Valid @RequestBody SignupRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
+        UserResponse user = authService.signup(request.email(), request.name(), request.password());
+        sessionAuthenticator.login(
+                new LoginUser(user.id(), user.email()), httpRequest, httpResponse);
+        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+    }
 
-  @PostMapping("/login")
-  public ResponseEntity<UserResponse> login(
-      @Valid @RequestBody LoginRequest request,
-      HttpServletRequest httpRequest,
-      HttpServletResponse httpResponse) {
-    UserResponse user = authService.login(request.email(), request.password());
-    sessionAuthenticator.login(new LoginUser(user.id(), user.email()), httpRequest, httpResponse);
-    return ResponseEntity.ok(user);
-  }
+    @PostMapping("/login")
+    public ResponseEntity<UserResponse> login(
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
+        UserResponse user = authService.login(request.email(), request.password());
+        sessionAuthenticator.login(
+                new LoginUser(user.id(), user.email()), httpRequest, httpResponse);
+        return ResponseEntity.ok(user);
+    }
 
-  @PostMapping("/logout")
-  public ResponseEntity<Void> logout(
-      HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
-    sessionAuthenticator.logout(httpRequest, httpResponse);
-    return ResponseEntity.noContent().build();
-  }
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(
+            HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        sessionAuthenticator.logout(httpRequest, httpResponse);
+        return ResponseEntity.noContent().build();
+    }
 }

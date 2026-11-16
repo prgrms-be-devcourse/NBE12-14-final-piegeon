@@ -18,21 +18,23 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 @Component
 public class ApiAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-  private final HandlerExceptionResolver handlerExceptionResolver;
+    private final HandlerExceptionResolver handlerExceptionResolver;
 
-  public ApiAuthenticationEntryPoint(
-      @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver) {
-    this.handlerExceptionResolver = handlerExceptionResolver;
-  }
-
-  @Override
-  public void commence(
-      HttpServletRequest request,
-      HttpServletResponse response,
-      AuthenticationException authException)
-      throws IOException {
-    if (handlerExceptionResolver.resolveException(request, response, null, authException) == null) {
-      response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+    public ApiAuthenticationEntryPoint(
+            @Qualifier("handlerExceptionResolver")
+                    HandlerExceptionResolver handlerExceptionResolver) {
+        this.handlerExceptionResolver = handlerExceptionResolver;
     }
-  }
+
+    @Override
+    public void commence(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AuthenticationException authException)
+            throws IOException {
+        if (handlerExceptionResolver.resolveException(request, response, null, authException)
+                == null) {
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        }
+    }
 }

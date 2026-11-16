@@ -15,10 +15,10 @@ import world.chakchak.global.security.LoginUser;
 @RequiredArgsConstructor
 public class UserController {
 
-  private final UserService userService;
+    private final UserService userService;
 
-  @GetMapping("/me")
-  public ResponseEntity<UserResponse> me(@AuthenticationPrincipal LoginUser loginUser) {
-    return ResponseEntity.ok(userService.getMe(loginUser.userId()));
-  }
+    @GetMapping("/me")
+    public ResponseEntity<UserResponse> me(@AuthenticationPrincipal LoginUser loginUser) {
+        return ResponseEntity.ok(userService.getMe(loginUser.userId()));
+    }
 }

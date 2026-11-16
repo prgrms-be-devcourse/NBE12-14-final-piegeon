@@ -20,24 +20,25 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class SessionAuthenticator {
 
-  private final SecurityContextRepository securityContextRepository;
+    private final SecurityContextRepository securityContextRepository;
 
-  public void login(LoginUser loginUser, HttpServletRequest request, HttpServletResponse response) {
-    if (request.getSession(false) != null) {
-      // 로그인 전부터 쓰던 세션 ID를 계속 쓰지 않도록 새로 발급한다.
-      request.changeSessionId();
+    public void login(
+            LoginUser loginUser, HttpServletRequest request, HttpServletResponse response) {
+        if (request.getSession(false) != null) {
+            // 로그인 전부터 쓰던 세션 ID를 계속 쓰지 않도록 새로 발급한다.
+            request.changeSessionId();
+        }
+        Authentication authentication =
+                UsernamePasswordAuthenticationToken.authenticated(loginUser, null, List.of());
+
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
+        // 직접 만든 로그인 API에서는 이 호출을 해야 인증 정보가 세션에 저장된다.
+        securityContextRepository.saveContext(context, request, response);
     }
-    Authentication authentication =
-        UsernamePasswordAuthenticationToken.authenticated(loginUser, null, List.of());
 
-    SecurityContext context = SecurityContextHolder.createEmptyContext();
-    context.setAuthentication(authentication);
-    SecurityContextHolder.setContext(context);
-    // 직접 만든 로그인 API에서는 이 호출을 해야 인증 정보가 세션에 저장된다.
-    securityContextRepository.saveContext(context, request, response);
-  }
-
-  public void logout(HttpServletRequest request, HttpServletResponse response) {
-    new SecurityContextLogoutHandler().logout(request, response, null);
-  }
+    public void logout(HttpServletRequest request, HttpServletResponse response) {
+        new SecurityContextLogoutHandler().logout(request, response, null);
+    }
 }
