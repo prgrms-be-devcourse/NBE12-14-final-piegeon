@@ -4,15 +4,19 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.PlaceSearchResult;
 import world.chakchak.domain.place.errorcode.PlaceErrorCode;
 import world.chakchak.domain.place.service.PlaceSearchClient;
 import world.chakchak.global.error.BusinessException;
+import world.chakchak.global.error.CommonErrorCode;
 
 /**
  * Google Places API (New)를 HTTP로 부르는 PlaceSearchClient 구현체.
@@ -54,8 +58,25 @@ public class GooglePlacesClient implements PlaceSearchClient {
                             .body(new SearchTextRequest(query, pageToken, LANGUAGE_CODE))
                             .retrieve()
                             .body(SearchTextResponse.class);
+        } catch (RestClientResponseException e) {
+            // 응답은 받았는데 실패한 경우 (4xx, 5xx)
+            HttpStatusCode status = e.getStatusCode();
+            String body = e.getResponseBodyAsString();
+            if (status.isSameCodeAs(HttpStatus.BAD_REQUEST) && pageToken != null) {
+                log.info("Google Places pageToken 거절: body={}", body);
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+            }
+            if (status.is4xxClientError() && !status.isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS)) {
+                // 키, 권한 문제나 우리 요청 버그. 사람이 바로 봐야 한다.
+                log.error("Google Places 요청 오류: status={} body={}", status.value(), body);
+            } else {
+                // 429(한도 초과)와 5xx는 잠깐 기다리면 풀린다.
+                log.warn("Google Places 일시 오류 status={}", status.value());
+            }
+            throw new BusinessException(PlaceErrorCode.PLACES_API_ERROR);
         } catch (RestClientException e) {
-            log.warn("Google Places 검색 실패: {}", e.getMessage());
+            // 응답을 못 받았거나(타임아웃, 연결 실패) 응답을 읽지 못한 경우
+            log.warn("Google Places 호출 실패: {}", e.getMessage());
             throw new BusinessException(PlaceErrorCode.PLACES_API_ERROR);
         }
 
