@@ -8,11 +8,13 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.time.Duration;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,7 +66,6 @@ class GooglePlacesClientTest {
         server.verify();
     }
 
-    // TODO (findById 구현 후) Google이 404를 주면 빈 Optional을 돌려준다 → withResourceNotFound()
     @Test
     @DisplayName("Google 응답의 장소는 GooglePlace로 바뀌고 다음 페이지 토큰도 함께 돌려준다")
     void searchConvertsGooglePlaces() {
@@ -169,6 +170,85 @@ class GooglePlacesClientTest {
                 .andRespond(withStatus(HttpStatus.FORBIDDEN));
 
         assertThatThrownBy(() -> client.search("광장시장", null))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(PlaceErrorCode.PLACES_API_ERROR);
+    }
+
+    private static final String DETAILS_URL = BASE_URL + "/v1/places/place-1?languageCode=ko";
+
+    @Test
+    @DisplayName("장소 상세 조회는 GET으로 장소 ID와 언어 코드를 경로에 담고 API 키와 상세 조회용 필드 목록을 헤더에 담는다")
+    void findByIdSendsRequest() {
+        server.expect(requestTo(DETAILS_URL))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header(GooglePlacesClient.API_KEY_HEADER, "test-key"))
+                // 상수가 아니라 실제 값으로 확인한다. Google은 필드 이름의 대소문자가 틀리면 400을 준다.
+                .andExpect(
+                        header(
+                                GooglePlacesClient.FIELD_MASK_HEADER,
+                                "id,displayName,formattedAddress,primaryType"))
+                .andRespond(withSuccess("{\"id\": \"place-1\"}", MediaType.APPLICATION_JSON));
+
+        client.findById("place-1");
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("Google 상세 조회 응답의 장소는 GooglePlace로 바뀐다")
+    void findByIdConvertsPlace() {
+        String googleResponse =
+                """
+                {
+                  "id": "place-1",
+                  "displayName": {"text": "광장시장", "languageCode": "ko"},
+                  "formattedAddress": "서울특별시 종로구 창경궁로 88",
+                  "primaryType": "market"
+                }
+                """;
+        server.expect(requestTo(DETAILS_URL))
+                .andRespond(withSuccess(googleResponse, MediaType.APPLICATION_JSON));
+
+        Optional<GooglePlace> result = client.findById("place-1");
+
+        assertThat(result)
+                .contains(new GooglePlace("place-1", "광장시장", "서울특별시 종로구 창경궁로 88", "market"));
+    }
+
+    @Test
+    @DisplayName("Google이 404를 주면 장소 상세 조회는 빈 값을 돌려준다")
+    void findByIdReturnsEmptyWhenNotFound() {
+        server.expect(requestTo(DETAILS_URL)).andRespond(withResourceNotFound());
+
+        assertThat(client.findById("place-1")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Google이 형식이 틀린 장소 ID라며 400을 주면 장소 상세 조회는 빈 값을 돌려준다")
+    void findByIdReturnsEmptyWhenBadRequest() {
+        server.expect(requestTo(DETAILS_URL)).andRespond(withBadRequest());
+
+        assertThat(client.findById("place-1")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("장소 상세 조회 중 Google이 403을 주면 PLACES_API_ERROR를 던진다")
+    void findByIdThrowsPlacesApiErrorWhenForbidden() {
+        server.expect(requestTo(DETAILS_URL)).andRespond(withStatus(HttpStatus.FORBIDDEN));
+
+        assertThatThrownBy(() -> client.findById("place-1"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(PlaceErrorCode.PLACES_API_ERROR);
+    }
+
+    @Test
+    @DisplayName("장소 상세 조회 중 Google이 서버 오류를 주면 PLACES_API_ERROR를 던진다")
+    void findByIdThrowsPlacesApiErrorWhenServerError() {
+        server.expect(requestTo(DETAILS_URL)).andRespond(withServerError());
+
+        assertThatThrownBy(() -> client.findById("place-1"))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(PlaceErrorCode.PLACES_API_ERROR);

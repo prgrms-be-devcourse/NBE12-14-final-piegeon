@@ -2,6 +2,7 @@ package world.chakchak.infra.google;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -38,10 +39,13 @@ public class GooglePlacesClient implements PlaceSearchClient {
     static final String SEARCH_FIELD_MASK =
             "places.id,places.displayName,places.formattedAddress,places.primaryType,nextPageToken";
 
-    // TODO PLACE_DETAILS_PATH = "/v1/places/{placeId}" (P-02 findById에서 사용)
-    // TODO DETAILS_FIELD_MASK - 상세 조회용 필드. 검색과 달리 "places." 접두사 없이 적는다 (예: "id,displayName")
+    static final String PLACE_DETAILS_PATH = "/v1/places/{placeId}";
+
+    /** 상세 조회에서 받을 필드. 검색과 달리 "places." 접두사가 없다. */
+    static final String DETAILS_FIELD_MASK = "id,displayName,formattedAddress,primaryType";
 
     private final RestClient googlePlacesRestClient;
+
     private final GooglePlacesProperties properties;
 
     @Override
@@ -66,14 +70,7 @@ public class GooglePlacesClient implements PlaceSearchClient {
                 log.info("Google Places pageToken 거절: body={}", body);
                 throw new BusinessException(CommonErrorCode.INVALID_INPUT);
             }
-            if (status.is4xxClientError() && !status.isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS)) {
-                // 키, 권한 문제나 우리 요청 버그. 사람이 바로 봐야 한다.
-                log.error("Google Places 요청 오류: status={} body={}", status.value(), body);
-            } else {
-                // 429(한도 초과)와 5xx는 잠깐 기다리면 풀린다.
-                log.warn("Google Places 일시 오류 status={}", status.value());
-            }
-            throw new BusinessException(PlaceErrorCode.PLACES_API_ERROR);
+            throw toPlacesApiError(e);
         } catch (RestClientException e) {
             // 응답을 못 받았거나(타임아웃, 연결 실패) 응답을 읽지 못한 경우
             log.warn("Google Places 호출 실패: {}", e.getMessage());
@@ -88,10 +85,54 @@ public class GooglePlacesClient implements PlaceSearchClient {
         return new PlaceSearchResult(places, response.nextPageToken());
     }
 
-    // TODO findById(String googlePlaceId) 구현 (P-02)
-    //  - GET PLACE_DETAILS_PATH, 헤더는 search와 같고 FieldMask만 DETAILS_FIELD_MASK
-    //  - Google이 404를 주면 Optional.empty() (HttpClientErrorException.NotFound를 잡는다)
-    //  - 그 밖의 실패는 search와 같이 PLACES_API_ERROR
+    @Override
+    public Optional<GooglePlace> findById(String googlePlaceId) {
+        PlaceItem item;
+        try {
+            item =
+                    googlePlacesRestClient
+                            .get()
+                            .uri(
+                                    PLACE_DETAILS_PATH + "?languageCode={languageCode}",
+                                    googlePlaceId,
+                                    LANGUAGE_CODE)
+                            .header(API_KEY_HEADER, properties.apiKey())
+                            .header(FIELD_MASK_HEADER, DETAILS_FIELD_MASK)
+                            .retrieve()
+                            .body(PlaceItem.class);
+        } catch (RestClientResponseException e) {
+            // 404: 없어진 장소, 400: 형식이 틀린 장소 ID. 둘 다 "Google에 없는 장소"로 본다.
+            HttpStatusCode status = e.getStatusCode();
+            if (status.isSameCodeAs(HttpStatus.NOT_FOUND)
+                    || status.isSameCodeAs(HttpStatus.BAD_REQUEST)) {
+                log.info(
+                        "Google Places 장소 없음: id={} status={} body={}",
+                        googlePlaceId,
+                        status.value(),
+                        e.getResponseBodyAsString());
+                return Optional.empty();
+            }
+            throw toPlacesApiError(e);
+        } catch (RestClientException e) {
+            log.warn("Google Places 호출 실패: {}", e.getMessage());
+            throw new BusinessException(PlaceErrorCode.PLACES_API_ERROR);
+        }
+        return Optional.ofNullable(item).map(PlaceItem::toGooglePlace);
+    }
+
+    /** 응답을 받았지만 실패한 경우의 공통 처리. 로그를 남기고 PLACES_API_ERROR로 바꾼다. */
+    private BusinessException toPlacesApiError(RestClientResponseException e) {
+        HttpStatusCode status = e.getStatusCode();
+        if (status.is4xxClientError() && !status.isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS)) {
+            log.error(
+                    "Google Places 요청 오류: status={} body={}",
+                    status.value(),
+                    e.getResponseBodyAsString());
+        } else {
+            log.warn("Google Places 일시 오류: status={}", status.value());
+        }
+        return new BusinessException(PlaceErrorCode.PLACES_API_ERROR);
+    }
 
     /** Google searchText 요청. pageToken이 null이면 JSON에서 아예 뺀다. */
     @JsonInclude(JsonInclude.Include.NON_NULL)

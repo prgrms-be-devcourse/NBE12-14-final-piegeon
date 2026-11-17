@@ -1,5 +1,7 @@
 package world.chakchak.domain.place.service;
 
+import java.util.Optional;
+import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.PlaceSearchResult;
 
 /**
@@ -18,7 +20,10 @@ public interface PlaceSearchClient {
      */
     PlaceSearchResult search(String query, String pageToken);
 
-    // TODO findById(String googlePlaceId) - 장소 하나를 Google에서 조회 (P-02)
-    //      반환 타입은 Optional<GooglePlace>. Google에 없으면 Optional.empty()를 돌려주고,
-    //      PLACE_NOT_FOUND로 바꾸는 일은 service가 한다.
+    /**
+     * Google 장소 ID로 장소 하나를 조회한다. (P-02)
+     *
+     * @return Google에 없는 장소면 Optional.empty(). PLACE_NOT_FOUND로 바꾸는 일은 service가 한다.
+     */
+    Optional<GooglePlace> findById(String googlePlaceId);
 }
