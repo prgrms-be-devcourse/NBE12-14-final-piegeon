@@ -75,12 +75,20 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 // 코드 포맷은 Google Java Format의 AOSP 스타일(들여쓰기 4칸)을 따른다. `./gradlew build`(check)에서 spotlessCheck가 함께 실행된다.
-// 포맷이 어긋났으면 `./gradlew spotlessApply`로 고친다.
 // 포매터 버전이 다르면 결과가 달라지므로 버전을 고정한다.
 spotless {
     java {
         googleJavaFormat("2.0.0").aosp()
     }
+}
+
+// 로컬에서는 컴파일 전에 spotlessApply로 포맷을 자동으로 맞춘다. IntelliJ의 빌드·실행·테스트도 Gradle을 거치므로 같이 적용된다.
+// CI(GitHub Actions는 환경변수 CI=true를 넣는다)에서는 고치지 않고 spotlessCheck로 검사만 한다.
+// 포맷을 안 맞춘 채 push된 코드는 CI에서 실패해야 하기 때문이다.
+if (System.getenv("CI") == null) {
+    tasks.named("compileJava") { dependsOn("spotlessApply") }
+    tasks.named("compileTestJava") { dependsOn("spotlessApply") }
+    tasks.named("spotlessCheck") { mustRunAfter("spotlessApply") }
 }
 
 tasks.named<Test>("test") {

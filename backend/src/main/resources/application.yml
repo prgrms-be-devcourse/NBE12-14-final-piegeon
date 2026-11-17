@@ -22,3 +22,9 @@ management:
     web:
       exposure:
         include: health,prometheus
+
+# Google Places (장소 검색 P-01, 장소 확인 P-02). api-key는 프로필별 파일에서 환경변수로 받는다.
+app:
+  google-places:
+    base-url: https://places.googleapis.com
+    timeout: 3s
