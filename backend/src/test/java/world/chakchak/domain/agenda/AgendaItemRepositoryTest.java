@@ -12,7 +12,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import world.chakchak.IntegrationTest;
 import world.chakchak.domain.agenda.entity.AgendaItem;
@@ -32,6 +34,7 @@ class AgendaItemRepositoryTest {
     @Autowired private AgendaItemRepository agendaItemRepository;
     @Autowired private RoomRepository roomRepository;
     @Autowired private Clock clock;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     private Room room;
 
@@ -64,6 +67,22 @@ class AgendaItemRepositoryTest {
 
         @Nested
         class Success {
+
+            // 퇴장으로 투표자가 0명이 되어 EXPIRED가 된 안건은 저장할 수 있어야 한다
+            @Test
+            @DisplayName("마지막 투표자가 나가 미결 마감된 안건은 투표자 0명으로 저장된다")
+            void savesExpiredAgendaWithZeroVoter() {
+                AgendaItem agenda =
+                        agendaItemRepository.saveAndFlush(
+                                AgendaItem.create(room, AgendaSubject.STAY, 1, "제목", 1, DEADLINE));
+                agenda.removeVoter();
+                agendaItemRepository.flush();
+
+                AgendaItem found = agendaItemRepository.findById(agenda.getId()).orElseThrow();
+
+                assertThat(found.getTotalVoter()).isZero();
+                assertThat(found.getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+            }
 
             @Test
             @DisplayName("안건을 저장한 뒤 조회하면 enum 문자열과 결정 정보가 유지된다")
@@ -106,14 +125,31 @@ class AgendaItemRepositoryTest {
                         .hasMessageContaining("ck_agenda_item_round");
             }
 
+            // 엔티티가 투표자 0명 이하를 먼저 막으므로, DB 제약은 SQL로 직접 값을 바꿔 확인한다
             @Test
             @DisplayName("투표자 수가 음수인 안건은 저장할 수 없다")
             void rejectsNegativeTotalVoter() {
-                AgendaItem agenda =
-                        AgendaItem.create(room, AgendaSubject.STAY, 1, "제목", -1, DEADLINE);
+                AgendaItem agenda = saveAgenda(room, AgendaSubject.STAY, 1);
 
-                assertThatThrownBy(() -> agendaItemRepository.saveAndFlush(agenda))
-                        .isInstanceOf(DataIntegrityViolationException.class)
+                assertThatThrownBy(() ->
+                                jdbcTemplate.update(
+                                        "UPDATE agenda_item SET status = 'EXPIRED',"
+                                                + " total_voter = -1 WHERE id = ?",
+                                        agenda.getId()))
+                        .isInstanceOf(DataAccessException.class)
+                        .hasMessageContaining("ck_agenda_item_total_voter");
+            }
+
+            @Test
+            @DisplayName("투표 중인 안건의 투표자 수를 0명으로 저장할 수 없다")
+            void rejectsZeroVoterWhileVoting() {
+                AgendaItem agenda = saveAgenda(room, AgendaSubject.STAY, 1);
+
+                assertThatThrownBy(() ->
+                                jdbcTemplate.update(
+                                        "UPDATE agenda_item SET total_voter = 0 WHERE id = ?",
+                                        agenda.getId()))
+                        .isInstanceOf(DataAccessException.class)
                         .hasMessageContaining("ck_agenda_item_total_voter");
             }
 
@@ -159,6 +195,25 @@ class AgendaItemRepositoryTest {
 
                 assertThat(agendaItemRepository.findByIdAndRoomId(saved.getId(), room.getId()))
                         .isPresent();
+            }
+
+            // 방 나가기(R-06)에서 투표 중인 안건만 골라 removeVoter를 부르기 위한 조회
+            @Test
+            @DisplayName("상태로 조회하면 그 방에서 해당 상태인 안건만 돌려준다")
+            void findsAgendasByStatus() {
+                AgendaItem voting = saveAgenda(room, AgendaSubject.BUDGET, 1);
+                AgendaItem resolved = saveAgenda(room, AgendaSubject.STAY, 1);
+                resolved.resolve(10L, DEADLINE);
+                AgendaItem expired = saveAgenda(room, AgendaSubject.PACE, 1);
+                expired.expire();
+                saveAgenda(saveRoom(), AgendaSubject.BUDGET, 1);
+                agendaItemRepository.flush();
+
+                assertThat(
+                                agendaItemRepository.findAllByRoomIdAndStatus(
+                                        room.getId(), AgendaStatus.VOTING))
+                        .extracting(AgendaItem::getId)
+                        .containsExactly(voting.getId());
             }
         }
 

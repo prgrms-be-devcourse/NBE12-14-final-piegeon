@@ -77,11 +77,20 @@ class AgendaItemTest {
                 assertThat(agenda.getResolvedAt()).isNull();
             }
 
+            // capDeadline이 private이 되어, create가 마감을 줄이는지로 검증한다
             @Test
-            @DisplayName("마감 후보가 출발 전날 00시보다 늦으면 출발 전날 00시로 줄인다")
+            @DisplayName("마감 후보가 출발 전날 00시보다 늦으면 안건을 만들 때 출발 전날 00시로 줄인다")
             void capsDeadlineToDayBeforeDeparture() {
-                assertThat(AgendaItem.capDeadline(LocalDateTime.of(2027, 6, 30, 9, 0), START_DATE))
-                        .isEqualTo(D_MINUS_1);
+                AgendaItem agenda =
+                        AgendaItem.create(
+                                room(),
+                                AgendaSubject.BUDGET,
+                                1,
+                                "제목",
+                                4,
+                                LocalDateTime.of(2027, 6, 30, 9, 0));
+
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
             }
 
             @Test
@@ -89,7 +98,33 @@ class AgendaItemTest {
             void keepsDeadlineBeforeDayBeforeDeparture() {
                 LocalDateTime candidate = LocalDateTime.of(2027, 6, 29, 23, 0);
 
-                assertThat(AgendaItem.capDeadline(candidate, START_DATE)).isEqualTo(candidate);
+                AgendaItem agenda =
+                        AgendaItem.create(room(), AgendaSubject.BUDGET, 1, "제목", 4, candidate);
+
+                assertThat(agenda.getDeadlineAt()).isEqualTo(candidate);
+            }
+        }
+
+        // 투표자 0명 안건 생성 거부
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("투표자가 0명인 안건은 만들 수 없다")
+            void rejectsZeroVoter() {
+                assertThatThrownBy(() ->
+                                AgendaItem.create(
+                                        room(), AgendaSubject.BUDGET, 1, "제목", 0, NOW.plusDays(4)))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
+            @DisplayName("다음 회차도 투표자가 0명이면 열 수 없다")
+            void rejectsZeroVoterInNextRound() {
+                AgendaItem expired = expiredAgenda(AgendaSubject.BUDGET);
+
+                assertThatThrownBy(() -> expired.openNextRound(0, NOW))
+                        .isInstanceOf(IllegalArgumentException.class);
             }
         }
     }
@@ -242,6 +277,7 @@ class AgendaItemTest {
         }
     }
 
+    // openNextRound는 출발일을 room에서 꺼내므로 startDate 인자 없이 부른다
     @Nested
     class NextRound {
 
@@ -253,7 +289,7 @@ class AgendaItemTest {
             void opensNextRound() {
                 AgendaItem expired = expiredAgenda(AgendaSubject.BUDGET);
 
-                AgendaItem next = expired.openNextRound(4, NOW, START_DATE);
+                AgendaItem next = expired.openNextRound(4, NOW);
 
                 assertThat(next.getSubject()).isEqualTo(AgendaSubject.BUDGET);
                 assertThat(next.getRound()).isEqualTo(2);
@@ -270,7 +306,7 @@ class AgendaItemTest {
                 AgendaItem expired = expiredAgenda(AgendaSubject.BUDGET);
                 LocalDateTime now = LocalDateTime.of(2027, 6, 26, 10, 0);
 
-                AgendaItem next = expired.openNextRound(4, now, START_DATE);
+                AgendaItem next = expired.openNextRound(4, now);
 
                 assertThat(next.getDeadlineAt()).isEqualTo(D_MINUS_1);
             }
@@ -285,8 +321,7 @@ class AgendaItemTest {
                 AgendaItem expired = expiredAgenda(AgendaSubject.FINAL_PLAN);
 
                 assertErrorCode(
-                        () -> expired.openNextRound(4, NOW, START_DATE),
-                        AgendaErrorCode.AGENDA_NOT_REOPENABLE);
+                        () -> expired.openNextRound(4, NOW), AgendaErrorCode.AGENDA_NOT_REOPENABLE);
             }
 
             @Test
@@ -295,8 +330,7 @@ class AgendaItemTest {
                 AgendaItem voting = votingAgenda(AgendaSubject.BUDGET, 3);
 
                 assertErrorCode(
-                        () -> voting.openNextRound(4, NOW, START_DATE),
-                        AgendaErrorCode.AGENDA_NOT_REOPENABLE);
+                        () -> voting.openNextRound(4, NOW), AgendaErrorCode.AGENDA_NOT_REOPENABLE);
             }
 
             @Test
@@ -305,7 +339,7 @@ class AgendaItemTest {
                 AgendaItem expired = expiredAgenda(AgendaSubject.BUDGET);
 
                 assertErrorCode(
-                        () -> expired.openNextRound(4, D_MINUS_1, START_DATE),
+                        () -> expired.openNextRound(4, D_MINUS_1),
                         AgendaErrorCode.AGENDA_NOT_REOPENABLE);
             }
         }

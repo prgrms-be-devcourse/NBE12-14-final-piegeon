@@ -17,7 +17,10 @@ CREATE TABLE agenda_item (
     -- 회차는 1부터 시작한다
     CONSTRAINT ck_agenda_item_round CHECK (round >= 1),
     -- 퇴장 처리를 중복으로 해도 음수가 되지 않게 막는다
-    CONSTRAINT ck_agenda_item_total_voter CHECK (total_voter >= 0),
+    -- 투표 중(VOTING)인 안건은 투표자가 1명 이상이어야 한다. 0명은 퇴장으로 EXPIRED가 된 안건만 가능하다
+    CONSTRAINT ck_agenda_item_total_voter CHECK (
+        total_voter >= 0 AND (status <> 'VOTING' OR total_voter >= 1)
+    ),
     -- RESOLVED면 결정된 선지와 시각이 반드시 있고, 아니면 둘 다 없다
     CONSTRAINT ck_agenda_item_resolved CHECK (
         (status = 'RESOLVED') = (resolved_option_id IS NOT NULL AND resolved_at IS NOT NULL)
