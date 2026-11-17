@@ -1,7 +1,6 @@
 package world.chakchak.domain.place;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -12,12 +11,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import world.chakchak.domain.place.entity.PlaceCandidate;
-import world.chakchak.domain.place.errorcode.PlaceErrorCode;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.user.entity.User;
-import world.chakchak.global.error.BusinessException;
 
 /** PlaceCandidate 엔티티 규칙 단위 테스트. Spring 없이 돈다. */
 class PlaceCandidateTest {
@@ -83,23 +80,18 @@ class PlaceCandidateTest {
                 assertThat(candidate.getConfirmedAt()).isEqualTo(NOW);
                 assertThat(candidate.isConfirmed()).isTrue();
             }
-        }
-
-        @Nested
-        class Exception {
 
             @Test
-            @DisplayName("이미 확정된 장소 후보를 다시 확정하면 PLACE_ALREADY_CONFIRMED를 던지고 확정 시각은 그대로다")
-            void rejectsConfirmingTwice() {
+            @DisplayName("이미 확정된 장소 후보를 다시 확정해도 에러 없이 끝나고 확정 시각은 처음 값 그대로다")
+            void confirmIsIdempotent() {
                 PlaceCandidate candidate = newCandidate();
                 candidate.confirm(CLOCK);
                 Clock later = Clock.offset(CLOCK, Duration.ofHours(1));
 
-                assertThatThrownBy(() -> candidate.confirm(later))
-                        .isInstanceOf(BusinessException.class)
-                        .extracting("errorCode")
-                        .isEqualTo(PlaceErrorCode.PLACE_ALREADY_CONFIRMED);
+                candidate.confirm(later);
+
                 assertThat(candidate.getConfirmedAt()).isEqualTo(NOW);
+                assertThat(candidate.isConfirmed()).isTrue();
             }
         }
     }

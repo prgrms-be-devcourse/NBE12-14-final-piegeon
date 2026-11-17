@@ -11,11 +11,9 @@ import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import world.chakchak.domain.place.errorcode.PlaceErrorCode;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.global.entity.BaseEntity;
-import world.chakchak.global.error.BusinessException;
 
 /**
  * 방에 올라온 장소 후보 하나. (테이블 place_candidate, V6)
@@ -81,7 +79,7 @@ public class PlaceCandidate extends BaseEntity {
 
     public void confirm(Clock clock) {
         if (isConfirmed()) {
-            throw new BusinessException(PlaceErrorCode.PLACE_ALREADY_CONFIRMED);
+            return;
         }
         this.confirmedAt = LocalDateTime.now(clock);
     }
