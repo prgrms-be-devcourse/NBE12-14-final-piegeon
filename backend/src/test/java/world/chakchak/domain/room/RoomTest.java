@@ -19,7 +19,7 @@ class RoomTest {
         Room room =
                 Room.create(
                         "여름 여행",
-                        "부산",
+                        "일본",
                         LocalDate.of(2027, 7, 1),
                         LocalDate.of(2027, 7, 3),
                         "ABCD1234",
@@ -31,7 +31,7 @@ class RoomTest {
                                 ZoneId.of("Asia/Seoul")));
 
         assertThat(room.getName()).isEqualTo("여름 여행");
-        assertThat(room.getDestination()).isEqualTo("부산");
+        assertThat(room.getDestination()).isEqualTo("일본");
         assertThat(room.getStartDate()).isEqualTo(LocalDate.of(2027, 7, 1));
         assertThat(room.getEndDate()).isEqualTo(LocalDate.of(2027, 7, 3));
         assertThat(room.getInviteCode()).isEqualTo("ABCD1234");
