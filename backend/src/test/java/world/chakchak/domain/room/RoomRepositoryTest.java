@@ -25,7 +25,7 @@ class RoomRepositoryTest {
                 roomRepository.save(
                         Room.create(
                                 "여름 여행",
-                                "부산",
+                                "일본",
                                 LocalDate.of(2027, 7, 1),
                                 LocalDate.of(2027, 7, 3),
                                 "ABCD1234",
