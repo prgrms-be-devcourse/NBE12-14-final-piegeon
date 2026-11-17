@@ -6,7 +6,7 @@ import org.springframework.http.HttpStatus;
 import world.chakchak.global.error.ErrorCode;
 
 /**
- * 장소 후보(PlaceCandidate)와 동의(PlaceAgreement) 관련 에러 코드.
+ * 장소 후보(PlaceCandidate)와 반응(PlaceReaction) 관련 에러 코드.
  *
  * <p>상수 이름이 곧 응답의 code다. 노션 명세(API 명세서와 Mock Server)의 P-01~P-09 에러 표에 적힌 이름을 그대로 쓴다.
  */
