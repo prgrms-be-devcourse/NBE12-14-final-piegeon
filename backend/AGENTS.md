@@ -65,6 +65,7 @@
 - DB가 필요한 테스트는 `@Import(TestcontainersConfig.class)`로 Testcontainers의 MySQL을 쓴다. H2를 쓰지 않는다.
 - 인증 흐름처럼 필터와 세션까지 확인해야 하는 테스트는 `AuthIntegrationTest`처럼 실제 서버를 띄워 HTTP로 호출한다.
 - `@DisplayName`에 검증하는 규칙을 한국어 한 문장으로 적는다.
+- 테스트 클래스 내부는 `@Nested`를 사용해 1단계로 CRUD 기능별(`Create`, `Read`, `Update`, `Delete` 등), 2단계로 `Success`와 `Exception` 케이스별로 계층을 나눈다.
 - 작업을 끝내기 전에 `./gradlew build`를 실행하고, 실제 출력 결과를 보고한다.
 - PR과 `dev`, `main` push에서는 `.github/workflows/backend-ci.yml`이 같은 `./gradlew build`를 실행한다.
 
