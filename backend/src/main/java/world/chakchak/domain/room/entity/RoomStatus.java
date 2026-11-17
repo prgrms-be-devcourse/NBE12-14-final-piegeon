@@ -4,5 +4,6 @@ public enum RoomStatus {
     SURVEYING,
     PLANNING,
     REVIEWING,
-    FINALIZED
+    FINALIZED,
+    EXPIRED
 }

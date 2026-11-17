@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -18,10 +19,10 @@ import world.chakchak.global.entity.BaseEntity;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Room extends BaseEntity {
 
-    @Column(nullable = false, length = 100)
+    @Column(nullable = false, length = 50)
     private String name;
 
-    @Column(nullable = false, length = 100)
+    @Column(nullable = false, length = 50)
     private String destination;
 
     @Column(name = "start_date", nullable = false)
@@ -30,7 +31,7 @@ public class Room extends BaseEntity {
     @Column(name = "end_date", nullable = false)
     private LocalDate endDate;
 
-    @Column(name = "invite_code", nullable = false, unique = true, length = 20)
+    @Column(name = "invite_code", nullable = false, unique = true, length = 8)
     private String inviteCode;
 
     @Enumerated(EnumType.STRING)
@@ -53,18 +54,14 @@ public class Room extends BaseEntity {
             LocalDate endDate,
             String inviteCode,
             RoomStatus status,
-            LocalDateTime opinionDeadlineAt,
-            LocalDateTime surveyClosedAt,
-            LocalDateTime finalizedAt) {
+            Clock clock) {
         this.name = name;
         this.destination = destination;
         this.startDate = startDate;
         this.endDate = endDate;
         this.inviteCode = inviteCode;
         this.status = status;
-        this.opinionDeadlineAt = opinionDeadlineAt;
-        this.surveyClosedAt = surveyClosedAt;
-        this.finalizedAt = finalizedAt;
+        this.opinionDeadlineAt = LocalDateTime.now(clock).plusDays(3);
     }
 
     public static Room create(
@@ -74,18 +71,7 @@ public class Room extends BaseEntity {
             LocalDate endDate,
             String inviteCode,
             RoomStatus status,
-            LocalDateTime opinionDeadlineAt,
-            LocalDateTime surveyClosedAt,
-            LocalDateTime finalizedAt) {
-        return new Room(
-                name,
-                destination,
-                startDate,
-                endDate,
-                inviteCode,
-                status,
-                opinionDeadlineAt,
-                surveyClosedAt,
-                finalizedAt);
+            Clock clock) {
+        return new Room(name, destination, startDate, endDate, inviteCode, status, clock);
     }
 }

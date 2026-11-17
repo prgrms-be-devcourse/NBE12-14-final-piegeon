@@ -1,10 +1,10 @@
 CREATE TABLE plan_room (
     id                  BIGINT       NOT NULL AUTO_INCREMENT,
-    name                VARCHAR(100) NOT NULL,
-    destination         VARCHAR(100) NOT NULL,
+    name                VARCHAR(50) NOT NULL,
+    destination         VARCHAR(50) NOT NULL,
     start_date          DATE         NOT NULL,
     end_date            DATE         NOT NULL,
-    invite_code         VARCHAR(20)  NOT NULL,
+    invite_code         VARCHAR(8)  NOT NULL,
     status              VARCHAR(20)  NOT NULL,
     opinion_deadline_at DATETIME(6),
     survey_closed_at    DATETIME(6),
