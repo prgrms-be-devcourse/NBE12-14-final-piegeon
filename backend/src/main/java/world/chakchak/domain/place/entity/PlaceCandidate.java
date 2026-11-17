@@ -16,9 +16,9 @@ import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.global.entity.BaseEntity;
 
 /**
- * 방에 올라온 장소 후보 하나. (테이블 place_candidate, V6)
+ * 방에 올라온 장소 후보 하나. (테이블 place_candidate, V6, V10)
  *
- * <p>투표 없이 자유롭게 등록하고, 칸반 칸은 동의(PlaceAgreement) 수로 계산한다. confirmed_at이 있으면 확정된 장소다.
+ * <p>투표 없이 자유롭게 등록하고, 칸반 칸은 WANT 반응(PlaceReaction) 수로 계산한다. confirmed_at이 있으면 확정된 장소다.
  */
 @Entity
 @Table(name = "place_candidate")
@@ -43,6 +43,14 @@ public class PlaceCandidate extends BaseEntity {
 
     @Column private String address;
 
+    // 장소 상세(P-10)의 "지도에서 보기" 링크. Google이 준 값
+    @Column(name = "google_maps_url", length = 500)
+    private String googleMapsUrl;
+
+    // 사진 프록시(P-11)에서 사진 주소를 받을 때 쓰는 Google 사진 이름. 사진이 없으면 null
+    @Column(name = "photo_name", length = 500)
+    private String photoName;
+
     // 후보를 등록한 멤버
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "suggested_by", nullable = false)
@@ -58,12 +66,16 @@ public class PlaceCandidate extends BaseEntity {
             String name,
             String placeType,
             String address,
+            String googleMapsUrl,
+            String photoName,
             RoomMember suggestedBy) {
         this.room = room;
         this.googlePlaceId = googlePlaceId;
         this.name = name;
         this.placeType = placeType;
         this.address = address;
+        this.googleMapsUrl = googleMapsUrl;
+        this.photoName = photoName;
         this.suggestedBy = suggestedBy;
     }
 
@@ -73,8 +85,18 @@ public class PlaceCandidate extends BaseEntity {
             String name,
             String placeType,
             String address,
+            String googleMapsUrl,
+            String photoName,
             RoomMember suggestedBy) {
-        return new PlaceCandidate(room, googlePlaceId, name, placeType, address, suggestedBy);
+        return new PlaceCandidate(
+                room,
+                googlePlaceId,
+                name,
+                placeType,
+                address,
+                googleMapsUrl,
+                photoName,
+                suggestedBy);
     }
 
     public void confirm(Clock clock) {

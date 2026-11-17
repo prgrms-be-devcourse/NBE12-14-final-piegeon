@@ -38,7 +38,14 @@ class PlaceCandidateTest {
 
     private PlaceCandidate newCandidate() {
         return PlaceCandidate.create(
-                room, "place-1", "광장시장", "market", "서울특별시 종로구 창경궁로 88", member);
+                room,
+                "place-1",
+                "광장시장",
+                "market",
+                "서울특별시 종로구 창경궁로 88",
+                "https://maps.google.com/?cid=1",
+                "places/place-1/photos/p1",
+                member);
     }
 
     @Nested
@@ -57,6 +64,9 @@ class PlaceCandidateTest {
                 assertThat(candidate.getName()).isEqualTo("광장시장");
                 assertThat(candidate.getPlaceType()).isEqualTo("market");
                 assertThat(candidate.getAddress()).isEqualTo("서울특별시 종로구 창경궁로 88");
+                assertThat(candidate.getGoogleMapsUrl())
+                        .isEqualTo("https://maps.google.com/?cid=1");
+                assertThat(candidate.getPhotoName()).isEqualTo("places/place-1/photos/p1");
                 assertThat(candidate.getSuggestedBy()).isSameAs(member);
                 assertThat(candidate.getConfirmedAt()).isNull();
                 assertThat(candidate.isConfirmed()).isFalse();
