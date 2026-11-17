@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import world.chakchak.IntegrationTest;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
@@ -33,22 +34,20 @@ class SurveyResponseRepositoryTest {
     @Autowired private RoomRepository roomRepository;
     @Autowired private RoomMemberRepository roomMemberRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
 
     @Nested
     class Create {
 
         @Test
-        @DisplayName("응답을 저장하고 nullable 항목과 연관 멤버 및 복수 선택을 조회한다")
-        void savesAndFindsSurveyResponse() {
+        @DisplayName("PLANNING 응답은 설문 항목을 null로 저장하고 연관 멤버와 복수 선택을 조회한다")
+        void savesAndFindsPlanningResponse() {
             RoomMember member = saveRoomMember();
             SurveyResponse saved =
                     surveyResponseRepository.saveAndFlush(
-                            SurveyResponse.create(
+                            SurveyResponse.createForPlanning(
                                     member,
-                                    null,
-                                    null,
-                                    null,
                                     List.of(ActivityCode.FOOD, ActivityCode.NATURE),
                                     "긴 도보 일정",
                                     clock));
@@ -101,16 +100,38 @@ class SurveyResponseRepositoryTest {
                     .extracting(SurveyResponse::getId)
                     .containsExactlyInAnyOrder(first.getId(), second.getId());
         }
+
+        @Test
+        @DisplayName("탈퇴한 멤버를 제외하고 방의 활동 중인 멤버 응답만 조회한다")
+        void findsResponsesOnlyForActiveRoomMembers() {
+            Room room = saveRoom();
+            RoomMember activeMember = saveRoomMember(room);
+            RoomMember departedMember = saveRoomMember(room);
+            SurveyResponse activeResponse =
+                    surveyResponseRepository.saveAndFlush(createResponse(activeMember));
+            surveyResponseRepository.saveAndFlush(createResponse(departedMember));
+
+            jdbcTemplate.update(
+                    "UPDATE plan_room_member SET left_at = CURRENT_TIMESTAMP(6) WHERE id = ?",
+                    departedMember.getId());
+
+            assertThat(
+                            surveyResponseRepository
+                                    .findAllByRoomMember_Room_IdAndRoomMember_LeftAtIsNull(
+                                            room.getId()))
+                    .extracting(SurveyResponse::getId)
+                    .containsExactly(activeResponse.getId());
+        }
     }
 
     private SurveyResponse createResponse(RoomMember member) {
-        return SurveyResponse.create(
+        return SurveyResponse.createForSurveying(
                 member,
                 100_000L,
                 StayType.HOTEL,
                 Pace.NORMAL,
                 List.of(ActivityCode.CULTURE),
-                null,
+                "긴 도보 일정",
                 clock);
     }
 
