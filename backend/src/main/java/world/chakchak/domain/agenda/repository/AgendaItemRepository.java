@@ -16,6 +16,6 @@ public interface AgendaItemRepository extends JpaRepository<AgendaItem, Long> {
     Optional<AgendaItem> findTopByRoomIdAndSubjectOrderByRoundDesc(
             Long roomId, AgendaSubject subject);
 
-    //방 나가기(R-06)에서 VOTING 안건만 골라 removeVoter를 부르기 위해 추가
+    // 방 나가기(R-06)에서 VOTING 안건만 골라 removeVoter를 부르기 위해 추가
     List<AgendaItem> findAllByRoomIdAndStatus(Long roomId, AgendaStatus status);
 }
