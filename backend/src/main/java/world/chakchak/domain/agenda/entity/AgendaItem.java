@@ -70,7 +70,13 @@ public class AgendaItem extends BaseEntity {
             int round,
             String title,
             int totalVoter,
+            LocalDateTime now,
             LocalDateTime deadlineAt) {
+        // D-1이 됐거나 지났으면 안건을 만들지 않는다. 만들면 마감이 D-1로 줄어 만들자마자 투표할 수 없는 안건이 된다.
+        // (예: 출발 4일 전에 만든 방은 설문 마감(생성 + 3일)이 정확히 D-1이다)
+        if (!now.isBefore(dayBeforeDeparture(room.getStartDate()))) {
+            throw new BusinessException(AgendaErrorCode.AGENDA_DEADLINE_PASSED);
+        }
         // 투표자 0명으로 안건을 열면 아무도 투표할 수 없어 마감까지 VOTING으로 남는다.
         if (totalVoter < 1) {
             throw new IllegalArgumentException("투표자 수는 1명 이상이어야 합니다: " + totalVoter);
@@ -90,7 +96,8 @@ public class AgendaItem extends BaseEntity {
      *
      * @param title 안건 제목. service가 주제에 맞는 기본 제목을 정해서 넘긴다.
      * @param totalVoter 투표 자격자 수. 1 이상이어야 한다.
-     * @param deadlineAt 마감 후보 시각. D-1보다 늦으면 D-1로 줄여서 저장한다.
+     * @param now 지금 시각. D-1 이후면 AGENDA_DEADLINE_PASSED를 던진다.
+     * @param deadlineAt 마감 후보 시각. D-1보다 늦으면 D-1로 줄여서 저장한다. 만장일치 안건은 now를 넘긴다.
      */
     public static AgendaItem create(
             Room room,
@@ -98,14 +105,15 @@ public class AgendaItem extends BaseEntity {
             int round,
             String title,
             int totalVoter,
+            LocalDateTime now,
             LocalDateTime deadlineAt) {
-        return new AgendaItem(room, subject, round, title, totalVoter, deadlineAt);
+        return new AgendaItem(room, subject, round, title, totalVoter, now, deadlineAt);
     }
 
     /**
      * 마감 시각을 출발 전날 00:00(D-1)보다 늦지 않게 줄인다.
      *
-     * <p>[리뷰 반영] 생성자에서 항상 적용하므로 외부에서 부를 일이 없어 private으로 바꿨다.
+     * <p>생성자에서 항상 적용하므로 외부에서 부를 일이 없어 private으로 바꿨다.
      */
     private static LocalDateTime capDeadline(LocalDateTime candidate, LocalDate startDate) {
         LocalDateTime dayBeforeDeparture = dayBeforeDeparture(startDate);
@@ -139,9 +147,9 @@ public class AgendaItem extends BaseEntity {
     /**
      * 투표 자격자가 방을 나갔을 때 부른다. 자격자가 0명이 되면 EXPIRED가 된다. (R-06)
      *
-     * <p>[리뷰 반영] VOTING 안건에만 부른다. 결정·마감된 안건에 부르는 것은 코드 버그라서 조용히 넘기지 않고 AGENDA_CLOSED를 던진다. R-06
-     * service는 {@code AgendaItemRepository.findAllByRoomIdAndStatus(roomId, VOTING)}로 투표 중인 안건만
-     * 가져오고, 그중 나가는 멤버에게 투표 자격이 있던 안건(joined_at <= 안건 생성 시각)에만 호출한다.
+     * <p>VOTING 안건에만 부른다. 결정·마감된 안건에 부르는 것은 코드 버그라서 조용히 넘기지 않고 AGENDA_CLOSED를 던진다. R-06 service는
+     * {@code AgendaItemRepository.findAllByRoomIdAndStatus(roomId, VOTING)}로 투표 중인 안건만 가져오고, 그중 나가는
+     * 멤버에게 투표 자격이 있던 안건(joined_at <= 안건 생성 시각)에만 호출한다.
      */
     public void removeVoter() {
         requireVoting();
@@ -157,17 +165,21 @@ public class AgendaItem extends BaseEntity {
      * <p>마감은 지금 + 7일이고 D-1보다 늦으면 D-1로 줄인다. D-1이 지났으면 열 수 없다. 이 안건이 가장 최근 회차인지는 DB를 봐야 하므로 service에서
      * 확인한다.
      */
-    // [리뷰 반영] 출발일은 room에서 직접 꺼내므로 startDate 인자를 없앴다. service가 다른 날짜를 넘길 여지가 사라진다.
+    // 출발일은 room에서 직접 꺼내므로 startDate 인자를 없앴다. service가 다른 날짜를 넘길 여지가 사라진다.
     public AgendaItem openNextRound(int totalVoter, LocalDateTime now) {
         if (!subject.isSurvey() || status != AgendaStatus.EXPIRED) {
             throw new BusinessException(AgendaErrorCode.AGENDA_NOT_REOPENABLE);
         }
-        if (!now.isBefore(dayBeforeDeparture(room.getStartDate()))) {
-            throw new BusinessException(AgendaErrorCode.AGENDA_NOT_REOPENABLE);
-        }
-        // D-1 상한은 생성자가 적용한다. 제목은 직전 회차를 그대로 물려받는다
-        return new AgendaItem(
-                room, subject, round + 1, title, totalVoter, now.plusDays(NEXT_ROUND_VOTING_DAYS));
+        // 다음 회차도 create로 만들어 D-1 이후 생성 금지와 D-1 상한을 같은 규칙으로 적용한다.
+        // 제목은 직전 회차를 그대로 물려받는다
+        return create(
+                room,
+                subject,
+                round + 1,
+                title,
+                totalVoter,
+                now,
+                now.plusDays(NEXT_ROUND_VOTING_DAYS));
     }
 
     private void requireVoting() {

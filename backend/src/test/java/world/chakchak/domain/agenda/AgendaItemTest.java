@@ -38,7 +38,7 @@ class AgendaItemTest {
     }
 
     private static AgendaItem votingAgenda(AgendaSubject subject, int totalVoter) {
-        return AgendaItem.create(room(), subject, 1, "안건 제목", totalVoter, NOW.plusDays(4));
+        return AgendaItem.create(room(), subject, 1, "안건 제목", totalVoter, NOW, NOW.plusDays(4));
     }
 
     private static AgendaItem expiredAgenda(AgendaSubject subject) {
@@ -65,7 +65,13 @@ class AgendaItemTest {
             void opensVotingAgenda() {
                 AgendaItem agenda =
                         AgendaItem.create(
-                                room(), AgendaSubject.BUDGET, 1, "예산을 정해주세요", 4, NOW.plusDays(4));
+                                room(),
+                                AgendaSubject.BUDGET,
+                                1,
+                                "예산을 정해주세요",
+                                4,
+                                NOW,
+                                NOW.plusDays(4));
 
                 assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.VOTING);
                 assertThat(agenda.getSubject()).isEqualTo(AgendaSubject.BUDGET);
@@ -88,6 +94,7 @@ class AgendaItemTest {
                                 1,
                                 "제목",
                                 4,
+                                NOW,
                                 LocalDateTime.of(2027, 6, 30, 9, 0));
 
                 assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
@@ -99,22 +106,78 @@ class AgendaItemTest {
                 LocalDateTime candidate = LocalDateTime.of(2027, 6, 29, 23, 0);
 
                 AgendaItem agenda =
-                        AgendaItem.create(room(), AgendaSubject.BUDGET, 1, "제목", 4, candidate);
+                        AgendaItem.create(room(), AgendaSubject.BUDGET, 1, "제목", 4, NOW, candidate);
 
                 assertThat(agenda.getDeadlineAt()).isEqualTo(candidate);
             }
+
+            @Test
+            @DisplayName("출발 전날 00시 직전에는 안건을 만들 수 있고 마감은 출발 전날 00시로 줄어든다")
+            void createsJustBeforeDayBeforeDeparture() {
+                LocalDateTime now = D_MINUS_1.minusMinutes(1);
+
+                AgendaItem agenda =
+                        AgendaItem.create(
+                                room(), AgendaSubject.BUDGET, 1, "제목", 4, now, now.plusDays(4));
+
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
+                assertThat(agenda.isOpenAt(now)).isTrue();
+            }
+
+            @Test
+            @DisplayName("만장일치 안건은 마감을 지금 시각으로 넘겨 만들고 바로 결정할 수 있다")
+            void createsUnanimousAgenda() {
+                AgendaItem agenda =
+                        AgendaItem.create(room(), AgendaSubject.STAY, 1, "제목", 4, NOW, NOW);
+                agenda.resolve(10L, NOW);
+
+                assertThat(agenda.getDeadlineAt()).isEqualTo(NOW);
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+            }
         }
 
-        // 투표자 0명 안건 생성 거부
         @Nested
         class Exception {
+
+            // 출발 4일 전에 만든 방은 설문 마감이 정확히 D-1이라, 이때 만든 안건은 만들자마자 투표할 수 없게 된다
+            @Test
+            @DisplayName("출발 전날 00시가 되면 안건을 만들 수 없다")
+            void rejectsAtDayBeforeDeparture() {
+                assertErrorCode(
+                        () ->
+                                AgendaItem.create(
+                                        room(),
+                                        AgendaSubject.BUDGET,
+                                        1,
+                                        "제목",
+                                        4,
+                                        D_MINUS_1,
+                                        D_MINUS_1.plusDays(4)),
+                        AgendaErrorCode.AGENDA_DEADLINE_PASSED);
+            }
+
+            @Test
+            @DisplayName("출발 전날 00시가 지나도 안건을 만들 수 없다")
+            void rejectsAfterDayBeforeDeparture() {
+                LocalDateTime now = D_MINUS_1.plusHours(5);
+
+                assertErrorCode(
+                        () -> AgendaItem.create(room(), AgendaSubject.BUDGET, 1, "제목", 4, now, now),
+                        AgendaErrorCode.AGENDA_DEADLINE_PASSED);
+            }
 
             @Test
             @DisplayName("투표자가 0명인 안건은 만들 수 없다")
             void rejectsZeroVoter() {
                 assertThatThrownBy(() ->
                                 AgendaItem.create(
-                                        room(), AgendaSubject.BUDGET, 1, "제목", 0, NOW.plusDays(4)))
+                                        room(),
+                                        AgendaSubject.BUDGET,
+                                        1,
+                                        "제목",
+                                        0,
+                                        NOW,
+                                        NOW.plusDays(4)))
                         .isInstanceOf(IllegalArgumentException.class);
             }
 
@@ -338,9 +401,10 @@ class AgendaItemTest {
             void rejectsAfterDayBeforeDeparture() {
                 AgendaItem expired = expiredAgenda(AgendaSubject.BUDGET);
 
+                // create와 같은 규칙이라 같은 에러 코드를 쓴다
                 assertErrorCode(
                         () -> expired.openNextRound(4, D_MINUS_1),
-                        AgendaErrorCode.AGENDA_NOT_REOPENABLE);
+                        AgendaErrorCode.AGENDA_DEADLINE_PASSED);
             }
         }
     }

@@ -29,6 +29,7 @@ import world.chakchak.domain.room.repository.RoomRepository;
 @Transactional
 class AgendaItemRepositoryTest {
 
+    private static final LocalDateTime NOW = LocalDateTime.of(2027, 6, 1, 12, 0);
     private static final LocalDateTime DEADLINE = LocalDateTime.of(2027, 6, 5, 12, 0);
 
     @Autowired private AgendaItemRepository agendaItemRepository;
@@ -59,7 +60,7 @@ class AgendaItemRepositoryTest {
 
     private AgendaItem saveAgenda(Room room, AgendaSubject subject, int round) {
         return agendaItemRepository.saveAndFlush(
-                AgendaItem.create(room, subject, round, "예산을 정해주세요", 3, DEADLINE));
+                AgendaItem.create(room, subject, round, "예산을 정해주세요", 3, NOW, DEADLINE));
     }
 
     @Nested
@@ -74,7 +75,8 @@ class AgendaItemRepositoryTest {
             void savesExpiredAgendaWithZeroVoter() {
                 AgendaItem agenda =
                         agendaItemRepository.saveAndFlush(
-                                AgendaItem.create(room, AgendaSubject.STAY, 1, "제목", 1, DEADLINE));
+                                AgendaItem.create(
+                                        room, AgendaSubject.STAY, 1, "제목", 1, NOW, DEADLINE));
                 agenda.removeVoter();
                 agendaItemRepository.flush();
 

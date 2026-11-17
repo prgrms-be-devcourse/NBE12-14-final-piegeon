@@ -19,6 +19,9 @@ public enum AgendaErrorCode implements ErrorCode {
     AGENDA_CLOSED(HttpStatus.CONFLICT, "이미 끝났거나 마감된 안건입니다."),
     // 최종 확정 안건이거나 EXPIRED가 아닌 안건의 다음 회차 열기 (V-04)
     AGENDA_NOT_REOPENABLE(HttpStatus.CONFLICT, "다음 회차를 열 수 없는 안건입니다."),
+    // 출발 전날 00:00(D-1)이 됐거나 지나서 안건을 열 수 없음 (5-1 설문 마감, V-04, C-01)
+    // 명세에는 "D-1 이후에는 열 수 없다(409)"만 있고 코드 이름이 없어 새로 정했다.
+    AGENDA_DEADLINE_PASSED(HttpStatus.CONFLICT, "출발 전날이 지나 안건을 열 수 없습니다."),
     // 이미 다음 회차가 열림 (V-04)
     AGENDA_ALREADY_REOPENED(HttpStatus.CONFLICT, "이미 다음 회차가 열렸습니다."),
     // 안건이 열린 뒤 합류한 멤버 (V-03, V-07)
