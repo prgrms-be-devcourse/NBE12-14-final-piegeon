@@ -18,12 +18,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import world.chakchak.IntegrationTest;
 import world.chakchak.domain.agenda.entity.AgendaItem;
+import world.chakchak.domain.agenda.entity.AgendaOption;
 import world.chakchak.domain.agenda.entity.AgendaStatus;
 import world.chakchak.domain.agenda.entity.AgendaSubject;
 import world.chakchak.domain.agenda.repository.AgendaItemRepository;
+import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.repository.RoomRepository;
+import world.chakchak.domain.survey.entity.StayType;
 
 @IntegrationTest
 @Transactional
@@ -33,6 +36,7 @@ class AgendaItemRepositoryTest {
     private static final LocalDateTime DEADLINE = LocalDateTime.of(2027, 6, 5, 12, 0);
 
     @Autowired private AgendaItemRepository agendaItemRepository;
+    @Autowired private AgendaOptionRepository agendaOptionRepository;
     @Autowired private RoomRepository roomRepository;
     @Autowired private Clock clock;
     @Autowired private JdbcTemplate jdbcTemplate;
@@ -63,6 +67,11 @@ class AgendaItemRepositoryTest {
                 AgendaItem.create(room, subject, round, "예산을 정해주세요", 3, NOW, DEADLINE));
     }
 
+    // agenda_item.resolved_option_id에 FK가 있어 결정할 선지는 먼저 저장한다
+    private AgendaOption saveStayOption(AgendaItem agenda) {
+        return agendaOptionRepository.saveAndFlush(AgendaOption.stay(agenda, StayType.HOTEL, 0));
+    }
+
     @Nested
     class Create {
 
@@ -89,19 +98,20 @@ class AgendaItemRepositoryTest {
             @Test
             @DisplayName("안건을 저장한 뒤 조회하면 enum 문자열과 결정 정보가 유지된다")
             void savesAndFindsAgenda() {
-                AgendaItem saved = saveAgenda(room, AgendaSubject.BUDGET, 1);
-                saved.resolve(10L, DEADLINE);
+                AgendaItem saved = saveAgenda(room, AgendaSubject.STAY, 1);
+                AgendaOption option = saveStayOption(saved);
+                saved.resolve(option.getId(), DEADLINE);
                 agendaItemRepository.flush();
 
                 AgendaItem found = agendaItemRepository.findById(saved.getId()).orElseThrow();
 
-                assertThat(found.getSubject()).isEqualTo(AgendaSubject.BUDGET);
+                assertThat(found.getSubject()).isEqualTo(AgendaSubject.STAY);
                 assertThat(found.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
                 assertThat(found.getRound()).isEqualTo(1);
                 assertThat(found.getTitle()).isEqualTo("예산을 정해주세요");
                 assertThat(found.getTotalVoter()).isEqualTo(3);
                 assertThat(found.getDeadlineAt()).isEqualTo(DEADLINE);
-                assertThat(found.getResolvedOptionId()).isEqualTo(10L);
+                assertThat(found.getResolvedOptionId()).isEqualTo(option.getId());
                 assertThat(found.getResolvedAt()).isEqualTo(DEADLINE);
                 assertThat(found.getCreatedAt()).isNotNull();
             }
@@ -165,6 +175,25 @@ class AgendaItemRepositoryTest {
                         .isInstanceOf(DataIntegrityViolationException.class)
                         .hasMessageContaining("ck_agenda_item_resolved");
             }
+
+            @Test
+            @DisplayName("다른 안건의 선지로 결정된 상태로 저장할 수 없다")
+            void rejectsOptionOfOtherAgenda() {
+                AgendaItem agenda = saveAgenda(room, AgendaSubject.STAY, 1);
+                AgendaItem other = saveAgenda(room, AgendaSubject.STAY, 2);
+                AgendaOption otherOption = saveStayOption(other);
+
+                assertThatThrownBy(() ->
+                                jdbcTemplate.update(
+                                        "UPDATE agenda_item SET status = 'RESOLVED',"
+                                                + " resolved_option_id = ?, resolved_at = ?"
+                                                + " WHERE id = ?",
+                                        otherOption.getId(),
+                                        DEADLINE,
+                                        agenda.getId()))
+                        .isInstanceOf(DataAccessException.class)
+                        .hasMessageContaining("fk_agenda_item_resolved_option");
+            }
         }
     }
 
@@ -205,7 +234,7 @@ class AgendaItemRepositoryTest {
             void findsAgendasByStatus() {
                 AgendaItem voting = saveAgenda(room, AgendaSubject.BUDGET, 1);
                 AgendaItem resolved = saveAgenda(room, AgendaSubject.STAY, 1);
-                resolved.resolve(10L, DEADLINE);
+                resolved.resolve(saveStayOption(resolved).getId(), DEADLINE);
                 AgendaItem expired = saveAgenda(room, AgendaSubject.PACE, 1);
                 expired.expire();
                 saveAgenda(saveRoom(), AgendaSubject.BUDGET, 1);

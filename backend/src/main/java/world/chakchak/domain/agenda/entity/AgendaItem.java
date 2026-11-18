@@ -57,7 +57,7 @@ public class AgendaItem extends BaseEntity {
     @Column(name = "deadline_at", nullable = false)
     private LocalDateTime deadlineAt;
 
-    // TODO AgendaOption 엔티티를 만들 때 FK와 연관관계로 바꾼다 (안건↔선택지가 서로 참조하므로 FK는 ALTER로 추가)
+    // 결정된 선택지 id. 안건↔선택지가 서로 참조하므로 FK는 V13에서 ALTER로 걸었다 (이 안건의 선지만 가리킬 수 있음)
     @Column(name = "resolved_option_id")
     private Long resolvedOptionId;
 
