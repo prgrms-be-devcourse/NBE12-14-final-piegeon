@@ -40,10 +40,10 @@ import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
-import world.chakchak.domain.room.errorcode.RoomErrorCode;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.domain.user.entity.User;
 import world.chakchak.global.error.BusinessException;
+import world.chakchak.global.error.CommonErrorCode;
 
 @ExtendWith(MockitoExtension.class)
 class AgendaServiceTest {
@@ -280,16 +280,16 @@ class AgendaServiceTest {
             @DisplayName("방의 활동 멤버가 아니면 멤버 확인에서 던진 에러를 그대로 돌려주고 안건을 조회하지 않는다")
             void propagatesMemberError() {
                 given(roomMemberService.getActiveMember(ROOM_ID, USER_ID))
-                        .willThrow(new BusinessException(RoomErrorCode.LEFT_MEMBER));
+                        .willThrow(new BusinessException(CommonErrorCode.FORBIDDEN));
 
                 assertThatThrownBy(() -> agendaService.getAgendas(ROOM_ID, USER_ID))
                         .isInstanceOf(BusinessException.class)
                         .extracting("errorCode")
-                        .isEqualTo(RoomErrorCode.LEFT_MEMBER);
+                        .isEqualTo(CommonErrorCode.FORBIDDEN);
                 assertThatThrownBy(() -> agendaService.getAgenda(ROOM_ID, 5L, USER_ID))
                         .isInstanceOf(BusinessException.class)
                         .extracting("errorCode")
-                        .isEqualTo(RoomErrorCode.LEFT_MEMBER);
+                        .isEqualTo(CommonErrorCode.FORBIDDEN);
                 verifyNoInteractions(agendaItemRepository);
             }
 

@@ -11,6 +11,7 @@ import world.chakchak.domain.room.repository.RoomMemberRepository;
 import world.chakchak.domain.room.repository.RoomRepository;
 import world.chakchak.domain.user.service.UserService;
 import world.chakchak.global.error.BusinessException;
+import world.chakchak.global.error.CommonErrorCode;
 
 @Service
 @RequiredArgsConstructor
@@ -31,18 +32,20 @@ public class RoomMemberService {
     /**
      * 방에 속한 API가 service 첫 줄에서 부른다. 로그인한 사용자가 이 방의 활동 멤버(나가지 않은 멤버)인지 확인하고 그 멤버를 돌려준다.
      *
-     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 멤버가 아니면 IS_NOT_MEMBER, 나간 멤버면 LEFT_MEMBER
+     * <p>멤버 행이 있으면 FK 때문에 방도 반드시 있으므로, 방 존재 확인은 멤버가 없을 때만 한다. 정상 요청은 쿼리 1개로 끝난다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 멤버가 아니거나 나간 멤버면 FORBIDDEN
      */
     public RoomMember getActiveMember(Long roomId, Long userId) {
-        if (!roomRepository.existsById(roomId)) {
-            throw new BusinessException(RoomErrorCode.ROOM_NOT_FOUND);
-        }
         RoomMember member =
                 roomMemberRepository
                         .findByRoom_IdAndUser_Id(roomId, userId)
-                        .orElseThrow(() -> new BusinessException(RoomErrorCode.IS_NOT_MEMBER));
+                        .orElseThrow(() ->
+                                roomRepository.existsById(roomId)
+                                        ? new BusinessException(CommonErrorCode.FORBIDDEN)
+                                        : new BusinessException(RoomErrorCode.ROOM_NOT_FOUND));
         if (member.getLeftAt() != null) {
-            throw new BusinessException(RoomErrorCode.LEFT_MEMBER);
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }
         return member;
     }

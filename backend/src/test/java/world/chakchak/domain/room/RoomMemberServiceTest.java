@@ -2,7 +2,10 @@ package world.chakchak.domain.room;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -26,6 +29,8 @@ import world.chakchak.domain.room.repository.RoomRepository;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.domain.user.entity.User;
 import world.chakchak.global.error.BusinessException;
+import world.chakchak.global.error.CommonErrorCode;
+import world.chakchak.global.error.ErrorCode;
 
 @ExtendWith(MockitoExtension.class)
 class RoomMemberServiceTest {
@@ -54,7 +59,7 @@ class RoomMemberServiceTest {
         return RoomMember.create(room, User.create("minsu@example.com", "민수", "hash"), CLOCK);
     }
 
-    private static void assertErrorCode(Runnable action, RoomErrorCode errorCode) {
+    private static void assertErrorCode(Runnable action, ErrorCode errorCode) {
         assertThatThrownBy(action::run)
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
@@ -68,14 +73,14 @@ class RoomMemberServiceTest {
         class Success {
 
             @Test
-            @DisplayName("방에서 나가지 않은 멤버면 그 멤버를 돌려준다")
+            @DisplayName("방에서 나가지 않은 멤버면 방 존재 확인 없이 그 멤버를 돌려준다")
             void returnsActiveMember() {
                 RoomMember member = member();
-                given(roomRepository.existsById(ROOM_ID)).willReturn(true);
                 given(roomMemberRepository.findByRoom_IdAndUser_Id(ROOM_ID, USER_ID))
                         .willReturn(Optional.of(member));
 
                 assertThat(roomMemberService.getActiveMember(ROOM_ID, USER_ID)).isSameAs(member);
+                verify(roomRepository, never()).existsById(any());
             }
         }
 
@@ -85,6 +90,8 @@ class RoomMemberServiceTest {
             @Test
             @DisplayName("없는 방이면 ROOM_NOT_FOUND를 던진다")
             void rejectsMissingRoom() {
+                given(roomMemberRepository.findByRoom_IdAndUser_Id(ROOM_ID, USER_ID))
+                        .willReturn(Optional.empty());
                 given(roomRepository.existsById(ROOM_ID)).willReturn(false);
 
                 assertErrorCode(
@@ -93,29 +100,28 @@ class RoomMemberServiceTest {
             }
 
             @Test
-            @DisplayName("방의 멤버가 아니면 IS_NOT_MEMBER를 던진다")
+            @DisplayName("방은 있지만 멤버가 아니면 FORBIDDEN을 던진다")
             void rejectsNonMember() {
-                given(roomRepository.existsById(ROOM_ID)).willReturn(true);
                 given(roomMemberRepository.findByRoom_IdAndUser_Id(ROOM_ID, USER_ID))
                         .willReturn(Optional.empty());
+                given(roomRepository.existsById(ROOM_ID)).willReturn(true);
 
                 assertErrorCode(
                         () -> roomMemberService.getActiveMember(ROOM_ID, USER_ID),
-                        RoomErrorCode.IS_NOT_MEMBER);
+                        CommonErrorCode.FORBIDDEN);
             }
 
             @Test
-            @DisplayName("방에서 나간 멤버면 LEFT_MEMBER를 던진다")
+            @DisplayName("방에서 나간 멤버면 FORBIDDEN을 던진다")
             void rejectsLeftMember() {
                 RoomMember member = member();
                 ReflectionTestUtils.setField(member, "leftAt", NOW);
-                given(roomRepository.existsById(ROOM_ID)).willReturn(true);
                 given(roomMemberRepository.findByRoom_IdAndUser_Id(ROOM_ID, USER_ID))
                         .willReturn(Optional.of(member));
 
                 assertErrorCode(
                         () -> roomMemberService.getActiveMember(ROOM_ID, USER_ID),
-                        RoomErrorCode.LEFT_MEMBER);
+                        CommonErrorCode.FORBIDDEN);
             }
         }
     }
