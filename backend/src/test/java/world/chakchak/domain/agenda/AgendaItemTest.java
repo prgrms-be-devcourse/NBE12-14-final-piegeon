@@ -10,12 +10,17 @@ import java.time.ZoneId;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 import world.chakchak.domain.agenda.entity.AgendaItem;
+import world.chakchak.domain.agenda.entity.AgendaOption;
 import world.chakchak.domain.agenda.entity.AgendaStatus;
 import world.chakchak.domain.agenda.entity.AgendaSubject;
+import world.chakchak.domain.agenda.entity.FinalPlanChoice;
 import world.chakchak.domain.agenda.errorcode.AgendaErrorCode;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomStatus;
+import world.chakchak.domain.survey.entity.Pace;
+import world.chakchak.domain.survey.entity.StayType;
 import world.chakchak.global.error.BusinessException;
 
 class AgendaItemTest {
@@ -25,6 +30,7 @@ class AgendaItemTest {
     private static final LocalDate START_DATE = LocalDate.of(2027, 7, 1);
     // 출발 전날 00:00
     private static final LocalDateTime D_MINUS_1 = LocalDateTime.of(2027, 6, 30, 0, 0);
+    private static final Long OPTION_ID = 10L;
 
     private static Room room() {
         return Room.create(
@@ -45,6 +51,22 @@ class AgendaItemTest {
         AgendaItem agenda = votingAgenda(subject, 3);
         agenda.expire();
         return agenda;
+    }
+
+    // 안건 주제에 맞는 저장된 선지. resolve는 저장된(id가 있는) 선지만 받아 id를 직접 넣는다
+    private static AgendaOption optionOf(AgendaItem agenda) {
+        AgendaOption option = unsavedOptionOf(agenda);
+        ReflectionTestUtils.setField(option, "id", OPTION_ID);
+        return option;
+    }
+
+    private static AgendaOption unsavedOptionOf(AgendaItem agenda) {
+        return switch (agenda.getSubject()) {
+            case BUDGET -> AgendaOption.budget(agenda, 1_000_000L, 0, null);
+            case STAY -> AgendaOption.stay(agenda, StayType.HOTEL, 0);
+            case PACE -> AgendaOption.pace(agenda, Pace.RELAXED, 0);
+            case FINAL_PLAN -> AgendaOption.finalPlan(agenda, FinalPlanChoice.AGREE);
+        };
     }
 
     private static void assertErrorCode(Runnable action, AgendaErrorCode errorCode) {
@@ -129,7 +151,7 @@ class AgendaItemTest {
             void createsUnanimousAgenda() {
                 AgendaItem agenda =
                         AgendaItem.create(room(), AgendaSubject.STAY, 1, "제목", 4, NOW, NOW);
-                agenda.resolve(10L, NOW);
+                agenda.resolve(optionOf(agenda), NOW);
 
                 assertThat(agenda.getDeadlineAt()).isEqualTo(NOW);
                 assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
@@ -218,7 +240,7 @@ class AgendaItemTest {
             @DisplayName("결정된 안건은 마감 전이어도 투표를 받을 수 없다")
             void isClosedWhenResolved() {
                 AgendaItem agenda = votingAgenda(AgendaSubject.STAY, 3);
-                agenda.resolve(10L, NOW);
+                agenda.resolve(optionOf(agenda), NOW);
 
                 assertThat(agenda.isOpenAt(NOW)).isFalse();
             }
@@ -236,10 +258,10 @@ class AgendaItemTest {
             void resolvesVotingAgenda() {
                 AgendaItem agenda = votingAgenda(AgendaSubject.PACE, 3);
 
-                agenda.resolve(10L, NOW);
+                agenda.resolve(optionOf(agenda), NOW);
 
                 assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
-                assertThat(agenda.getResolvedOptionId()).isEqualTo(10L);
+                assertThat(agenda.getResolvedOptionId()).isEqualTo(OPTION_ID);
                 assertThat(agenda.getResolvedAt()).isEqualTo(NOW);
             }
         }
@@ -248,12 +270,34 @@ class AgendaItemTest {
         class Exception {
 
             @Test
+            @DisplayName("다른 안건의 선택지로는 결정할 수 없다")
+            void rejectsOptionOfOtherAgenda() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.PACE, 3);
+                AgendaOption otherOption = optionOf(votingAgenda(AgendaSubject.PACE, 3));
+
+                assertThatThrownBy(() -> agenda.resolve(otherOption, NOW))
+                        .isInstanceOf(IllegalArgumentException.class);
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.VOTING);
+            }
+
+            @Test
+            @DisplayName("저장되지 않은 선택지로는 결정할 수 없다")
+            void rejectsUnsavedOption() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.PACE, 3);
+
+                assertThatThrownBy(() -> agenda.resolve(unsavedOptionOf(agenda), NOW))
+                        .isInstanceOf(IllegalStateException.class);
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.VOTING);
+            }
+
+            @Test
             @DisplayName("이미 결정된 안건은 다시 결정할 수 없다")
             void rejectsResolvedAgenda() {
                 AgendaItem agenda = votingAgenda(AgendaSubject.PACE, 3);
-                agenda.resolve(10L, NOW);
+                agenda.resolve(optionOf(agenda), NOW);
 
-                assertErrorCode(() -> agenda.resolve(11L, NOW), AgendaErrorCode.AGENDA_CLOSED);
+                assertErrorCode(
+                        () -> agenda.resolve(optionOf(agenda), NOW), AgendaErrorCode.AGENDA_CLOSED);
             }
 
             @Test
@@ -261,7 +305,8 @@ class AgendaItemTest {
             void rejectsExpiredAgenda() {
                 AgendaItem agenda = expiredAgenda(AgendaSubject.PACE);
 
-                assertErrorCode(() -> agenda.resolve(10L, NOW), AgendaErrorCode.AGENDA_CLOSED);
+                assertErrorCode(
+                        () -> agenda.resolve(optionOf(agenda), NOW), AgendaErrorCode.AGENDA_CLOSED);
             }
         }
     }
@@ -291,7 +336,7 @@ class AgendaItemTest {
             @DisplayName("이미 결정된 안건은 미결로 마감할 수 없다")
             void rejectsResolvedAgenda() {
                 AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 3);
-                agenda.resolve(10L, NOW);
+                agenda.resolve(optionOf(agenda), NOW);
 
                 assertErrorCode(agenda::expire, AgendaErrorCode.AGENDA_CLOSED);
             }

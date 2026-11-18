@@ -100,7 +100,7 @@ class AgendaItemRepositoryTest {
             void savesAndFindsAgenda() {
                 AgendaItem saved = saveAgenda(room, AgendaSubject.STAY, 1);
                 AgendaOption option = saveStayOption(saved);
-                saved.resolve(option.getId(), DEADLINE);
+                saved.resolve(option, DEADLINE);
                 agendaItemRepository.flush();
 
                 AgendaItem found = agendaItemRepository.findById(saved.getId()).orElseThrow();
@@ -165,14 +165,19 @@ class AgendaItemRepositoryTest {
                         .hasMessageContaining("ck_agenda_item_total_voter");
             }
 
+            // 엔티티가 선지 없는 결정을 먼저 막으므로, DB 제약은 SQL로 직접 값을 바꿔 확인한다
             @Test
             @DisplayName("결정된 선지 없이 RESOLVED 상태로 저장할 수 없다")
             void rejectsResolvedWithoutOption() {
                 AgendaItem agenda = saveAgenda(room, AgendaSubject.STAY, 1);
-                agenda.resolve(null, DEADLINE);
 
-                assertThatThrownBy(() -> agendaItemRepository.flush())
-                        .isInstanceOf(DataIntegrityViolationException.class)
+                assertThatThrownBy(() ->
+                                jdbcTemplate.update(
+                                        "UPDATE agenda_item SET status = 'RESOLVED',"
+                                                + " resolved_at = ? WHERE id = ?",
+                                        DEADLINE,
+                                        agenda.getId()))
+                        .isInstanceOf(DataAccessException.class)
                         .hasMessageContaining("ck_agenda_item_resolved");
             }
 
@@ -234,7 +239,7 @@ class AgendaItemRepositoryTest {
             void findsAgendasByStatus() {
                 AgendaItem voting = saveAgenda(room, AgendaSubject.BUDGET, 1);
                 AgendaItem resolved = saveAgenda(room, AgendaSubject.STAY, 1);
-                resolved.resolve(saveStayOption(resolved).getId(), DEADLINE);
+                resolved.resolve(saveStayOption(resolved), DEADLINE);
                 AgendaItem expired = saveAgenda(room, AgendaSubject.PACE, 1);
                 expired.expire();
                 saveAgenda(saveRoom(), AgendaSubject.BUDGET, 1);

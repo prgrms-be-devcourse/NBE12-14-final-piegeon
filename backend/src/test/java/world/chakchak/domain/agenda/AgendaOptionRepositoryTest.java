@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import world.chakchak.IntegrationTest;
 import world.chakchak.domain.agenda.entity.AgendaItem;
@@ -42,6 +43,7 @@ class AgendaOptionRepositoryTest {
     @Autowired private RoomMemberRepository roomMemberRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private Clock clock;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     private Room room;
     private AgendaItem budgetAgenda;
@@ -193,16 +195,35 @@ class AgendaOptionRepositoryTest {
             }
 
             @Test
-            @DisplayName("멤버가 추가한 선지만 골라 조회한다")
-            void findsProposedOptions() {
+            @DisplayName("다음 회차로 옮길 선지는 활동 중인 멤버가 추가한 선지만 화면 순서대로 고른다")
+            void findsOptionsProposedByActiveMembers() {
                 saveBudget(budgetAgenda, 600_000L, 0, null);
-                AgendaOption proposed = saveBudget(budgetAgenda, 1_500_000L, 1, saveMember());
+                AgendaOption second = saveBudget(budgetAgenda, 1_500_000L, 2, saveMember());
+                AgendaOption first = saveBudget(budgetAgenda, 1_200_000L, 1, saveMember());
+                saveBudget(saveAgenda(AgendaSubject.BUDGET, 2), 900_000L, 0, saveMember());
 
                 assertThat(
-                                agendaOptionRepository.findAllByAgendaItemIdAndProposedByIsNotNull(
+                                agendaOptionRepository.findAllProposedByActiveMembers(
                                         budgetAgenda.getId()))
                         .extracting(AgendaOption::getId)
-                        .containsExactly(proposed.getId());
+                        .containsExactly(first.getId(), second.getId());
+            }
+
+            // RoomMember에 아직 나가기 메서드가 없어 left_at은 SQL로 채운다
+            @Test
+            @DisplayName("방을 나간 멤버가 추가한 선지는 다음 회차로 옮기지 않는다")
+            void excludesOptionsProposedByLeftMembers() {
+                RoomMember left = saveMember();
+                saveBudget(budgetAgenda, 1_500_000L, 0, left);
+                AgendaOption active = saveBudget(budgetAgenda, 1_200_000L, 1, saveMember());
+                jdbcTemplate.update(
+                        "UPDATE plan_room_member SET left_at = ? WHERE id = ?", NOW, left.getId());
+
+                assertThat(
+                                agendaOptionRepository.findAllProposedByActiveMembers(
+                                        budgetAgenda.getId()))
+                        .extracting(AgendaOption::getId)
+                        .containsExactly(active.getId());
             }
         }
 
