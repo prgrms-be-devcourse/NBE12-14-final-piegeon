@@ -64,8 +64,7 @@ public class Vote extends BaseEntity {
         this.agendaOption = option;
     }
 
-    private static void requireVotable(
-            AgendaItem agenda, AgendaOption option, LocalDateTime now) {
+    private static void requireVotable(AgendaItem agenda, AgendaOption option, LocalDateTime now) {
         if (!agenda.isOpenAt(now)) {
             throw new BusinessException(AgendaErrorCode.AGENDA_CLOSED);
         }
