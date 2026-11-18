@@ -8,8 +8,8 @@ import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.errorcode.RoomErrorCode;
 import world.chakchak.domain.room.repository.RoomMemberRepository;
-import world.chakchak.domain.user.service.UserService;
 import world.chakchak.domain.room.repository.RoomRepository;
+import world.chakchak.domain.user.service.UserService;
 import world.chakchak.global.error.BusinessException;
 
 @Service
@@ -25,8 +25,7 @@ public class RoomMemberService {
     @Transactional
     public RoomMember addCreator(Room room, Long userId) {
         return roomMemberRepository.save(
-            RoomMember.create(room, userService.getEntityById(userId), clock));
-
+                RoomMember.create(room, userService.getEntityById(userId), clock));
     }
 
     /**
