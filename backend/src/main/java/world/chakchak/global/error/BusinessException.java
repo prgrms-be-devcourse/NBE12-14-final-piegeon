@@ -8,8 +8,17 @@ public class BusinessException extends RuntimeException {
 
     private final ErrorCode errorCode;
 
+    /** 에러 응답의 data에 함께 보낼 값. 없으면 null이고, 그러면 응답에서 data가 빠진다. */
+    private final Object data;
+
     public BusinessException(ErrorCode errorCode) {
+        this(errorCode, null);
+    }
+
+    /** 프론트가 처리에 쓸 값을 함께 보내는 에러. 예: PLACE_ALREADY_REGISTERED의 placeId */
+    public BusinessException(ErrorCode errorCode, Object data) {
         super(errorCode.getMessage());
         this.errorCode = errorCode;
+        this.data = data;
     }
 }
