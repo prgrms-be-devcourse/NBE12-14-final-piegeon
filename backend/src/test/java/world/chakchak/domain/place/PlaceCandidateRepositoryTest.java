@@ -46,7 +46,14 @@ class PlaceCandidateRepositoryTest {
                 PlaceCandidate saved =
                         placeCandidateRepository.saveAndFlush(
                                 PlaceCandidate.create(
-                                        room, "place-1", "광장시장", "market", "서울 종로구", member));
+                                        room,
+                                        "place-1",
+                                        "광장시장",
+                                        "market",
+                                        "서울 종로구",
+                                        "https://maps.google.com/?cid=1",
+                                        "places/place-1/photos/p1",
+                                        member));
 
                 PlaceCandidate found =
                         placeCandidateRepository.findById(saved.getId()).orElseThrow();
@@ -57,6 +64,8 @@ class PlaceCandidateRepositoryTest {
                 assertThat(found.getName()).isEqualTo("광장시장");
                 assertThat(found.getPlaceType()).isEqualTo("market");
                 assertThat(found.getAddress()).isEqualTo("서울 종로구");
+                assertThat(found.getGoogleMapsUrl()).isEqualTo("https://maps.google.com/?cid=1");
+                assertThat(found.getPhotoName()).isEqualTo("places/place-1/photos/p1");
                 assertThat(found.getConfirmedAt()).isNull();
                 assertThat(found.getCreatedAt()).isNotNull();
             }
@@ -94,7 +103,7 @@ class PlaceCandidateRepositoryTest {
     }
 
     private PlaceCandidate newCandidate(Room room, RoomMember member) {
-        return PlaceCandidate.create(room, "same-place", "광장시장", null, null, member);
+        return PlaceCandidate.create(room, "same-place", "광장시장", null, null, null, null, member);
     }
 
     private Room saveRoom() {
