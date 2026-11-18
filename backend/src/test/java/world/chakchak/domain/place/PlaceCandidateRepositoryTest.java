@@ -102,6 +102,58 @@ class PlaceCandidateRepositoryTest {
         }
     }
 
+    @Nested
+    class Read {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("방의 후보 개수는 그 방의 후보만 세고 다른 방의 후보는 세지 않는다")
+            void countsOnlyCandidatesInRoom() {
+                Room room = saveRoom();
+                Room otherRoom = saveRoom();
+                RoomMember member = saveMember(room);
+                placeCandidateRepository.saveAndFlush(candidate(room, "place-1", member));
+                placeCandidateRepository.saveAndFlush(candidate(room, "place-2", member));
+                placeCandidateRepository.saveAndFlush(
+                        candidate(otherRoom, "place-1", saveMember(otherRoom)));
+
+                assertThat(placeCandidateRepository.countByRoom(room)).isEqualTo(2);
+            }
+
+            @Test
+            @DisplayName("같은 방에 올라온 Google 장소는 방과 장소 ID로 찾을 수 있다")
+            void findsCandidateByRoomAndGooglePlaceId() {
+                Room room = saveRoom();
+                PlaceCandidate saved =
+                        placeCandidateRepository.saveAndFlush(
+                                candidate(room, "place-1", saveMember(room)));
+
+                assertThat(placeCandidateRepository.findByRoomAndGooglePlaceId(room, "place-1"))
+                        .get()
+                        .extracting(PlaceCandidate::getId)
+                        .isEqualTo(saved.getId());
+            }
+
+            @Test
+            @DisplayName("다른 방에만 올라온 Google 장소는 이 방에서 찾으면 빈 값이다")
+            void returnsEmptyWhenPlaceOnlyInOtherRoom() {
+                Room room = saveRoom();
+                Room otherRoom = saveRoom();
+                placeCandidateRepository.saveAndFlush(
+                        candidate(otherRoom, "place-1", saveMember(otherRoom)));
+
+                assertThat(placeCandidateRepository.findByRoomAndGooglePlaceId(room, "place-1"))
+                        .isEmpty();
+            }
+        }
+    }
+
+    private PlaceCandidate candidate(Room room, String googlePlaceId, RoomMember member) {
+        return PlaceCandidate.create(room, googlePlaceId, "광장시장", null, null, null, null, member);
+    }
+
     private PlaceCandidate newCandidate(Room room, RoomMember member) {
         return PlaceCandidate.create(room, "same-place", "광장시장", null, null, null, null, member);
     }

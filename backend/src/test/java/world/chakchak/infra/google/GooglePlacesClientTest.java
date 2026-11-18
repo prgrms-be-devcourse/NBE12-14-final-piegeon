@@ -96,8 +96,10 @@ class GooglePlacesClientTest {
 
         assertThat(result.places())
                 .containsExactly(
-                        new GooglePlace("place-1", "광장시장", "서울특별시 종로구 창경궁로 88", "market"),
-                        new GooglePlace("place-2", "남대문시장", "서울특별시 중구 남대문시장4길 21", "market"));
+                        new GooglePlace(
+                                "place-1", "광장시장", "서울특별시 종로구 창경궁로 88", "market", null, null),
+                        new GooglePlace(
+                                "place-2", "남대문시장", "서울특별시 중구 남대문시장4길 21", "market", null, null));
         assertThat(result.nextPageToken()).isEqualTo("next-token");
     }
 
@@ -187,7 +189,7 @@ class GooglePlacesClientTest {
                 .andExpect(
                         header(
                                 GooglePlacesClient.FIELD_MASK_HEADER,
-                                "id,displayName,formattedAddress,primaryType"))
+                                "id,displayName,formattedAddress,primaryType,googleMapsUri,photos"))
                 .andRespond(withSuccess("{\"id\": \"place-1\"}", MediaType.APPLICATION_JSON));
 
         client.findById("place-1");
@@ -196,7 +198,7 @@ class GooglePlacesClientTest {
     }
 
     @Test
-    @DisplayName("Google 상세 조회 응답의 장소는 GooglePlace로 바뀐다")
+    @DisplayName("Google 상세 조회 응답의 장소는 지도 링크와 첫 번째 사진 이름까지 담아 GooglePlace로 바뀐다")
     void findByIdConvertsPlace() {
         String googleResponse =
                 """
@@ -204,7 +206,12 @@ class GooglePlacesClientTest {
                   "id": "place-1",
                   "displayName": {"text": "광장시장", "languageCode": "ko"},
                   "formattedAddress": "서울특별시 종로구 창경궁로 88",
-                  "primaryType": "market"
+                  "primaryType": "market",
+                  "googleMapsUri": "https://maps.google.com/?cid=1",
+                  "photos": [
+                    {"name": "places/place-1/photos/p1", "widthPx": 4032, "heightPx": 3024},
+                    {"name": "places/place-1/photos/p2", "widthPx": 800, "heightPx": 600}
+                  ]
                 }
                 """;
         server.expect(requestTo(DETAILS_URL))
@@ -213,7 +220,55 @@ class GooglePlacesClientTest {
         Optional<GooglePlace> result = client.findById("place-1");
 
         assertThat(result)
-                .contains(new GooglePlace("place-1", "광장시장", "서울특별시 종로구 창경궁로 88", "market"));
+                .contains(
+                        new GooglePlace(
+                                "place-1",
+                                "광장시장",
+                                "서울특별시 종로구 창경궁로 88",
+                                "market",
+                                "https://maps.google.com/?cid=1",
+                                "places/place-1/photos/p1"));
+    }
+
+    @Test
+    @DisplayName("Google 상세 조회 응답에 사진이 없으면 사진 이름은 null이다")
+    void findByIdReturnsNullPhotoNameWhenNoPhotos() {
+        String googleResponse =
+                """
+                {
+                  "id": "place-1",
+                  "displayName": {"text": "광장시장", "languageCode": "ko"},
+                  "googleMapsUri": "https://maps.google.com/?cid=1"
+                }
+                """;
+        server.expect(requestTo(DETAILS_URL))
+                .andRespond(withSuccess(googleResponse, MediaType.APPLICATION_JSON));
+
+        GooglePlace place = client.findById("place-1").orElseThrow();
+
+        assertThat(place.photoName()).isNull();
+        assertThat(place.googleMapsUrl()).isEqualTo("https://maps.google.com/?cid=1");
+    }
+
+    @Test
+    @DisplayName("Google 상세 조회 응답에 이름이 없으면 저장할 수 없는 장소라 빈 값을 돌려준다")
+    void findByIdReturnsEmptyWhenNameMissing() {
+        server.expect(requestTo(DETAILS_URL))
+                .andRespond(withSuccess("{\"id\": \"place-1\"}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.findById("place-1")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Google 상세 조회 응답의 이름이 공백뿐이면 빈 값을 돌려준다")
+    void findByIdReturnsEmptyWhenNameBlank() {
+        server.expect(requestTo(DETAILS_URL))
+                .andRespond(
+                        withSuccess(
+                                "{\"id\": \"place-1\", \"displayName\": {\"text\": \"  \"}}",
+                                MediaType.APPLICATION_JSON));
+
+        assertThat(client.findById("place-1")).isEmpty();
     }
 
     @Test
