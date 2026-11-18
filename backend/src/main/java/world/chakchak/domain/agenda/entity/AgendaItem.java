@@ -57,7 +57,7 @@ public class AgendaItem extends BaseEntity {
     @Column(name = "deadline_at", nullable = false)
     private LocalDateTime deadlineAt;
 
-    // TODO AgendaOption 엔티티를 만들 때 FK와 연관관계로 바꾼다 (안건↔선택지가 서로 참조하므로 FK는 ALTER로 추가)
+    // 결정된 선택지 id. 안건↔선택지가 서로 참조하므로 FK는 V13에서 ALTER로 걸었다 (이 안건의 선지만 가리킬 수 있음)
     @Column(name = "resolved_option_id")
     private Long resolvedOptionId;
 
@@ -131,10 +131,19 @@ public class AgendaItem extends BaseEntity {
     }
 
     /** 선택지 하나로 결정한다. (7-1 만장일치, 최종 확정 반대, D-1 최종 집계) */
-    public void resolve(Long optionId, LocalDateTime now) {
+    // 선지 객체를 받아 이 안건의 선지인지 먼저 확인한다. id만 받으면 다른 안건의 선지여도 flush 때 V13 FK에 걸려 500이 된다.
+    // 저장은 id로 한다. 안건과 선지가 서로를 객체로 참조하지 않게 하기 위해서다.
+    public void resolve(AgendaOption option, LocalDateTime now) {
         requireVoting();
+        if (!option.belongsTo(this)) {
+            throw new IllegalArgumentException("이 안건의 선택지가 아닙니다: " + option.getId());
+        }
+        // FK가 있어 저장된 선지만 결정할 수 있다
+        if (option.getId() == null) {
+            throw new IllegalStateException("저장되지 않은 선택지로는 결정할 수 없습니다.");
+        }
         this.status = AgendaStatus.RESOLVED;
-        this.resolvedOptionId = optionId;
+        this.resolvedOptionId = option.getId();
         this.resolvedAt = now;
     }
 
