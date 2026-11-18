@@ -41,6 +41,8 @@ public class GooglePlacesClient implements PlaceSearchClient {
 
     static final String PLACE_DETAILS_PATH = "/v1/places/{placeId}";
 
+    // TODO googleMapsUri, photos 추가 → GooglePlace에 googleMapsUrl, photoName 필드 추가
+    //  (PR #15에서 place_candidate에 google_maps_url, photo_name 컬럼 추가됨, P-10·P-11)
     /** 상세 조회에서 받을 필드. 검색과 달리 "places." 접두사가 없다. */
     static final String DETAILS_FIELD_MASK = "id,displayName,formattedAddress,primaryType";
 
@@ -117,6 +119,8 @@ public class GooglePlacesClient implements PlaceSearchClient {
             log.warn("Google Places 호출 실패: {}", e.getMessage());
             throw new BusinessException(PlaceErrorCode.PLACES_API_ERROR);
         }
+        // TODO displayName이 없으면 name이 null → place_candidate.name이 NOT NULL이라 저장 시 500.
+        //  P-02 service에서 막을지, 여기서 Optional.empty()로 돌릴지 결정
         return Optional.ofNullable(item).map(PlaceItem::toGooglePlace);
     }
 
