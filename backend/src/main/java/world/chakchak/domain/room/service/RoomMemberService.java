@@ -25,9 +25,10 @@ public class RoomMemberService {
     @Transactional
     public RoomMember addCreator(Room room, Long userId) {
         return roomMemberRepository.save(
-                RoomMember.create(room, userService.getEntityById(userId), clock));
+            RoomMember.create(room, userService.getEntityById(userId), clock));
 
     }
+
     /**
      * 방에 속한 API가 service 첫 줄에서 부른다. 로그인한 사용자가 이 방의 활동 멤버(나가지 않은 멤버)인지 확인하고 그 멤버를 돌려준다.
      *
