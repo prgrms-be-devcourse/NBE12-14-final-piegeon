@@ -78,3 +78,21 @@
 ## Git
 - 브랜치: `<type>/<이슈번호>-<설명>` (예: `feat/12-room-invite`)
 - 커밋: `<type>: <요약>` (type은 feat, fix, refactor, test, docs, chore)
+
+## Claude Code
+
+- 파일을 3개 이상 바꾸는 작업은 plan mode로 계획을 먼저 보여준다.
+
+## Agent skills
+
+### Issue tracker
+
+이 저장소의 이슈와 명세는 `.scratch/` 아래 로컬 Markdown으로 관리한다. 자세한 규칙은 `docs/agents/issue-tracker.md`를 참고한다.
+
+### Triage labels
+
+기본 triage 라벨 문자열(`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`)을 사용한다. 자세한 규칙은 `docs/agents/triage-labels.md`를 참고한다.
+
+### Domain docs
+
+이 저장소는 단일 컨텍스트이며 루트 `GLOSSARY.md`와 `docs/adr/`를 사용한다. 자세한 규칙은 `docs/agents/domain.md`를 참고한다.

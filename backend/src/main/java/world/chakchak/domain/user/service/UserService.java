@@ -50,6 +50,12 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
     }
 
+    public User getEntityById(Long userId) {
+        return userRepository
+                .findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.USER_NOT_FOUND));
+    }
+
     public Optional<UserCredentials> findCredentialsByEmail(String email) {
         return userRepository.findByEmail(User.normalizeEmail(email)).map(UserCredentials::from);
     }
