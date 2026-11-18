@@ -3,9 +3,12 @@ package world.chakchak.domain.agenda;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceUnitUtil;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -48,6 +51,7 @@ class VoteRepositoryTest {
     @Autowired private UserRepository userRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
+    @Autowired private EntityManager entityManager;
 
     private Room room;
     private AgendaItem agenda;
@@ -219,6 +223,37 @@ class VoteRepositoryTest {
                         .extracting(Vote::getId)
                         .containsExactlyInAnyOrder(first.getId(), second.getId());
                 assertThat(voteRepository.countByAgendaItemId(agenda.getId())).isEqualTo(2);
+            }
+
+            @Test
+            @DisplayName("여러 안건의 표를 한 번에 조회하면 그 안건들의 표만 돌려준다")
+            void findsVotesInAgendas() {
+                Vote first = saveVote(agenda, low, minsu);
+                AgendaItem nextRound = saveAgenda(2);
+                Vote second = saveVote(nextRound, saveOption(nextRound, 600_000L, 0), minsu);
+                AgendaItem otherRound = saveAgenda(3);
+                saveVote(otherRound, saveOption(otherRound, 600_000L, 0), minsu);
+
+                assertThat(
+                                voteRepository.findAllByAgendaItemIdIn(
+                                        List.of(agenda.getId(), nextRound.getId())))
+                        .extracting(Vote::getId)
+                        .containsExactlyInAnyOrder(first.getId(), second.getId());
+            }
+
+            // 영속성 컨텍스트를 비워야 저장할 때 들고 있던 객체가 아니라 조회 결과로 로딩 여부를 확인할 수 있다
+            @Test
+            @DisplayName("안건의 표 목록은 투표한 멤버와 사용자를 함께 읽어 온다")
+            void fetchesVoterWithVotes() {
+                saveVote(agenda, low, minsu);
+                entityManager.clear();
+                PersistenceUnitUtil util =
+                        entityManager.getEntityManagerFactory().getPersistenceUnitUtil();
+
+                Vote vote = voteRepository.findAllByAgendaItemId(agenda.getId()).getFirst();
+
+                assertThat(util.isLoaded(vote, "member")).isTrue();
+                assertThat(util.isLoaded(vote.getMember(), "user")).isTrue();
             }
 
             @Test
