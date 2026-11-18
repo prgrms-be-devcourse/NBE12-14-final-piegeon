@@ -12,4 +12,8 @@ public record GooglePlace(
         // 주소 (Google formattedAddress)
         String address,
         // 장소 종류 (Google primaryType, 예: market)
-        String placeType) {}
+        String placeType,
+        // 구글 지도 링크 (Google googleMapsUri). 상세 조회에서만 받고, 검색 결과에서는 null
+        String googleMapsUrl,
+        // 첫 번째 사진 이름 (Google photos[0].name). 사진이 없거나 검색 결과면 null
+        String photoName) {}

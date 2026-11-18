@@ -35,16 +35,15 @@ public class GooglePlacesClient implements PlaceSearchClient {
     static final String FIELD_MASK_HEADER = "X-Goog-FieldMask";
     static final String LANGUAGE_CODE = "ko";
 
-    /** 검색 결과에서 받을 필드. GooglePlace 필드를 늘리면 여기에도 추가한다. */
+    /** 검색 결과에서 받을 필드. 목록에는 4개만 필요하다. 지도 링크·사진은 등록할 때 상세 조회로 받는다. */
     static final String SEARCH_FIELD_MASK =
             "places.id,places.displayName,places.formattedAddress,places.primaryType,nextPageToken";
 
     static final String PLACE_DETAILS_PATH = "/v1/places/{placeId}";
 
-    // TODO googleMapsUri, photos 추가 → GooglePlace에 googleMapsUrl, photoName 필드 추가
-    //  (PR #15에서 place_candidate에 google_maps_url, photo_name 컬럼 추가됨, P-10·P-11)
     /** 상세 조회에서 받을 필드. 검색과 달리 "places." 접두사가 없다. */
-    static final String DETAILS_FIELD_MASK = "id,displayName,formattedAddress,primaryType";
+    static final String DETAILS_FIELD_MASK =
+            "id,displayName,formattedAddress,primaryType,googleMapsUri,photos";
 
     private final RestClient googlePlacesRestClient;
 
@@ -119,9 +118,13 @@ public class GooglePlacesClient implements PlaceSearchClient {
             log.warn("Google Places 호출 실패: {}", e.getMessage());
             throw new BusinessException(PlaceErrorCode.PLACES_API_ERROR);
         }
-        // TODO displayName이 없으면 name이 null → place_candidate.name이 NOT NULL이라 저장 시 500.
-        //  P-02 service에서 막을지, 여기서 Optional.empty()로 돌릴지 결정
-        return Optional.ofNullable(item).map(PlaceItem::toGooglePlace);
+        GooglePlace place = item == null ? null : item.toGooglePlace();
+        if (place == null || place.name() == null || place.name().isBlank()) {
+            // 이름이 없으면 place_candidate.name(NOT NULL)에 저장할 수 없다. 등록할 수 없는 장소로 본다.
+            log.info("Google Places 이름 없는 장소 : id={}", googlePlaceId);
+            return Optional.empty();
+        }
+        return Optional.of(place);
     }
 
     /** 응답을 받았지만 실패한 경우의 공통 처리. 로그를 남기고 PLACES_API_ERROR로 바꾼다. */
@@ -147,13 +150,23 @@ public class GooglePlacesClient implements PlaceSearchClient {
 
     /** Google 응답의 장소 하나 */
     private record PlaceItem(
-            String id, DisplayName displayName, String formattedAddress, String primaryType) {
+            String id,
+            DisplayName displayName,
+            String formattedAddress,
+            String primaryType,
+            String googleMapsUri,
+            List<Photo> photos) {
         GooglePlace toGooglePlace() {
             String name = displayName == null ? null : displayName.text();
-            return new GooglePlace(id, name, formattedAddress, primaryType);
+            String photoName = photos == null || photos.isEmpty() ? null : photos.get(0).name();
+            return new GooglePlace(
+                    id, name, formattedAddress, primaryType, googleMapsUri, photoName);
         }
     }
 
     /** Google은 이름을 {"text" : "광장시장", "languageCode" : "ko"} 형태로 준다. text만 쓴다. */
     private record DisplayName(String text) {}
+
+    /** Google 사진 정보. 사진 프록시(P-11)에서 쓸 name("places/{id}/photos/{photoId}")만 받는다. */
+    private record Photo(String name) {}
 }
