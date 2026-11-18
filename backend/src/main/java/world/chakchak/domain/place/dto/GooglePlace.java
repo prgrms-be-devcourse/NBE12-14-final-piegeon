@@ -12,6 +12,4 @@ public record GooglePlace(
         // 주소 (Google formattedAddress)
         String address,
         // 장소 종류 (Google primaryType, 예: market)
-        String placeType
-        // TODO 좌표 등 P-02에서 place_candidate에 저장할 값은 ERD를 보고 추가
-        ) {}
+        String placeType) {}
