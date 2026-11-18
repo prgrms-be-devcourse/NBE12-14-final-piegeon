@@ -27,10 +27,12 @@ import world.chakchak.global.response.ApiResponse;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    /** 업무 규칙 위반. data가 있으면 응답의 data에 담고, 없으면 data 없이 응답한다. */
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException e) {
-        log.warn("[{}] {}", e.getErrorCode().name(), e.getMessage());
-        return toResponse(e.getErrorCode());
+    public ResponseEntity<ApiResponse<Object>> handleBusiness(BusinessException e) {
+        ErrorCode code = e.getErrorCode();
+        log.warn("[{}] {}", code.name(), e.getMessage());
+        return ResponseEntity.status(code.getStatus()).body(ApiResponse.error(code, e.getData()));
     }
 
     /** 요청 DTO의 검증(@Valid) 실패. 필드별 사유를 data에 담아 보낸다. */

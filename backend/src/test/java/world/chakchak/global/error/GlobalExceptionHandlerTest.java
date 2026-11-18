@@ -2,6 +2,7 @@ package world.chakchak.global.error;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -64,5 +65,32 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(response.getBody().code()).isEqualTo("INTERNAL_ERROR");
+    }
+
+    @Test
+    @DisplayName("data를 담은 업무 예외는 에러 코드의 상태 코드와 code에 그 data를 함께 담아 응답한다")
+    void businessExceptionWithData() {
+        ResponseEntity<ApiResponse<Object>> response =
+                handler.handleBusiness(
+                        new BusinessException(
+                                CommonErrorCode.VERSION_CONFLICT, Map.of("placeId", 9L)));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().success()).isFalse();
+        assertThat(response.getBody().code()).isEqualTo("VERSION_CONFLICT");
+        assertThat(response.getBody().message())
+                .isEqualTo(CommonErrorCode.VERSION_CONFLICT.getMessage());
+        assertThat(response.getBody().data()).isEqualTo(Map.of("placeId", 9L));
+    }
+
+    @Test
+    @DisplayName("data 없이 만든 업무 예외는 data가 null이라 응답 JSON에서 data가 빠진다")
+    void businessExceptionWithoutData() {
+        ResponseEntity<ApiResponse<Object>> response =
+                handler.handleBusiness(new BusinessException(CommonErrorCode.INVALID_INPUT));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().code()).isEqualTo("INVALID_INPUT");
+        assertThat(response.getBody().data()).isNull();
     }
 }
