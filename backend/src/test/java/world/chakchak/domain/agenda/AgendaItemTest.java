@@ -7,6 +7,8 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,7 @@ import world.chakchak.domain.agenda.entity.AgendaOption;
 import world.chakchak.domain.agenda.entity.AgendaStatus;
 import world.chakchak.domain.agenda.entity.AgendaSubject;
 import world.chakchak.domain.agenda.entity.FinalPlanChoice;
+import world.chakchak.domain.agenda.entity.Vote;
 import world.chakchak.domain.agenda.errorcode.AgendaErrorCode;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
@@ -362,6 +365,128 @@ class AgendaItemTest {
 
                 assertErrorCode(
                         () -> agenda.resolve(optionOf(agenda), NOW), AgendaErrorCode.AGENDA_CLOSED);
+            }
+        }
+    }
+
+    @Nested
+    class Decide {
+
+        private RoomMember member() {
+            return RoomMember.create(
+                    room(),
+                    User.create("member@example.com", "멤버", "hash"),
+                    Clock.fixed(NOW.atZone(SEOUL).toInstant(), SEOUL));
+        }
+
+        // 표는 선지 id로 같은지 비교하므로 저장된 것처럼 id를 넣는다
+        private AgendaOption budgetOption(AgendaItem agenda, long amount, long id) {
+            AgendaOption option = AgendaOption.budget(agenda, amount, (int) id, null);
+            ReflectionTestUtils.setField(option, "id", id);
+            return option;
+        }
+
+        private AgendaOption finalOption(AgendaItem agenda, FinalPlanChoice choice, long id) {
+            AgendaOption option = AgendaOption.finalPlan(agenda, choice);
+            ReflectionTestUtils.setField(option, "id", id);
+            return option;
+        }
+
+        private Vote vote(AgendaItem agenda, AgendaOption option) {
+            return Vote.create(agenda, option, member(), NOW);
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("자격자 전원이 같은 선지에 투표하면 그 선지로 결정할 수 있다")
+            void decidesWhenAllVotedSameOption() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 3);
+                AgendaOption low = budgetOption(agenda, 600_000L, 1L);
+
+                Optional<AgendaOption> decided =
+                        agenda.decidableOption(
+                                List.of(vote(agenda, low), vote(agenda, low), vote(agenda, low)));
+
+                assertThat(decided).containsSame(low);
+            }
+
+            @Test
+            @DisplayName("최종 확정에 반대 표가 하나라도 있으면 미투표자가 있어도 반대로 결정할 수 있다")
+            void decidesRejectImmediately() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.FINAL_PLAN, 4);
+                AgendaOption agree = finalOption(agenda, FinalPlanChoice.AGREE, 1L);
+                AgendaOption reject = finalOption(agenda, FinalPlanChoice.REJECT, 2L);
+
+                Optional<AgendaOption> decided =
+                        agenda.decidableOption(List.of(vote(agenda, agree), vote(agenda, reject)));
+
+                assertThat(decided).containsSame(reject);
+            }
+
+            @Test
+            @DisplayName("최종 확정에 자격자 전원이 동의하면 동의로 결정할 수 있다")
+            void decidesAgreeWhenAllAgreed() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.FINAL_PLAN, 2);
+                AgendaOption agree = finalOption(agenda, FinalPlanChoice.AGREE, 1L);
+
+                Optional<AgendaOption> decided =
+                        agenda.decidableOption(List.of(vote(agenda, agree), vote(agenda, agree)));
+
+                assertThat(decided).containsSame(agree);
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("표 수가 자격자 수보다 적으면 모두 같은 선지여도 결정하지 않는다")
+            void waitsForRemainingVoters() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 3);
+                AgendaOption low = budgetOption(agenda, 600_000L, 1L);
+
+                Optional<AgendaOption> decided =
+                        agenda.decidableOption(List.of(vote(agenda, low), vote(agenda, low)));
+
+                assertThat(decided).isEmpty();
+            }
+
+            @Test
+            @DisplayName("자격자 전원이 투표했어도 표가 갈리면 결정하지 않는다")
+            void doesNotDecideWhenSplit() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 2);
+                AgendaOption low = budgetOption(agenda, 600_000L, 1L);
+                AgendaOption high = budgetOption(agenda, 1_000_000L, 2L);
+
+                Optional<AgendaOption> decided =
+                        agenda.decidableOption(List.of(vote(agenda, low), vote(agenda, high)));
+
+                assertThat(decided).isEmpty();
+            }
+
+            @Test
+            @DisplayName("최종 확정에 동의 표만 있고 미투표자가 있으면 결정하지 않는다")
+            void waitsForRemainingFinalVoters() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.FINAL_PLAN, 3);
+                AgendaOption agree = finalOption(agenda, FinalPlanChoice.AGREE, 1L);
+
+                Optional<AgendaOption> decided =
+                        agenda.decidableOption(List.of(vote(agenda, agree), vote(agenda, agree)));
+
+                assertThat(decided).isEmpty();
+            }
+
+            @Test
+            @DisplayName("투표 중이 아닌 안건은 표가 모두 같아도 결정하지 않는다")
+            void doesNotDecideClosedAgenda() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 1);
+                AgendaOption low = budgetOption(agenda, 600_000L, 1L);
+                List<Vote> votes = List.of(vote(agenda, low));
+                agenda.expire();
+
+                assertThat(agenda.decidableOption(votes)).isEmpty();
             }
         }
     }
