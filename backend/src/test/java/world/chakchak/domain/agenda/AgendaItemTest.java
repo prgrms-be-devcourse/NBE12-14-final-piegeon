@@ -18,9 +18,11 @@ import world.chakchak.domain.agenda.entity.AgendaSubject;
 import world.chakchak.domain.agenda.entity.FinalPlanChoice;
 import world.chakchak.domain.agenda.errorcode.AgendaErrorCode;
 import world.chakchak.domain.room.entity.Room;
+import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.survey.entity.Pace;
 import world.chakchak.domain.survey.entity.StayType;
+import world.chakchak.domain.user.entity.User;
 import world.chakchak.global.error.BusinessException;
 
 class AgendaItemTest {
@@ -243,6 +245,59 @@ class AgendaItemTest {
                 agenda.resolve(optionOf(agenda), NOW);
 
                 assertThat(agenda.isOpenAt(NOW)).isFalse();
+            }
+        }
+    }
+
+    @Nested
+    class Eligibility {
+
+        // 안건이 NOW에 저장됐다고 보고, 멤버의 합류 시각만 바꿔 본다
+        private AgendaItem savedAgenda() {
+            AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 3);
+            ReflectionTestUtils.setField(agenda, "createdAt", NOW);
+            return agenda;
+        }
+
+        private RoomMember memberJoinedAt(LocalDateTime joinedAt) {
+            return RoomMember.create(
+                    room(),
+                    User.create("minsu@example.com", "민수", "hash"),
+                    Clock.fixed(joinedAt.atZone(SEOUL).toInstant(), SEOUL));
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("안건이 열리기 전에 합류한 멤버는 투표 자격이 있다")
+            void eligibleWhenJoinedBefore() {
+                assertThat(savedAgenda().isEligible(memberJoinedAt(NOW.minusDays(1)))).isTrue();
+            }
+
+            @Test
+            @DisplayName("안건이 열린 시각과 같은 시각에 합류한 멤버도 투표 자격이 있다")
+            void eligibleWhenJoinedAtSameTime() {
+                assertThat(savedAgenda().isEligible(memberJoinedAt(NOW))).isTrue();
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("안건이 열린 뒤에 합류한 멤버는 투표 자격이 없다")
+            void notEligibleWhenJoinedAfter() {
+                assertThat(savedAgenda().isEligible(memberJoinedAt(NOW.plusSeconds(1)))).isFalse();
+            }
+
+            @Test
+            @DisplayName("저장되지 않아 생성 시각이 없는 안건은 투표 자격을 판단할 수 없다")
+            void rejectsUnsavedAgenda() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 3);
+
+                assertThatThrownBy(() -> agenda.isEligible(memberJoinedAt(NOW)))
+                        .isInstanceOf(IllegalStateException.class);
             }
         }
     }

@@ -3,6 +3,8 @@ package world.chakchak.domain.agenda;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceUnitUtil;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -44,6 +46,7 @@ class AgendaOptionRepositoryTest {
     @Autowired private UserRepository userRepository;
     @Autowired private Clock clock;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private EntityManager entityManager;
 
     private Room room;
     private AgendaItem budgetAgenda;
@@ -151,6 +154,24 @@ class AgendaOptionRepositoryTest {
                                         budgetAgenda.getId()))
                         .extracting(AgendaOption::getId)
                         .containsExactly(first.getId(), second.getId(), third.getId());
+            }
+
+            // 영속성 컨텍스트를 비워야 저장할 때 들고 있던 객체가 아니라 조회 결과로 로딩 여부를 확인할 수 있다
+            @Test
+            @DisplayName("안건의 선지 목록은 선지를 추가한 멤버와 사용자를 함께 읽어 온다")
+            void fetchesProposerWithOptions() {
+                saveBudget(budgetAgenda, 600_000L, 0, saveMember());
+                entityManager.clear();
+                PersistenceUnitUtil util =
+                        entityManager.getEntityManagerFactory().getPersistenceUnitUtil();
+
+                AgendaOption option =
+                        agendaOptionRepository
+                                .findAllByAgendaItemIdOrderByDisplayIndexAsc(budgetAgenda.getId())
+                                .getFirst();
+
+                assertThat(util.isLoaded(option, "proposedBy")).isTrue();
+                assertThat(util.isLoaded(option.getProposedBy(), "user")).isTrue();
             }
 
             @Test

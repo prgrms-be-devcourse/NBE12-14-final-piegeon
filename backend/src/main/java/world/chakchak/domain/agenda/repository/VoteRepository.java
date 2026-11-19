@@ -1,7 +1,9 @@
 package world.chakchak.domain.agenda.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import world.chakchak.domain.agenda.entity.Vote;
 
@@ -10,8 +12,16 @@ public interface VoteRepository extends JpaRepository<Vote, Long> {
     /** 이 안건에 낸 내 표 (V-03 투표·표 바꾸기, V-01 myOptionId) */
     Optional<Vote> findByAgendaItemIdAndMemberId(Long agendaId, Long memberId);
 
-    /** 안건의 모든 표 (7-1 만장일치 판정, V-02 선지별 투표자) */
+    /**
+     * 안건의 모든 표 (7-1 만장일치 판정, V-02 선지별 투표자)
+     *
+     * <p>응답에 투표자 이름(user.name)이 들어가므로 멤버와 사용자를 함께 읽어 표마다 따로 조회하지 않게 한다.
+     */
+    @EntityGraph(attributePaths = {"member", "member.user"})
     List<Vote> findAllByAgendaItemId(Long agendaId);
+
+    /** 여러 안건의 표를 한 번에 (V-01 votedCount, myOptionId) */
+    List<Vote> findAllByAgendaItemIdIn(Collection<Long> agendaIds);
 
     /** 안건에 들어온 표 수 (votedCount) */
     long countByAgendaItemId(Long agendaId);
