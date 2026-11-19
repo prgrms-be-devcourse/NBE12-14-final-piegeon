@@ -1,7 +1,5 @@
 package world.chakchak.domain.place.service;
 
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -29,8 +27,8 @@ import world.chakchak.domain.place.repository.PlaceReactionRepository;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
-import world.chakchak.domain.room.errorcode.RoomErrorCode;
 import world.chakchak.domain.room.service.RoomMemberService;
+import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
@@ -42,7 +40,7 @@ public class PlaceCandidateService {
     // 여행 하루에 올릴 수 있는 후보 수 (한도 = 여행 일수 x 10)
     private static final int CANDIDATES_PER_DAY = 10;
 
-    private final EntityManager entityManager;
+    private final RoomService roomService;
     private final PlatformTransactionManager transactionManager;
     private final PlaceSearchClient placeSearchClient;
     private final RoomMemberService roomMemberService;
@@ -57,7 +55,8 @@ public class PlaceCandidateService {
      * 조회는 트랜잭션 밖에서 하고, 잠금부터 저장까지만 TransactionTemplate으로 묶는다.
      *
      * @throws BusinessException Google에 없는 장소면 PLACE_NOT_FOUND, 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면
-     *     FORBIDDEN, 한도를 넘으면 PLACE_LIMIT_EXCEEDED, 이미 올라온 장소면 PLACE_ALREADY_REGISTERED
+     *     FORBIDDEN, 방이 PLANNING이 아니면 INVALID_STATUS, 한도를 넘으면 PLACE_LIMIT_EXCEEDED, 이미 올라온 장소면
+     *     PLACE_ALREADY_REGISTERED
      */
     public PlaceCandidateItem register(Long roomId, Long userId, String googlePlaceId) {
         GooglePlace place =
@@ -72,16 +71,15 @@ public class PlaceCandidateService {
     // 잠금 → 멤버 확인 → 상태 확인 → 한도·중복 확인 → 저장 (명세 1-4)
     private PlaceCandidateItem registerInTransaction(Long roomId, Long userId, GooglePlace place) {
         // 반드시 첫 쿼리. 방을 먼저 읽어 두면 잠금만 걸리고 값은 새로 읽지 않아 낡은 상태로 판단하게 된다.
-        // TODO #36 머지 후 roomService.getForUpdate(roomId)로 바꾸기
-        Room room = entityManager.find(Room.class, roomId, LockModeType.PESSIMISTIC_WRITE);
-        if (room == null) {
-            throw new BusinessException(RoomErrorCode.ROOM_NOT_FOUND);
-        }
-
+        // 방이 없으면 getForUpdate가 ROOM_NOT_FOUND를 던진다
+        Room room = roomService.getForUpdate(roomId);
         // 잠금 안에서 확인해야 확인 직후 방을 나간 사람의 등록을 막을 수 있다
         RoomMember member = roomMemberService.getActiveMember(roomId, userId);
 
-        // TODO 방이 PLANNING이 아니면 에러 코드 반환
+        // 후보는 일정 조율(PLANNING) 중에만 올릴 수 있다. 잠금 안에서 봐야 그 사이 바뀐 상태를 놓치지 않는다
+        if (room.getStatus() != RoomStatus.PLANNING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
 
         long limit = limitOf(room);
         if (placeCandidateRepository.countByRoom(room) >= limit) {

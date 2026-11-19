@@ -207,6 +207,23 @@ class PlaceCandidateServiceTest {
             }
 
             @Test
+            @DisplayName("일정 조율(PLANNING) 중이 아닌 방이면 INVALID_STATUS로 막고 아무것도 저장하지 않는다")
+            void rejectsRoomNotPlanning() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember member = saveMember(room, "민수");
+                jdbcTemplate.update(
+                        "UPDATE plan_room SET status = 'SURVEYING' WHERE id = ?", room.getId());
+
+                assertThatThrownBy(() -> register(member, "place-1"))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.INVALID_STATUS));
+                assertThat(placeCandidateRepository.countByRoom(room)).isZero();
+            }
+
+            @Test
             @DisplayName("방을 나간 멤버면 FORBIDDEN으로 막고 아무것도 저장하지 않는다")
             void rejectsLeftMember() {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));

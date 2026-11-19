@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import world.chakchak.IntegrationTest;
 import world.chakchak.domain.place.dto.GooglePlace;
@@ -39,6 +40,7 @@ class PlaceCandidateApiIntegrationTest {
 
     @Autowired private RoomRepository roomRepository;
     @Autowired private PlaceCandidateRepository placeCandidateRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     @MockitoBean private PlaceSearchClient placeSearchClient;
 
@@ -106,6 +108,21 @@ class PlaceCandidateApiIntegrationTest {
             }
 
             @Test
+            @DisplayName("일정 조율(PLANNING) 중이 아닌 방이면 409 INVALID_STATUS이고 아무것도 저장하지 않는다")
+            void rejectsRoomNotPlanning() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createSurveyingRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+
+                HttpResponse<String> response = register(roomId, "place-1", cookie);
+
+                assertThat(response.statusCode()).isEqualTo(409);
+                assertThat(response.body()).contains("\"code\":\"INVALID_STATUS\"");
+                assertThat(placeCandidateRepository.countByRoom(room(roomId))).isZero();
+            }
+
+            @Test
             @DisplayName("Google에 없는 장소면 404 PLACE_NOT_FOUND이고 아무것도 저장하지 않는다")
             void rejectsUnknownPlace() throws java.lang.Exception {
                 String cookie = login();
@@ -151,7 +168,14 @@ class PlaceCandidateApiIntegrationTest {
                 cookie);
     }
 
+    // 설문 단계 API가 아직 없어서, 만든 방(SURVEYING)을 DB에서 바로 PLANNING으로 넘긴다
     private long createRoom(String cookie) throws java.lang.Exception {
+        long roomId = createSurveyingRoom(cookie);
+        jdbcTemplate.update("UPDATE plan_room SET status = 'PLANNING' WHERE id = ?", roomId);
+        return roomId;
+    }
+
+    private long createSurveyingRoom(String cookie) throws java.lang.Exception {
         LocalDate start = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(5);
         HttpResponse<String> response =
                 post(
