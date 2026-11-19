@@ -2,15 +2,21 @@ package world.chakchak.domain.place;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
 
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import world.chakchak.IntegrationTest;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
@@ -24,6 +30,7 @@ import world.chakchak.domain.place.errorcode.PlaceErrorCode;
 import world.chakchak.domain.place.repository.PlaceCandidateRepository;
 import world.chakchak.domain.place.repository.PlaceReactionRepository;
 import world.chakchak.domain.place.service.PlaceCandidateService;
+import world.chakchak.domain.place.service.PlaceSearchClient;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
@@ -32,8 +39,13 @@ import world.chakchak.domain.room.repository.RoomRepository;
 import world.chakchak.domain.user.entity.User;
 import world.chakchak.domain.user.repository.UserRepository;
 import world.chakchak.global.error.BusinessException;
+import world.chakchak.global.error.CommonErrorCode;
 
-/** P-02 장소 후보 등록의 트랜잭션 부분. 실제 MySQL에서 방 잠금과 저장을 확인한다. */
+/**
+ * P-02 장소 후보 등록. 실제 MySQL에서 방 잠금과 저장을 확인한다.
+ *
+ * <p>Google 조회만 가짜로 바꾸고 register를 그대로 부른다. 그래야 트랜잭션이 실제로 열리는지, 멤버의 user를 트랜잭션 안에서 읽는지까지 함께 확인된다.
+ */
 @IntegrationTest
 class PlaceCandidateServiceTest {
 
@@ -43,10 +55,19 @@ class PlaceCandidateServiceTest {
     @Autowired private RoomRepository roomRepository;
     @Autowired private RoomMemberRepository roomMemberRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
 
+    @MockitoBean private PlaceSearchClient placeSearchClient;
+
+    @BeforeEach
+    void stubGoogle() {
+        given(placeSearchClient.findById(anyString()))
+                .willAnswer(invocation -> Optional.of(googlePlace(invocation.getArgument(0))));
+    }
+
     @Nested
-    class Create {
+    class Register {
 
         @Nested
         class Success {
@@ -57,8 +78,7 @@ class PlaceCandidateServiceTest {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
                 RoomMember member = saveMember(room, "민수");
 
-                PlaceCandidateItem item =
-                        placeCandidateService.create(member, 3, googlePlace("place-1"));
+                PlaceCandidateItem item = register(member, "place-1");
 
                 PlaceCandidate saved =
                         placeCandidateRepository.findById(item.placeId()).orElseThrow();
@@ -81,9 +101,10 @@ class PlaceCandidateServiceTest {
             void returnsBoardItem() {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
                 RoomMember member = saveMember(room, "민수");
+                saveMember(room, "지영");
+                saveMember(room, "철수");
 
-                PlaceCandidateItem item =
-                        placeCandidateService.create(member, 3, googlePlace("place-1"));
+                PlaceCandidateItem item = register(member, "place-1");
 
                 MemberRef me = new MemberRef(member.getId(), "민수");
                 assertThat(item.placeId()).isNotNull();
@@ -104,9 +125,21 @@ class PlaceCandidateServiceTest {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
                 RoomMember member = saveMember(room, "민수");
 
-                PlaceCandidateItem item =
-                        placeCandidateService.create(member, 1, googlePlace("place-1"));
+                PlaceCandidateItem item = register(member, "place-1");
 
+                assertThat(item.stage()).isEqualTo(PlaceStage.FULL);
+            }
+
+            @Test
+            @DisplayName("칸은 나간 멤버를 뺀 인원으로 계산한다")
+            void stageExcludesLeftMembers() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember member = saveMember(room, "민수");
+                leave(saveMember(room, "지영"));
+
+                PlaceCandidateItem item = register(member, "place-1");
+
+                // 남은 사람이 나 혼자라 전원 동의
                 assertThat(item.stage()).isEqualTo(PlaceStage.FULL);
             }
         }
@@ -121,11 +154,10 @@ class PlaceCandidateServiceTest {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 1));
                 RoomMember member = saveMember(room, "민수");
                 for (int i = 0; i < 10; i++) {
-                    placeCandidateService.create(member, 2, googlePlace("place-" + i));
+                    register(member, "place-" + i);
                 }
 
-                assertThatThrownBy(() ->
-                                placeCandidateService.create(member, 2, googlePlace("place-10")))
+                assertThatThrownBy(() -> register(member, "place-10"))
                         .isInstanceOfSatisfying(
                                 BusinessException.class,
                                 e -> {
@@ -142,11 +174,9 @@ class PlaceCandidateServiceTest {
             void rejectsDuplicate() {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
                 RoomMember member = saveMember(room, "민수");
-                PlaceCandidateItem first =
-                        placeCandidateService.create(member, 2, googlePlace("place-1"));
+                PlaceCandidateItem first = register(member, "place-1");
 
-                assertThatThrownBy(() ->
-                                placeCandidateService.create(member, 2, googlePlace("place-1")))
+                assertThatThrownBy(() -> register(member, "place-1"))
                         .isInstanceOfSatisfying(
                                 BusinessException.class,
                                 e -> {
@@ -159,7 +189,67 @@ class PlaceCandidateServiceTest {
                                 });
                 assertThat(placeCandidateRepository.countByRoom(room)).isEqualTo(1);
             }
+
+            @Test
+            @DisplayName("Google에 없는 장소면 PLACE_NOT_FOUND로 막고 아무것도 저장하지 않는다")
+            void rejectsUnknownPlace() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember member = saveMember(room, "민수");
+                given(placeSearchClient.findById("missing")).willReturn(Optional.empty());
+
+                assertThatThrownBy(() -> register(member, "missing"))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(PlaceErrorCode.PLACE_NOT_FOUND));
+                assertThat(placeCandidateRepository.countByRoom(room)).isZero();
+            }
+
+            @Test
+            @DisplayName("방을 나간 멤버면 FORBIDDEN으로 막고 아무것도 저장하지 않는다")
+            void rejectsLeftMember() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember member = saveMember(room, "민수");
+                leave(member);
+
+                assertThatThrownBy(() -> register(member, "place-1"))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.FORBIDDEN));
+                assertThat(placeCandidateRepository.countByRoom(room)).isZero();
+            }
+
+            @Test
+            @DisplayName("다른 방의 멤버면 FORBIDDEN으로 막는다")
+            void rejectsMemberOfOtherRoom() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember outsider = saveMember(otherRoom, "민수");
+
+                assertThatThrownBy(() ->
+                                placeCandidateService.register(
+                                        room.getId(), outsider.getUser().getId(), "place-1"))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.FORBIDDEN));
+                assertThat(placeCandidateRepository.countByRoom(room)).isZero();
+            }
         }
+    }
+
+    private PlaceCandidateItem register(RoomMember member, String googlePlaceId) {
+        return placeCandidateService.register(
+                member.getRoom().getId(), member.getUser().getId(), googlePlaceId);
+    }
+
+    private void leave(RoomMember member) {
+        jdbcTemplate.update(
+                "UPDATE plan_room_member SET left_at = NOW(6) WHERE id = ?", member.getId());
     }
 
     private GooglePlace googlePlace(String googlePlaceId) {
