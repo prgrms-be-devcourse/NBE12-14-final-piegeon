@@ -118,6 +118,12 @@ public class RoomService {
         return RoomDetailResponse.from(room, members);
     }
 
+    @Transactional
+    public void markSeen(Long roomId, Long userId, LocalDateTime seenUntil) {
+        RoomMember member = roomMemberService.getActiveMember(roomId, userId);
+        member.markSeenThrough(seenUntil);
+    }
+
     public RoomCreatedResponse create(Long userId, CreateRoomRequest request) {
         validateDates(request.startDate(), request.endDate());
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
