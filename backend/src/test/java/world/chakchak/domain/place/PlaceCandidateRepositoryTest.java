@@ -182,6 +182,25 @@ class PlaceCandidateRepositoryTest {
                 assertThat(placeCandidateRepository.findByRoomAndGooglePlaceId(room, "place-1"))
                         .isEmpty();
             }
+
+            @Test
+            @DisplayName("후보 ID와 방 ID로 찾으면 그 방의 후보만 찾고 다른 방의 후보는 빈 값이다")
+            void findsCandidateByIdOnlyInRoom() {
+                Room room = saveRoom();
+                Room otherRoom = saveRoom();
+                PlaceCandidate saved =
+                        placeCandidateRepository.saveAndFlush(
+                                candidate(room, "place-1", saveMember(room)));
+
+                assertThat(placeCandidateRepository.findByIdAndRoom_Id(saved.getId(), room.getId()))
+                        .get()
+                        .extracting(PlaceCandidate::getId)
+                        .isEqualTo(saved.getId());
+                assertThat(
+                                placeCandidateRepository.findByIdAndRoom_Id(
+                                        saved.getId(), otherRoom.getId()))
+                        .isEmpty();
+            }
         }
     }
 

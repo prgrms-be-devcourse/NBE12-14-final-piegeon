@@ -8,13 +8,14 @@ import world.chakchak.domain.agenda.entity.AgendaItem;
 import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.comment.entity.Comment;
 import world.chakchak.domain.comment.repository.CommentRepository;
+import world.chakchak.domain.place.entity.PlaceCandidate;
 import world.chakchak.domain.room.entity.RoomMember;
 
 /**
  * 코멘트 저장과 조회.
  *
- * <p>다른 도메인의 service를 주입받지 않는다. 안건·장소가 이 방의 것인지는 부르는 쪽(AgendaService 등)이 먼저 확인하고 넘긴다. 그래야
- * AgendaService가 이 service를 써도 서로를 주입받는 순환이 생기지 않는다.
+ * <p>다른 도메인의 service를 주입받지 않는다. 안건·장소가 이 방의 것인지는 부르는 쪽(AgendaService, PlaceCandidateService)이 먼저
+ * 확인하고 넘긴다. 그래야 그 service들이 이 service를 써도 서로를 주입받는 순환이 생기지 않는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -34,5 +35,18 @@ public class CommentService {
     @Transactional
     public Comment addOnAgenda(AgendaItem agenda, RoomMember member, String body) {
         return commentRepository.save(Comment.onAgenda(agenda, member, body));
+    }
+
+    /** 장소 후보 코멘트를 오래된 순으로 돌려준다. (P-08) */
+    public List<CommentResponse> getOnPlace(Long placeCandidateId) {
+        return commentRepository.findAllByPlaceCandidateIdOrderByIdAsc(placeCandidateId).stream()
+                .map(CommentResponse::from)
+                .toList();
+    }
+
+    /** 장소 후보 코멘트를 남긴다. (P-09) */
+    @Transactional
+    public Comment addOnPlace(PlaceCandidate placeCandidate, RoomMember member, String body) {
+        return commentRepository.save(Comment.onPlace(placeCandidate, member, body));
     }
 }
