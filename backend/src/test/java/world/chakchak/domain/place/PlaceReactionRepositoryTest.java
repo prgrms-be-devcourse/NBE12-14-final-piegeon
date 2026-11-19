@@ -3,9 +3,12 @@ package world.chakchak.domain.place;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import jakarta.persistence.EntityManager;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -38,31 +41,40 @@ class PlaceReactionRepositoryTest {
     @Autowired private RoomMemberRepository roomMemberRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private Clock clock;
+    @Autowired private EntityManager entityManager;
 
+    private Room room;
     private RoomMember member;
     private PlaceCandidate candidate;
 
     @BeforeEach
     void setUp() {
-        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-        Room room =
-                roomRepository.save(
-                        Room.create(
-                                "여행 " + suffix,
-                                "부산",
-                                LocalDate.of(2027, 7, 1),
-                                LocalDate.of(2027, 7, 3),
-                                suffix,
-                                RoomStatus.PLANNING,
-                                clock));
-        User user =
-                userRepository.save(
-                        User.create(UUID.randomUUID() + "@example.com", "테스터", "hashed-password"));
-        member = roomMemberRepository.save(RoomMember.create(room, user, clock));
+        room = saveRoom();
+        member = saveMember(room, "테스터");
         candidate =
                 placeCandidateRepository.save(
                         PlaceCandidate.create(
                                 room, "place-1", "광장시장", "market", null, null, null, member));
+    }
+
+    private Room saveRoom() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        return roomRepository.save(
+                Room.create(
+                        "여행 " + suffix,
+                        "부산",
+                        LocalDate.of(2027, 7, 1),
+                        LocalDate.of(2027, 7, 3),
+                        suffix,
+                        RoomStatus.PLANNING,
+                        clock));
+    }
+
+    private RoomMember saveMember(Room room, String name) {
+        User user =
+                userRepository.save(
+                        User.create(UUID.randomUUID() + "@example.com", name, "hashed-password"));
+        return roomMemberRepository.save(RoomMember.create(room, user, clock));
     }
 
     @Nested
@@ -101,6 +113,66 @@ class PlaceReactionRepositoryTest {
                                                 candidate, member, PlaceReactionType.NOPE)))
                         .isInstanceOf(DataIntegrityViolationException.class)
                         .hasMessageContaining("uk_place_reaction_candidate_member");
+            }
+        }
+    }
+
+    @Nested
+    class Read {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("방의 반응 중 고른 종류(WANT)만 가져오고 NOPE와 다른 방의 반응은 빼고 가져온다")
+            void findsOnlyWantInRoom() {
+                RoomMember other = saveMember(room, "철수");
+                PlaceReaction want =
+                        placeReactionRepository.save(
+                                PlaceReaction.create(candidate, member, PlaceReactionType.WANT));
+                placeReactionRepository.save(
+                        PlaceReaction.create(candidate, other, PlaceReactionType.NOPE));
+                Room otherRoom = saveRoom();
+                RoomMember otherRoomMember = saveMember(otherRoom, "영희");
+                PlaceCandidate otherRoomCandidate =
+                        placeCandidateRepository.save(
+                                PlaceCandidate.create(
+                                        otherRoom,
+                                        "place-1",
+                                        "광장시장",
+                                        null,
+                                        null,
+                                        null,
+                                        null,
+                                        otherRoomMember));
+                placeReactionRepository.save(
+                        PlaceReaction.create(
+                                otherRoomCandidate, otherRoomMember, PlaceReactionType.WANT));
+
+                List<PlaceReaction> found =
+                        placeReactionRepository.findAllByPlaceCandidate_RoomAndReaction(
+                                room, PlaceReactionType.WANT);
+
+                assertThat(found).extracting(PlaceReaction::getId).containsExactly(want.getId());
+            }
+
+            @Test
+            @DisplayName("반응과 함께 멤버와 그 사용자까지 가져와 따로 조회하지 않아도 이름을 쓸 수 있다")
+            void fetchesMemberWithReactions() {
+                placeReactionRepository.save(
+                        PlaceReaction.create(candidate, member, PlaceReactionType.WANT));
+                entityManager.flush();
+                entityManager.clear();
+
+                PlaceReaction found =
+                        placeReactionRepository
+                                .findAllByPlaceCandidate_RoomAndReaction(
+                                        room, PlaceReactionType.WANT)
+                                .getFirst();
+
+                assertThat(Hibernate.isInitialized(found.getMember())).isTrue();
+                assertThat(Hibernate.isInitialized(found.getMember().getUser())).isTrue();
+                assertThat(found.getMember().getUser().getName()).isEqualTo("테스터");
             }
         }
     }

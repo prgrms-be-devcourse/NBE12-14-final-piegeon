@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -107,6 +109,39 @@ class PlaceCandidateRepositoryTest {
 
         @Nested
         class Success {
+
+            @Test
+            @DisplayName("방의 후보 목록은 그 방의 후보만 담고 다른 방의 후보는 담지 않는다")
+            void findsOnlyCandidatesInRoom() {
+                Room room = saveRoom();
+                Room otherRoom = saveRoom();
+                RoomMember member = saveMember(room);
+                PlaceCandidate first =
+                        placeCandidateRepository.saveAndFlush(candidate(room, "place-1", member));
+                PlaceCandidate second =
+                        placeCandidateRepository.saveAndFlush(candidate(room, "place-2", member));
+                placeCandidateRepository.saveAndFlush(
+                        candidate(otherRoom, "place-1", saveMember(otherRoom)));
+
+                List<PlaceCandidate> found = placeCandidateRepository.findAllByRoom(room);
+
+                assertThat(found)
+                        .extracting(PlaceCandidate::getId)
+                        .containsExactlyInAnyOrder(first.getId(), second.getId());
+            }
+
+            @Test
+            @DisplayName("방의 후보 목록은 올린 멤버와 그 사용자까지 함께 가져와 따로 조회하지 않아도 이름을 쓸 수 있다")
+            void fetchesSuggesterWithCandidates() {
+                Room room = saveRoom();
+                placeCandidateRepository.saveAndFlush(candidate(room, "place-1", saveMember(room)));
+
+                PlaceCandidate found = placeCandidateRepository.findAllByRoom(room).getFirst();
+
+                assertThat(Hibernate.isInitialized(found.getSuggestedBy())).isTrue();
+                assertThat(Hibernate.isInitialized(found.getSuggestedBy().getUser())).isTrue();
+                assertThat(found.getSuggestedBy().getUser().getName()).isEqualTo("테스터");
+            }
 
             @Test
             @DisplayName("방의 후보 개수는 그 방의 후보만 세고 다른 방의 후보는 세지 않는다")
