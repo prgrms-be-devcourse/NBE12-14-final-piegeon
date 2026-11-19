@@ -626,17 +626,16 @@ class AgendaServiceTest {
         class Exception {
 
             @Test
-            @DisplayName("방이 없으면 ROOM_NOT_FOUND를 던지고 멤버 확인을 하지 않는다")
+            @DisplayName("방이 없으면 ROOM_NOT_FOUND를 던지고 시각을 구하거나 멤버를 확인하지 않는다")
             void rejectsMissingRoom() {
-                given(clock.instant()).willReturn(NOW.atZone(SEOUL).toInstant());
-                given(clock.getZone()).willReturn(SEOUL);
                 given(roomService.getForUpdate(ROOM_ID))
                         .willThrow(new BusinessException(RoomErrorCode.ROOM_NOT_FOUND));
 
                 assertVoteError(
                         () -> agendaService.vote(ROOM_ID, 5L, USER_ID, new VoteRequest(1L, null)),
                         RoomErrorCode.ROOM_NOT_FOUND);
-                verifyNoInteractions(roomMemberService, voteRepository);
+                // 시각은 잠금을 얻은 뒤에 구한다
+                verifyNoInteractions(clock, roomMemberService, voteRepository);
             }
 
             @Test
