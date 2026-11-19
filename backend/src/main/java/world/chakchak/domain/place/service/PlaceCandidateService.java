@@ -8,7 +8,12 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import world.chakchak.domain.comment.dto.CommentListResponse;
+import world.chakchak.domain.comment.dto.CommentRequest;
+import world.chakchak.domain.comment.dto.CommentResponse;
+import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
@@ -23,11 +28,13 @@ import world.chakchak.domain.place.repository.PlaceCandidateRepository;
 import world.chakchak.domain.place.repository.PlaceReactionRepository;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
+import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.errorcode.RoomErrorCode;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.global.error.BusinessException;
+import world.chakchak.global.error.CommonErrorCode;
 
-/** 장소 후보 기능. (P-02) */
+/** 장소 후보 기능. (P-02, P-08·P-09 장소 코멘트) */
 @Service
 @RequiredArgsConstructor
 public class PlaceCandidateService {
@@ -41,6 +48,7 @@ public class PlaceCandidateService {
     private final RoomMemberService roomMemberService;
     private final PlaceCandidateRepository placeCandidateRepository;
     private final PlaceReactionRepository placeReactionRepository;
+    private final CommentService commentService;
 
     /**
      * 장소 후보를 등록하고, 올린 사람의 "가고 싶어요"를 함께 남긴다. (P-02)
@@ -123,6 +131,43 @@ public class PlaceCandidateService {
                 List.of(me),
                 me,
                 candidate.getConfirmedAt());
+    }
+
+    /** 장소 후보 코멘트 목록, 오래된 순. (P-08) */
+    @Transactional(readOnly = true)
+    public CommentListResponse getComments(Long roomId, Long placeId, Long userId) {
+        roomMemberService.getActiveMember(roomId, userId);
+        getCandidateInRoom(roomId, placeId);
+        return new CommentListResponse(commentService.getOnPlace(placeId));
+    }
+
+    /**
+     * 장소 후보에 코멘트를 남긴다. 확정된 장소에도 남길 수 있다. (P-09)
+     *
+     * <p>코멘트는 장소·방 상태를 바꾸지 않으므로 방 잠금을 잡지 않는다 (명세 V-06과 같음).
+     */
+    @Transactional
+    public CommentResponse addComment(
+            Long roomId, Long placeId, Long userId, CommentRequest request) {
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        // 명세 2-1: 코멘트는 확정 전 단계(SURVEYING·PLANNING·REVIEWING)에서만 받는다
+        RoomStatus status = me.getRoom().getStatus();
+        if (status != RoomStatus.SURVEYING
+                && status != RoomStatus.PLANNING
+                && status != RoomStatus.REVIEWING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+        PlaceCandidate candidate = getCandidateInRoom(roomId, placeId);
+        CommentResponse response =
+                CommentResponse.from(commentService.addOnPlace(candidate, me, request.body()));
+        // TODO SSE (커밋 후): comment.created
+        return response;
+    }
+
+    private PlaceCandidate getCandidateInRoom(Long roomId, Long placeId) {
+        return placeCandidateRepository
+                .findByIdAndRoom_Id(placeId, roomId)
+                .orElseThrow(() -> new BusinessException(PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND));
     }
 
     // 여행 일수 × 10. 7월 1일~3일이면 3일이라 30개
