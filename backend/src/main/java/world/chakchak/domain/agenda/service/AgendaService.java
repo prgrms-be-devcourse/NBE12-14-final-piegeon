@@ -1,5 +1,6 @@
 package world.chakchak.domain.agenda.service;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +18,7 @@ import world.chakchak.domain.agenda.dto.AgendaDetailResponse.OptionResult;
 import world.chakchak.domain.agenda.dto.AgendaListResponse;
 import world.chakchak.domain.agenda.dto.MemberRef;
 import world.chakchak.domain.agenda.dto.OptionRef;
+import world.chakchak.domain.agenda.dto.VoteRequest;
 import world.chakchak.domain.agenda.entity.AgendaItem;
 import world.chakchak.domain.agenda.entity.AgendaOption;
 import world.chakchak.domain.agenda.entity.AgendaStatus;
@@ -26,15 +28,19 @@ import world.chakchak.domain.agenda.errorcode.AgendaErrorCode;
 import world.chakchak.domain.agenda.repository.AgendaItemRepository;
 import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
 import world.chakchak.domain.agenda.repository.VoteRepository;
+import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
+import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.service.RoomMemberService;
+import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.global.error.BusinessException;
+import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * 안건 조회(V-01 목록, V-02 상세)와 7-1 만장일치 판정.
+ * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 7-1 만장일치 판정.
  *
- * <p>조회는 방 잠금을 잡지 않는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수 있다.
+ * <p>조회는 방 잠금을 잡지 않는다. 투표는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수 있다.
  */
 @Service
 @RequiredArgsConstructor
@@ -44,10 +50,13 @@ public class AgendaService {
     private static final List<AgendaSubject> SURVEY_SUBJECTS =
             List.of(AgendaSubject.BUDGET, AgendaSubject.STAY, AgendaSubject.PACE);
 
+    private final RoomService roomService;
     private final RoomMemberService roomMemberService;
+    private final CommentService commentService;
     private final AgendaItemRepository agendaItemRepository;
     private final AgendaOptionRepository agendaOptionRepository;
     private final VoteRepository voteRepository;
+    private final Clock clock;
 
     /** 방의 안건 전체 목록 (V-01). 필터 없이 모두 돌려주고 걸러 보기는 프론트가 한다. */
     public AgendaListResponse getAgendas(Long roomId, Long userId) {
@@ -97,6 +106,59 @@ public class AgendaService {
                 agendaItemRepository
                         .findByIdAndRoomId(agendaId, roomId)
                         .orElseThrow(() -> new BusinessException(AgendaErrorCode.AGENDA_NOT_FOUND));
+        return toDetail(agenda, me);
+    }
+
+    /**
+     * 투표하거나 표를 바꾼다 (V-03). 표가 들어올 때마다 7-1로 판정해, 결정되면 방 상태까지 같은 트랜잭션에서 반영한다.
+     *
+     * <p>방 잠금을 첫 쿼리로 잡아 같은 방의 투표·퇴장·마감이 한 줄로 처리된다. 그래서 마지막 두 표가 동시에 들어와도 판정은 한 번만 일어난다.
+     */
+    @Transactional
+    public AgendaDetailResponse vote(Long roomId, Long agendaId, Long userId, VoteRequest request) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        Room room = roomService.getForUpdate(roomId);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        // 명세 2-1: 투표는 설문 안건을 정하는 SURVEYING과 최종 확정 투표 중인 REVIEWING에서만 받는다
+        if (room.getStatus() != RoomStatus.SURVEYING && room.getStatus() != RoomStatus.REVIEWING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+
+        AgendaItem agenda =
+                agendaItemRepository
+                        .findByIdAndRoomId(agendaId, roomId)
+                        .orElseThrow(() -> new BusinessException(AgendaErrorCode.AGENDA_NOT_FOUND));
+        if (!agenda.isOpenAt(now)) {
+            throw new BusinessException(AgendaErrorCode.AGENDA_CLOSED);
+        }
+        if (!agenda.isEligible(me)) {
+            throw new BusinessException(AgendaErrorCode.NOT_ELIGIBLE_VOTER);
+        }
+        AgendaOption option =
+                agendaOptionRepository
+                        .findByIdAndAgendaItemId(request.optionId(), agendaId)
+                        .orElseThrow(
+                                () -> new BusinessException(AgendaErrorCode.OPTION_NOT_IN_AGENDA));
+        // 최종 확정은 "형식은 만장일치, 불만은 코멘트로". 반대할 때는 이유를 남겨야 한다
+        boolean reject = option.isReject();
+        if (reject && (request.comment() == null || request.comment().isBlank())) {
+            throw new BusinessException(AgendaErrorCode.REJECT_COMMENT_REQUIRED);
+        }
+
+        voteRepository
+                .findByAgendaItemIdAndMemberId(agendaId, me.getId())
+                .ifPresentOrElse(
+                        mine -> mine.change(option, now),
+                        () -> voteRepository.save(Vote.create(agenda, option, me, now)));
+        if (reject) {
+            commentService.addOnAgenda(agenda, me, request.comment());
+        }
+
+        judge(room, agenda, now);
+        // TODO change_log: 안건이 결정되면 AGENDA CONFIRM, 방 상태가 바뀌면 PLAN_ROOM UPDATE/CONFIRM (기록 방식이 정해지면
+        // 추가)
+        // TODO SSE (커밋 후): vote.updated, 결정되면 agenda.resolved, 방 상태가 바뀌면 room.status_changed
+
         return toDetail(agenda, me);
     }
 
