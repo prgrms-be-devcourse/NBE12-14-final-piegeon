@@ -2,10 +2,8 @@ package world.chakchak.domain.room;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.mock;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -19,7 +17,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
@@ -66,6 +63,13 @@ class RoomMemberServiceTest {
                 .isEqualTo(errorCode);
     }
 
+    private static RoomRepository.RoomMemberAccessProjection access(RoomMember activeMember) {
+        RoomRepository.RoomMemberAccessProjection access =
+                mock(RoomRepository.RoomMemberAccessProjection.class);
+        given(access.getActiveMember()).willReturn(activeMember);
+        return access;
+    }
+
     @Nested
     class Read {
 
@@ -73,14 +77,14 @@ class RoomMemberServiceTest {
         class Success {
 
             @Test
-            @DisplayName("방에서 나가지 않은 멤버면 방 존재 확인 없이 그 멤버를 돌려준다")
+            @DisplayName("활동 멤버면 해당 멤버를 돌려준다")
             void returnsActiveMember() {
                 RoomMember member = member();
-                given(roomMemberRepository.findByRoom_IdAndUser_Id(ROOM_ID, USER_ID))
-                        .willReturn(Optional.of(member));
+                RoomRepository.RoomMemberAccessProjection access = access(member);
+                given(roomRepository.findRoomAndMemberForAccess(ROOM_ID, USER_ID))
+                        .willReturn(Optional.of(access));
 
                 assertThat(roomMemberService.getActiveMember(ROOM_ID, USER_ID)).isSameAs(member);
-                verify(roomRepository, never()).existsById(any());
             }
         }
 
@@ -90,9 +94,8 @@ class RoomMemberServiceTest {
             @Test
             @DisplayName("없는 방이면 ROOM_NOT_FOUND를 던진다")
             void rejectsMissingRoom() {
-                given(roomMemberRepository.findByRoom_IdAndUser_Id(ROOM_ID, USER_ID))
+                given(roomRepository.findRoomAndMemberForAccess(ROOM_ID, USER_ID))
                         .willReturn(Optional.empty());
-                given(roomRepository.existsById(ROOM_ID)).willReturn(false);
 
                 assertErrorCode(
                         () -> roomMemberService.getActiveMember(ROOM_ID, USER_ID),
@@ -102,9 +105,9 @@ class RoomMemberServiceTest {
             @Test
             @DisplayName("방은 있지만 멤버가 아니면 FORBIDDEN을 던진다")
             void rejectsNonMember() {
-                given(roomMemberRepository.findByRoom_IdAndUser_Id(ROOM_ID, USER_ID))
-                        .willReturn(Optional.empty());
-                given(roomRepository.existsById(ROOM_ID)).willReturn(true);
+                RoomRepository.RoomMemberAccessProjection access = access(null);
+                given(roomRepository.findRoomAndMemberForAccess(ROOM_ID, USER_ID))
+                        .willReturn(Optional.of(access));
 
                 assertErrorCode(
                         () -> roomMemberService.getActiveMember(ROOM_ID, USER_ID),
@@ -114,10 +117,9 @@ class RoomMemberServiceTest {
             @Test
             @DisplayName("방에서 나간 멤버면 FORBIDDEN을 던진다")
             void rejectsLeftMember() {
-                RoomMember member = member();
-                ReflectionTestUtils.setField(member, "leftAt", NOW);
-                given(roomMemberRepository.findByRoom_IdAndUser_Id(ROOM_ID, USER_ID))
-                        .willReturn(Optional.of(member));
+                RoomRepository.RoomMemberAccessProjection access = access(null);
+                given(roomRepository.findRoomAndMemberForAccess(ROOM_ID, USER_ID))
+                        .willReturn(Optional.of(access));
 
                 assertErrorCode(
                         () -> roomMemberService.getActiveMember(ROOM_ID, USER_ID),

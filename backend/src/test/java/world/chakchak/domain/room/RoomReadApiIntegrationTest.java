@@ -9,7 +9,6 @@ import java.net.http.HttpResponse;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -37,7 +36,6 @@ import world.chakchak.domain.user.repository.UserRepository;
 class RoomReadApiIntegrationTest {
 
     private static final String PASSWORD = "password123!";
-    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
     @LocalServerPort private int port;
 
@@ -58,6 +56,114 @@ class RoomReadApiIntegrationTest {
         class Success {
 
             @Test
+            @DisplayName("활동 멤버는 상세 정보와 활동 멤버별 설문 상태를 조회한다")
+            void returnsRoomDetailsAndActiveMembers() throws java.lang.Exception {
+                String email = uniqueEmail();
+                String cookie = login(email);
+                User currentUser = userRepository.findByEmail(email).orElseThrow();
+                LocalDate today = LocalDate.now(clock);
+                LocalDateTime joinedAt = LocalDateTime.of(2026, 11, 12, 21, 0);
+
+                Room room = saveRoom("확정된 여행", today.plusDays(10), RoomStatus.FINALIZED);
+                RoomMember currentMember = join(room, currentUser);
+                LocalDateTime lastSeenBefore =
+                        roomMemberRepository
+                                .findById(currentMember.getId())
+                                .orElseThrow()
+                                .getLastSeenAt();
+                RoomMember submittedMember = join(room, saveUser("민수"));
+                RoomMember departedMember = join(room, saveUser("탈퇴자"));
+                RoomMember unsubmittedMember = join(room, saveUser("지은"));
+                for (RoomMember member :
+                        List.of(
+                                currentMember,
+                                submittedMember,
+                                departedMember,
+                                unsubmittedMember)) {
+                    jdbcTemplate.update(
+                            "update plan_room_member set joined_at = ? where id = ?",
+                            joinedAt,
+                            member.getId());
+                }
+                jdbcTemplate.update(
+                        "update plan_room_member set left_at = ? where id = ?",
+                        joinedAt.plusHours(1),
+                        departedMember.getId());
+                submitSurvey(submittedMember);
+
+                LocalDateTime surveyClosedAt = LocalDateTime.of(2026, 11, 14, 10, 0);
+                LocalDateTime finalizedAt = LocalDateTime.of(2026, 11, 15, 10, 0);
+                jdbcTemplate.update(
+                        "update plan_room set survey_closed_at = ?, finalized_at = ? where id = ?",
+                        surveyClosedAt,
+                        finalizedAt,
+                        room.getId());
+
+                HttpResponse<String> response = get("/api/rooms/" + room.getId(), cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                JsonNode body = objectMapper.readTree(response.body());
+                assertThat(body.path("success").booleanValue()).isTrue();
+                assertThat(body.path("code").stringValue()).isEqualTo("ROOM_FETCHED");
+                assertThat(body.has("message")).isFalse();
+
+                JsonNode data = body.path("data");
+                assertThat(data.path("roomId").longValue()).isEqualTo(room.getId());
+                assertThat(data.path("name").stringValue()).isEqualTo("확정된 여행");
+                assertThat(data.path("destination").stringValue()).isEqualTo("부산");
+                assertThat(data.path("startDate").stringValue())
+                        .isEqualTo(today.plusDays(10).toString());
+                assertThat(data.path("endDate").stringValue())
+                        .isEqualTo(today.plusDays(12).toString());
+                assertThat(data.path("inviteCode").stringValue()).isEqualTo(room.getInviteCode());
+                assertThat(data.path("status").stringValue()).isEqualTo("FINALIZED");
+                assertThat(data.path("readOnly").booleanValue()).isTrue();
+                assertThat(data.path("opinionDeadlineAt").isString()).isTrue();
+                assertThat(data.path("surveyClosedAt").stringValue())
+                        .isEqualTo("2026-11-14T10:00:00");
+                assertThat(data.path("finalizedAt").stringValue()).isEqualTo("2026-11-15T10:00:00");
+
+                JsonNode members = data.path("members");
+                assertThat(members.size()).isEqualTo(3);
+                assertThat(members.get(0).path("memberId").longValue())
+                        .isEqualTo(currentMember.getId());
+                assertThat(members.get(0).path("name").stringValue()).isEqualTo("여행자");
+                assertThat(members.get(0).path("joinedAt").stringValue())
+                        .isEqualTo("2026-11-12T21:00:00");
+                assertThat(members.get(0).path("surveySubmitted").booleanValue()).isFalse();
+                assertThat(members.get(1).path("memberId").longValue())
+                        .isEqualTo(submittedMember.getId());
+                assertThat(members.get(1).path("surveySubmitted").booleanValue()).isTrue();
+                assertThat(members.get(2).path("memberId").longValue())
+                        .isEqualTo(unsubmittedMember.getId());
+                assertThat(members.get(2).path("surveySubmitted").booleanValue()).isFalse();
+
+                RoomMember unchangedMember =
+                        roomMemberRepository.findById(currentMember.getId()).orElseThrow();
+                assertThat(unchangedMember.getLastSeenAt()).isEqualTo(lastSeenBefore);
+            }
+
+            @Test
+            @DisplayName("최종 확정되지 않은 방은 readOnly가 false이고 미설정 시각은 null이다")
+            void returnsEditableStatusAndNullTimestamps() throws java.lang.Exception {
+                String email = uniqueEmail();
+                String cookie = login(email);
+                User user = userRepository.findByEmail(email).orElseThrow();
+                Room room =
+                        saveRoom(
+                                "조율 중인 여행", LocalDate.now(clock).plusDays(10), RoomStatus.PLANNING);
+                join(room, user);
+
+                HttpResponse<String> response = get("/api/rooms/" + room.getId(), cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                JsonNode data = objectMapper.readTree(response.body()).path("data");
+                assertThat(data.path("readOnly").booleanValue()).isFalse();
+                assertThat(data.path("surveyClosedAt").isNull()).isTrue();
+                assertThat(data.path("finalizedAt").isNull()).isTrue();
+            }
+
+            @Test
             @DisplayName("로그인 사용자의 활동 중인 방을 집계해 출발일 순으로 반환한다")
             void returnsActiveRoomsInStableOrder() throws java.lang.Exception {
                 String email = uniqueEmail();
@@ -73,7 +179,11 @@ class RoomReadApiIntegrationTest {
                 Room tieFirst = saveRoom("같은 출발일 첫 여행", today.plusDays(5), RoomStatus.SURVEYING);
                 RoomMember tieFirstMember = join(tieFirst, currentUser);
                 join(tieFirst, saveUser("동행자"));
-                LocalDateTime lastSeenBefore = tieFirstMember.getLastSeenAt();
+                LocalDateTime lastSeenBefore =
+                        roomMemberRepository
+                                .findById(tieFirstMember.getId())
+                                .orElseThrow()
+                                .getLastSeenAt();
 
                 Room tieSecond = saveRoom("같은 출발일 두 번째 여행", today.plusDays(5), RoomStatus.PLANNING);
                 RoomMember tieSecondMember = join(tieSecond, currentUser);
@@ -145,6 +255,59 @@ class RoomReadApiIntegrationTest {
 
         @Nested
         class Exception {
+
+            @Test
+            @DisplayName("방이 존재하지 않으면 ROOM_NOT_FOUND를 반환한다")
+            void returnsNotFoundForMissingRoom() throws java.lang.Exception {
+                String cookie = login(uniqueEmail());
+
+                HttpResponse<String> response = get("/api/rooms/9223372036854775807", cookie);
+
+                assertThat(response.statusCode()).isEqualTo(404);
+                assertThat(response.body()).contains("ROOM_NOT_FOUND");
+            }
+
+            @Test
+            @DisplayName("활동 멤버가 아니거나 탈퇴한 사용자는 방 상세를 조회할 수 없다")
+            void forbidsNonMembersAndDepartedMembers() throws java.lang.Exception {
+                String email = uniqueEmail();
+                String cookie = login(email);
+                User currentUser = userRepository.findByEmail(email).orElseThrow();
+
+                Room notJoinedRoom =
+                        saveRoom(
+                                "참여하지 않은 방",
+                                LocalDate.now(clock).plusDays(10),
+                                RoomStatus.PLANNING);
+                join(notJoinedRoom, saveUser("다른 사람"));
+
+                Room departedRoom =
+                        saveRoom("나간 방", LocalDate.now(clock).plusDays(12), RoomStatus.PLANNING);
+                RoomMember departedMember = join(departedRoom, currentUser);
+                jdbcTemplate.update(
+                        "update plan_room_member set left_at = ? where id = ?",
+                        LocalDateTime.now(clock),
+                        departedMember.getId());
+
+                HttpResponse<String> notJoinedResponse =
+                        get("/api/rooms/" + notJoinedRoom.getId(), cookie);
+                HttpResponse<String> departedResponse =
+                        get("/api/rooms/" + departedRoom.getId(), cookie);
+
+                assertThat(notJoinedResponse.statusCode()).isEqualTo(403);
+                assertThat(notJoinedResponse.body()).contains("FORBIDDEN");
+                assertThat(departedResponse.statusCode()).isEqualTo(403);
+                assertThat(departedResponse.body()).contains("FORBIDDEN");
+            }
+
+            @Test
+            @DisplayName("로그인하지 않은 사용자는 방 상세를 조회할 수 없다")
+            void requiresLoginForRoomDetail() throws java.lang.Exception {
+                HttpResponse<String> response = get("/api/rooms/1", null);
+
+                assertThat(response.statusCode()).isEqualTo(401);
+                assertThat(response.body()).contains("UNAUTHORIZED");
+            }
 
             @Test
             @DisplayName("로그인하지 않은 사용자는 내 방 목록을 조회할 수 없다")

@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 import world.chakchak.domain.room.dto.CreateRoomRequest;
 import world.chakchak.domain.room.errorcode.RoomErrorCode;
+import world.chakchak.domain.room.repository.RoomMemberRepository;
 import world.chakchak.domain.room.repository.RoomRepository;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.domain.room.service.RoomService;
@@ -90,6 +91,7 @@ class RoomServiceTest {
         RoomService service =
                 new RoomService(
                         mock(RoomRepository.class),
+                        mock(RoomMemberRepository.class),
                         mock(RoomMemberService.class),
                         mock(ScheduleDayService.class),
                         CLOCK,
