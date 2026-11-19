@@ -22,6 +22,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -43,6 +45,10 @@ import world.chakchak.domain.agenda.repository.AgendaItemRepository;
 import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
 import world.chakchak.domain.agenda.repository.VoteRepository;
 import world.chakchak.domain.agenda.service.AgendaService;
+import world.chakchak.domain.comment.dto.CommentListResponse;
+import world.chakchak.domain.comment.dto.CommentRequest;
+import world.chakchak.domain.comment.dto.CommentResponse;
+import world.chakchak.domain.comment.entity.Comment;
 import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
@@ -157,6 +163,23 @@ class AgendaServiceTest {
 
         @Nested
         class Success {
+
+            @Test
+            @DisplayName("안건 코멘트 목록은 이 방의 안건임을 확인한 뒤 코멘트를 comments로 감싸 돌려준다")
+            void returnsAgendaComments() {
+                givenActiveMember();
+                AgendaItem agenda = votingAgenda(NOW.plusDays(3));
+                given(agendaItemRepository.findByIdAndRoomId(agenda.getId(), ROOM_ID))
+                        .willReturn(Optional.of(agenda));
+                List<CommentResponse> comments =
+                        List.of(new CommentResponse(7L, me.getId(), "민수", "150만 원은 부담돼요", NOW));
+                given(commentService.getOnAgenda(agenda.getId())).willReturn(comments);
+
+                CommentListResponse response =
+                        agendaService.getComments(ROOM_ID, agenda.getId(), USER_ID);
+
+                assertThat(response.comments()).isEqualTo(comments);
+            }
 
             @Test
             @DisplayName("안건 목록은 투표 중인 안건 뒤에 끝난 안건을 이어 붙인다")
@@ -319,6 +342,116 @@ class AgendaServiceTest {
                         .isInstanceOf(BusinessException.class)
                         .extracting("errorCode")
                         .isEqualTo(AgendaErrorCode.AGENDA_NOT_FOUND);
+            }
+
+            @Test
+            @DisplayName("없거나 다른 방의 안건 코멘트를 조회하면 AGENDA_NOT_FOUND를 던지고 코멘트를 읽지 않는다")
+            void rejectsCommentsOfOtherRoomAgenda() {
+                givenActiveMember();
+                given(agendaItemRepository.findByIdAndRoomId(5L, ROOM_ID))
+                        .willReturn(Optional.empty());
+
+                assertThatThrownBy(() -> agendaService.getComments(ROOM_ID, 5L, USER_ID))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting("errorCode")
+                        .isEqualTo(AgendaErrorCode.AGENDA_NOT_FOUND);
+                verifyNoInteractions(commentService);
+            }
+        }
+    }
+
+    @Nested
+    class Create {
+
+        private AgendaItem givenAgendaInRoom(AgendaItem agenda) {
+            given(agendaItemRepository.findByIdAndRoomId(agenda.getId(), ROOM_ID))
+                    .willReturn(Optional.of(agenda));
+            return agenda;
+        }
+
+        private void roomIs(RoomStatus status) {
+            ReflectionTestUtils.setField(room, "status", status);
+        }
+
+        private CommentResponse addComment(AgendaItem agenda, String body) {
+            return agendaService.addComment(
+                    ROOM_ID, agenda.getId(), USER_ID, new CommentRequest(body));
+        }
+
+        @Nested
+        class Success {
+
+            @ParameterizedTest
+            @EnumSource(
+                    value = RoomStatus.class,
+                    names = {"SURVEYING", "PLANNING", "REVIEWING"})
+            @DisplayName("확정 전 단계에서는 안건 코멘트를 저장하고 방 잠금은 잡지 않는다")
+            void savesCommentWithoutLock(RoomStatus status) {
+                roomIs(status);
+                givenActiveMember();
+                AgendaItem agenda = givenAgendaInRoom(votingAgenda(NOW.plusDays(3)));
+                Comment saved = withId(Comment.onAgenda(agenda, me, "150만 원은 부담돼요"));
+                ReflectionTestUtils.setField(saved, "createdAt", NOW);
+                given(commentService.addOnAgenda(agenda, me, "150만 원은 부담돼요")).willReturn(saved);
+
+                CommentResponse response = addComment(agenda, "150만 원은 부담돼요");
+
+                assertThat(response)
+                        .isEqualTo(
+                                new CommentResponse(
+                                        saved.getId(), me.getId(), "민수", "150만 원은 부담돼요", NOW));
+                verifyNoInteractions(roomService);
+            }
+
+            @Test
+            @DisplayName("이미 결정된 안건에도 코멘트를 남길 수 있다")
+            void savesCommentOnResolvedAgenda() {
+                givenActiveMember();
+                AgendaItem agenda = votingAgenda(NOW.plusDays(3));
+                agenda.resolve(budget(agenda, 600_000L, 0, null), NOW);
+                givenAgendaInRoom(agenda);
+                Comment saved = withId(Comment.onAgenda(agenda, me, "좋아요"));
+                given(commentService.addOnAgenda(agenda, me, "좋아요")).willReturn(saved);
+
+                assertThat(addComment(agenda, "좋아요").body()).isEqualTo("좋아요");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @ParameterizedTest
+            @EnumSource(
+                    value = RoomStatus.class,
+                    names = {"FINALIZED", "EXPIRED"})
+            @DisplayName("확정됐거나 만료된 방에서는 INVALID_STATUS를 던지고 안건과 코멘트를 건드리지 않는다")
+            void rejectsClosedRoom(RoomStatus status) {
+                roomIs(status);
+                givenActiveMember();
+
+                assertThatThrownBy(() ->
+                                agendaService.addComment(
+                                        ROOM_ID, 5L, USER_ID, new CommentRequest("늦었나요")))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting("errorCode")
+                        .isEqualTo(CommonErrorCode.INVALID_STATUS);
+                verifyNoInteractions(agendaItemRepository, commentService);
+            }
+
+            @Test
+            @DisplayName("없거나 다른 방의 안건에 코멘트를 남기면 AGENDA_NOT_FOUND를 던지고 저장하지 않는다")
+            void rejectsAgendaOfOtherRoom() {
+                givenActiveMember();
+                given(agendaItemRepository.findByIdAndRoomId(5L, ROOM_ID))
+                        .willReturn(Optional.empty());
+
+                assertThatThrownBy(() ->
+                                agendaService.addComment(
+                                        ROOM_ID, 5L, USER_ID, new CommentRequest("여기 맞나요")))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting("errorCode")
+                        .isEqualTo(AgendaErrorCode.AGENDA_NOT_FOUND);
+                verifyNoInteractions(commentService);
             }
         }
     }
