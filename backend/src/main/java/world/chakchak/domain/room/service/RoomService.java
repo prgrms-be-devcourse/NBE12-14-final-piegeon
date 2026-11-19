@@ -13,7 +13,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import world.chakchak.domain.changelog.service.ChangeLogService;
 import world.chakchak.domain.room.dto.CreateRoomRequest;
+import world.chakchak.domain.room.dto.InvitePreviewResponse;
+import world.chakchak.domain.room.dto.JoinRoomResponse;
+import world.chakchak.domain.room.dto.NotJoinableReason;
 import world.chakchak.domain.room.dto.RoomCreatedResponse;
 import world.chakchak.domain.room.dto.RoomDetailResponse;
 import world.chakchak.domain.room.dto.RoomListResponse;
@@ -37,12 +41,64 @@ public class RoomService {
     private final RoomMemberRepository roomMemberRepository;
     private final RoomMemberService roomMemberService;
     private final ScheduleDayService scheduleDayService;
+    private final ChangeLogService changeLogService;
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
 
     @Transactional(readOnly = true)
     public RoomListResponse getMyRooms(Long userId) {
         return new RoomListResponse(roomRepository.findMyRoomSummaries(userId));
+    }
+
+    @Transactional(readOnly = true)
+    public InvitePreviewResponse getInvitePreview(String inviteCode, Long userId) {
+        Room room =
+                roomRepository
+                        .findByInviteCode(inviteCode)
+                        .orElseThrow(
+                                () -> new BusinessException(RoomErrorCode.INVITE_CODE_NOT_FOUND));
+
+        NotJoinableReason notJoinableReason = resolveNotJoinableReason(room.getId(), userId);
+        int memberCount =
+                Math.toIntExact(roomMemberRepository.countByRoom_IdAndLeftAtIsNull(room.getId()));
+        return InvitePreviewResponse.from(room, memberCount, notJoinableReason);
+    }
+
+    @Transactional
+    public JoinRoomResponse joinByInviteCode(String inviteCode, Long userId) {
+        Room room =
+                roomRepository
+                        .findByInviteCodeForUpdate(inviteCode)
+                        .orElseThrow(
+                                () -> new BusinessException(RoomErrorCode.INVITE_CODE_NOT_FOUND));
+
+        roomMemberRepository
+                .findByRoom_IdAndUser_Id(room.getId(), userId)
+                .ifPresent(existingMember -> {
+                    if (existingMember.getLeftAt() == null) {
+                        throw new BusinessException(RoomErrorCode.ALREADY_MEMBER);
+                    }
+                    throw new BusinessException(RoomErrorCode.REJOIN_NOT_ALLOWED);
+                });
+
+        RoomMember member = roomMemberService.addMember(room, userId);
+        changeLogService.recordMemberJoined(room, member);
+        boolean surveyRequired = room.getStatus() != RoomStatus.FINALIZED;
+        return new JoinRoomResponse(room.getId(), member.getId(), surveyRequired);
+    }
+
+    private NotJoinableReason resolveNotJoinableReason(Long roomId, Long userId) {
+        if (userId == null) {
+            return NotJoinableReason.LOGIN_REQUIRED;
+        }
+
+        return roomMemberRepository
+                .findByRoom_IdAndUser_Id(roomId, userId)
+                .map(member ->
+                        member.getLeftAt() == null
+                                ? NotJoinableReason.ALREADY_MEMBER
+                                : NotJoinableReason.REJOIN_NOT_ALLOWED)
+                .orElse(null);
     }
 
     @Transactional(readOnly = true)

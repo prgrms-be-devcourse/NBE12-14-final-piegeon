@@ -15,6 +15,12 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
 
     boolean existsByInviteCode(String inviteCode);
 
+    Optional<Room> findByInviteCode(String inviteCode);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select room from Room room where room.inviteCode = :inviteCode")
+    Optional<Room> findByInviteCodeForUpdate(@Param("inviteCode") String inviteCode);
+
     /**
      * 방 행을 잠그고 읽는다 (SELECT ... FOR UPDATE). 같은 방의 쓰기 API를 한 줄로 세운다. (명세 1-4)
      *

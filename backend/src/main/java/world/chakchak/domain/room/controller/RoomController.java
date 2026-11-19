@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.room.dto.CreateRoomRequest;
+import world.chakchak.domain.room.dto.InvitePreviewResponse;
+import world.chakchak.domain.room.dto.JoinRoomResponse;
 import world.chakchak.domain.room.dto.RoomCreatedResponse;
 import world.chakchak.domain.room.dto.RoomDetailResponse;
 import world.chakchak.domain.room.dto.RoomListResponse;
@@ -25,6 +27,21 @@ import world.chakchak.global.security.LoginUser;
 public class RoomController {
 
     private final RoomService roomService;
+
+    @GetMapping("/invites/{inviteCode}")
+    public ResponseEntity<ApiResponse<InvitePreviewResponse>> getInvitePreview(
+            @AuthenticationPrincipal LoginUser loginUser, @PathVariable String inviteCode) {
+        Long userId = loginUser == null ? null : loginUser.userId();
+        InvitePreviewResponse response = roomService.getInvitePreview(inviteCode, userId);
+        return ResponseEntity.ok(ApiResponse.success("INVITE_PREVIEW_FETCHED", response));
+    }
+
+    @PostMapping("/invites/{inviteCode}/join")
+    public ResponseEntity<ApiResponse<JoinRoomResponse>> joinByInviteCode(
+            @AuthenticationPrincipal LoginUser loginUser, @PathVariable String inviteCode) {
+        JoinRoomResponse response = roomService.joinByInviteCode(inviteCode, loginUser.userId());
+        return ResponseEntity.ok(ApiResponse.success("ROOM_JOINED", "여행방에 합류했습니다.", response));
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<RoomListResponse>> getMyRooms(
