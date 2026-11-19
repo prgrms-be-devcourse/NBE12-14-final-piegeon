@@ -116,8 +116,9 @@ public class AgendaService {
      */
     @Transactional
     public AgendaDetailResponse vote(Long roomId, Long agendaId, Long userId, VoteRequest request) {
-        LocalDateTime now = LocalDateTime.now(clock);
         Room room = roomService.getForUpdate(roomId);
+        // 잠금을 기다린 뒤의 시각으로 마감을 판단하고 기록한다. 잠금 전에 구하면 기다린 사이에 지난 마감을 놓친다
+        LocalDateTime now = LocalDateTime.now(clock);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
         // 명세 2-1: 투표는 설문 안건을 정하는 SURVEYING과 최종 확정 투표 중인 REVIEWING에서만 받는다
         if (room.getStatus() != RoomStatus.SURVEYING && room.getStatus() != RoomStatus.REVIEWING) {
