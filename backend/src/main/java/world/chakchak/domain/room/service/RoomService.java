@@ -9,6 +9,8 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import world.chakchak.domain.room.dto.CreateRoomRequest;
 import world.chakchak.domain.room.dto.RoomCreatedResponse;
@@ -52,6 +54,21 @@ public class RoomService {
             }
         }
         throw new IllegalStateException("Unable to generate a unique invite code");
+    }
+
+    /**
+     * 방 행을 잠그고 돌려준다. 방에 속한 쓰기 API가 트랜잭션의 첫 쿼리로 부른다. (명세 1-4)
+     *
+     * <p>잠금은 트랜잭션이 끝날 때 풀리므로 트랜잭션 밖에서 부르면 잡자마자 풀려 의미가 없다. 그래서 MANDATORY로 두어 호출하는 쪽에 트랜잭션이 없으면 예외를
+     * 던진다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Room getForUpdate(Long roomId) {
+        return roomRepository
+                .findByIdForUpdate(roomId)
+                .orElseThrow(() -> new BusinessException(RoomErrorCode.ROOM_NOT_FOUND));
     }
 
     private RoomCreatedResponse createInTransaction(
