@@ -1,9 +1,11 @@
 package world.chakchak.domain.comment.service;
 
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import world.chakchak.domain.agenda.entity.AgendaItem;
+import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.comment.entity.Comment;
 import world.chakchak.domain.comment.repository.CommentRepository;
 import world.chakchak.domain.room.entity.RoomMember;
@@ -20,6 +22,13 @@ import world.chakchak.domain.room.entity.RoomMember;
 public class CommentService {
 
     private final CommentRepository commentRepository;
+
+    /** 안건 코멘트를 오래된 순으로 돌려준다. (V-05) */
+    public List<CommentResponse> getOnAgenda(Long agendaId) {
+        return commentRepository.findAllByAgendaItemIdOrderByIdAsc(agendaId).stream()
+                .map(CommentResponse::from)
+                .toList();
+    }
 
     /** 안건 코멘트를 남긴다. (V-03 최종 확정 반대 이유, V-06) */
     @Transactional
