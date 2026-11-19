@@ -14,8 +14,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import world.chakchak.domain.changelog.dto.ChangeLogItemResponse;
 import world.chakchak.domain.changelog.dto.ChangeLogResyncRequiredResponse;
 import world.chakchak.domain.changelog.dto.ChangeLogStreamReadyResponse;
-import world.chakchak.domain.changelog.entity.ChangeLog;
 import world.chakchak.domain.changelog.repository.ChangeLogRepository;
+import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
@@ -31,7 +31,9 @@ public class ChangeLogStreamService {
     private final Map<Long, Set<StreamConnection>> connections = new ConcurrentHashMap<>();
 
     @Transactional(readOnly = true)
-    public SseEmitter connect(Long roomId, Long memberId, String lastEventIdHeader) {
+    public SseEmitter connect(Long roomId, Long userId, String lastEventIdHeader) {
+        RoomMember member = roomMemberService.getActiveMember(roomId, userId);
+        Long memberId = member.getId();
         Long lastEventId = parseLastEventId(lastEventIdHeader);
         SseEmitter emitter = new SseEmitter(0L);
         StreamConnection connection = new StreamConnection(roomId, memberId, emitter);

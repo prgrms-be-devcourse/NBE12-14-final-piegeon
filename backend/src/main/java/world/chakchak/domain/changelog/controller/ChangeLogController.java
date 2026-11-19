@@ -17,8 +17,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import world.chakchak.domain.changelog.dto.ChangeLogPageResponse;
 import world.chakchak.domain.changelog.service.ChangeLogStreamService;
 import world.chakchak.domain.changelog.service.ChangeLogTimelineService;
-import world.chakchak.domain.room.entity.RoomMember;
-import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
 
@@ -28,7 +26,6 @@ import world.chakchak.global.security.LoginUser;
 @Validated
 public class ChangeLogController {
 
-    private final RoomMemberService roomMemberService;
     private final ChangeLogStreamService changeLogStreamService;
     private final ChangeLogTimelineService changeLogTimelineService;
 
@@ -50,7 +47,6 @@ public class ChangeLogController {
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long roomId,
             @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId) {
-        RoomMember member = roomMemberService.getActiveMember(roomId, loginUser.userId());
-        return changeLogStreamService.connect(roomId, member.getId(), lastEventId);
+        return changeLogStreamService.connect(roomId, loginUser.userId(), lastEventId);
     }
 }
