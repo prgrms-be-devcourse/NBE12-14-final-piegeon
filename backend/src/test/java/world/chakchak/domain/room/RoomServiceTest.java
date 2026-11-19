@@ -16,6 +16,7 @@ import world.chakchak.domain.room.dto.CreateRoomRequest;
 import world.chakchak.domain.room.errorcode.RoomErrorCode;
 import world.chakchak.domain.room.repository.RoomMemberRepository;
 import world.chakchak.domain.room.repository.RoomRepository;
+import world.chakchak.domain.room.service.InvitePreviewRateLimiter;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.domain.schedule.service.ScheduleDayService;
@@ -92,6 +93,7 @@ class RoomServiceTest {
                 new RoomService(
                         mock(RoomRepository.class),
                         mock(RoomMemberRepository.class),
+                        mock(InvitePreviewRateLimiter.class),
                         mock(RoomMemberService.class),
                         mock(ScheduleDayService.class),
                         CLOCK,

@@ -14,6 +14,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import world.chakchak.domain.room.dto.CreateRoomRequest;
+import world.chakchak.domain.room.dto.InvitePreviewResponse;
+import world.chakchak.domain.room.dto.NotJoinableReason;
 import world.chakchak.domain.room.dto.RoomCreatedResponse;
 import world.chakchak.domain.room.dto.RoomDetailResponse;
 import world.chakchak.domain.room.dto.RoomListResponse;
@@ -35,6 +37,7 @@ public class RoomService {
 
     private final RoomRepository roomRepository;
     private final RoomMemberRepository roomMemberRepository;
+    private final InvitePreviewRateLimiter invitePreviewRateLimiter;
     private final RoomMemberService roomMemberService;
     private final ScheduleDayService scheduleDayService;
     private final Clock clock;
@@ -43,6 +46,35 @@ public class RoomService {
     @Transactional(readOnly = true)
     public RoomListResponse getMyRooms(Long userId) {
         return new RoomListResponse(roomRepository.findMyRoomSummaries(userId));
+    }
+
+    @Transactional(readOnly = true)
+    public InvitePreviewResponse getInvitePreview(String inviteCode, Long userId, String clientIp) {
+        invitePreviewRateLimiter.check(clientIp);
+        Room room =
+                roomRepository
+                        .findByInviteCode(inviteCode)
+                        .orElseThrow(
+                                () -> new BusinessException(RoomErrorCode.INVITE_CODE_NOT_FOUND));
+
+        NotJoinableReason notJoinableReason = resolveNotJoinableReason(room.getId(), userId);
+        int memberCount =
+                Math.toIntExact(roomMemberRepository.countByRoom_IdAndLeftAtIsNull(room.getId()));
+        return InvitePreviewResponse.from(room, memberCount, notJoinableReason);
+    }
+
+    private NotJoinableReason resolveNotJoinableReason(Long roomId, Long userId) {
+        if (userId == null) {
+            return NotJoinableReason.LOGIN_REQUIRED;
+        }
+
+        return roomMemberRepository
+                .findByRoom_IdAndUser_Id(roomId, userId)
+                .map(member ->
+                        member.getLeftAt() == null
+                                ? NotJoinableReason.ALREADY_MEMBER
+                                : NotJoinableReason.REJOIN_NOT_ALLOWED)
+                .orElse(null);
     }
 
     @Transactional(readOnly = true)

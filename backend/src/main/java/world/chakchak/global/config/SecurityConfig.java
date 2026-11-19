@@ -51,7 +51,9 @@ public class SecurityConfig {
                 // 세션이 새로 만들어져 SPRING_SESSION에 행이 쌓인다. 로그인 후 원래 페이지로 돌려보내는 기능도 쓰지 않는다.
                 .requestCache(cache -> cache.requestCache(new NullRequestCache()))
                 .authorizeHttpRequests(auth ->
-                        auth.requestMatchers(
+                        auth.requestMatchers(HttpMethod.GET, "/api/rooms/invites/*")
+                                .permitAll()
+                                .requestMatchers(
                                         HttpMethod.POST,
                                         "/api/auth/signup",
                                         "/api/auth/login",
