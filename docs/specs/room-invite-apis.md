@@ -8,7 +8,7 @@
 
 비로그인 요청은 `LOGIN_REQUIRED`, 로그인한 활동 멤버는 `ALREADY_MEMBER`, 탈퇴 이력이 있는 사용자는 `REJOIN_NOT_ALLOWED`를 합류 불가 사유로 받는다. 초대 코드가 없으면 404 `INVITE_CODE_NOT_FOUND`다. `FINALIZED` 방만 `surveyRequired`가 false다.
 
-초대 미리보기는 IP별 고정 1분 창에서 유효·무효 요청을 합쳐 20회까지 허용하며, 초과하면 429 `TOO_MANY_REQUESTS`를 반환한다. 제한 저장은 애플리케이션 메모리를 사용하고, 애플리케이션 로그에는 초대 코드 원문을 남기지 않는다.
+초대 미리보기에는 IP별 요청 횟수 제한을 적용하지 않는다. 애플리케이션 로그에는 초대 코드 원문을 남기지 않는다.
 
 ## R-05 초대 코드 합류
 

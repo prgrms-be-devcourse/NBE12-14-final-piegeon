@@ -175,27 +175,20 @@ class RoomInviteApiIntegrationTest {
         class Exception {
 
             @Test
-            @DisplayName("존재하지 않는 코드와 분당 호출 한도 초과를 구분한다")
-            void rejectsUnknownAndOverLimitCodes() throws java.lang.Exception {
+            @DisplayName("존재하지 않는 코드는 요청 횟수와 관계없이 404를 반환한다")
+            void rejectsUnknownCodesWithoutRequestLimit() throws java.lang.Exception {
                 HttpResponse<String> unknownCode = getPreview("MISSING1", null);
                 assertThat(unknownCode.statusCode()).isEqualTo(404);
                 assertThat(objectMapper.readTree(unknownCode.body()).path("code").stringValue())
                         .isEqualTo("INVITE_CODE_NOT_FOUND");
 
-                Room validRoom = saveRoom("제한할 여행", RoomStatus.PLANNING);
-                int acceptedRequests = 1;
-                while (acceptedRequests < 20) {
-                    boolean invalidCode = acceptedRequests % 2 == 1;
+                Room validRoom = saveRoom("미리보기 여행", RoomStatus.PLANNING);
+                for (int requestNumber = 0; requestNumber < 25; requestNumber++) {
+                    boolean invalidCode = requestNumber % 2 == 0;
                     HttpResponse<String> response =
                             getPreview(invalidCode ? "NO-CODE1" : validRoom.getInviteCode(), null);
                     assertThat(response.statusCode()).isEqualTo(invalidCode ? 404 : 200);
-                    acceptedRequests++;
                 }
-
-                HttpResponse<String> overLimit = getPreview("NO-CODE1", null);
-                assertThat(overLimit.statusCode()).isEqualTo(429);
-                assertThat(objectMapper.readTree(overLimit.body()).path("code").stringValue())
-                        .isEqualTo("TOO_MANY_REQUESTS");
             }
         }
     }

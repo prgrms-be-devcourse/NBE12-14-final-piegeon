@@ -39,7 +39,6 @@ public class RoomService {
 
     private final RoomRepository roomRepository;
     private final RoomMemberRepository roomMemberRepository;
-    private final InvitePreviewRateLimiter invitePreviewRateLimiter;
     private final RoomMemberService roomMemberService;
     private final ScheduleDayService scheduleDayService;
     private final ChangeLogService changeLogService;
@@ -52,8 +51,7 @@ public class RoomService {
     }
 
     @Transactional(readOnly = true)
-    public InvitePreviewResponse getInvitePreview(String inviteCode, Long userId, String clientIp) {
-        invitePreviewRateLimiter.check(clientIp);
+    public InvitePreviewResponse getInvitePreview(String inviteCode, Long userId) {
         Room room =
                 roomRepository
                         .findByInviteCode(inviteCode)

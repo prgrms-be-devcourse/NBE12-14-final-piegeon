@@ -1,6 +1,5 @@
 package world.chakchak.domain.room.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,12 +30,9 @@ public class RoomController {
 
     @GetMapping("/invites/{inviteCode}")
     public ResponseEntity<ApiResponse<InvitePreviewResponse>> getInvitePreview(
-            @AuthenticationPrincipal LoginUser loginUser,
-            @PathVariable String inviteCode,
-            HttpServletRequest request) {
+            @AuthenticationPrincipal LoginUser loginUser, @PathVariable String inviteCode) {
         Long userId = loginUser == null ? null : loginUser.userId();
-        InvitePreviewResponse response =
-                roomService.getInvitePreview(inviteCode, userId, request.getRemoteAddr());
+        InvitePreviewResponse response = roomService.getInvitePreview(inviteCode, userId);
         return ResponseEntity.ok(ApiResponse.success("INVITE_PREVIEW_FETCHED", response));
     }
 
