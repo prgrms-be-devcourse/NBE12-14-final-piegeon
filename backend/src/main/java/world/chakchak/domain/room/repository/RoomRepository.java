@@ -1,12 +1,15 @@
 package world.chakchak.domain.room.repository;
 
 import jakarta.persistence.LockModeType;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import world.chakchak.domain.room.dto.RoomSummaryResponse;
 import world.chakchak.domain.room.entity.Room;
+import world.chakchak.domain.room.entity.RoomMember;
 
 public interface RoomRepository extends JpaRepository<Room, Long> {
 
@@ -22,4 +25,57 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Room r where r.id = :id")
     Optional<Room> findByIdForUpdate(@Param("id") Long id);
+
+    @Query(
+            """
+            select new world.chakchak.domain.room.dto.RoomSummaryResponse(
+                room.id,
+                room.name,
+                room.destination,
+                room.startDate,
+                room.endDate,
+                room.status,
+                count(activeMember.id),
+                count(surveyResponse.id),
+                room.opinionDeadlineAt
+            )
+            from RoomMember currentMember
+            join currentMember.room room
+            left join RoomMember activeMember
+                on activeMember.room.id = room.id and activeMember.leftAt is null
+            left join SurveyResponse surveyResponse
+                on surveyResponse.roomMember.id = currentMember.id
+            where currentMember.user.id = :userId
+                and currentMember.leftAt is null
+            group by
+                room.id,
+                room.name,
+                room.destination,
+                room.startDate,
+                room.endDate,
+                room.status,
+                room.opinionDeadlineAt
+            order by room.startDate asc, room.id asc
+            """)
+    List<RoomSummaryResponse> findMyRoomSummaries(@Param("userId") Long userId);
+
+    @Query(
+            """
+            select room as room, activeMember as activeMember
+            from Room room
+            left join RoomMember activeMember
+                on activeMember.room.id = room.id
+                and activeMember.user.id = :userId
+                and activeMember.leftAt is null
+            where room.id = :roomId
+            """)
+    Optional<RoomMemberAccessProjection> findRoomAndMemberForAccess(
+            @Param("roomId") Long roomId, @Param("userId") Long userId);
+
+    interface RoomMemberAccessProjection {
+
+        Room getRoom();
+
+        RoomMember getActiveMember();
+    }
 }

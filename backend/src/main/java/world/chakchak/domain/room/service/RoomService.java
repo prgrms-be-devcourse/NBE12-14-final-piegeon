@@ -3,6 +3,7 @@ package world.chakchak.domain.room.service;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
@@ -14,10 +15,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import world.chakchak.domain.room.dto.CreateRoomRequest;
 import world.chakchak.domain.room.dto.RoomCreatedResponse;
+import world.chakchak.domain.room.dto.RoomDetailResponse;
+import world.chakchak.domain.room.dto.RoomListResponse;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.errorcode.RoomErrorCode;
+import world.chakchak.domain.room.repository.RoomMemberRepository;
 import world.chakchak.domain.room.repository.RoomRepository;
 import world.chakchak.domain.schedule.service.ScheduleDayService;
 import world.chakchak.global.error.BusinessException;
@@ -30,10 +34,33 @@ public class RoomService {
     private static final String INVITE_CODE_CONSTRAINT = "uk_plan_room_invite_code";
 
     private final RoomRepository roomRepository;
+    private final RoomMemberRepository roomMemberRepository;
     private final RoomMemberService roomMemberService;
     private final ScheduleDayService scheduleDayService;
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
+
+    @Transactional(readOnly = true)
+    public RoomListResponse getMyRooms(Long userId) {
+        return new RoomListResponse(roomRepository.findMyRoomSummaries(userId));
+    }
+
+    @Transactional(readOnly = true)
+    public RoomDetailResponse getRoomDetail(Long roomId, Long userId) {
+        RoomMember activeMember = roomMemberService.getActiveMember(roomId, userId);
+        Room room = activeMember.getRoom();
+
+        List<RoomDetailResponse.MemberItem> members =
+                roomMemberRepository.findAllActiveMemberSummariesByRoomId(room.getId()).stream()
+                        .map(member ->
+                                new RoomDetailResponse.MemberItem(
+                                        member.getMemberId(),
+                                        member.getName(),
+                                        member.getJoinedAt(),
+                                        member.getSurveySubmitted()))
+                        .toList();
+        return RoomDetailResponse.from(room, members);
+    }
 
     public RoomCreatedResponse create(Long userId, CreateRoomRequest request) {
         validateDates(request.startDate(), request.endDate());
