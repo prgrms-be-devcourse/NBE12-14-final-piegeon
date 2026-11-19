@@ -23,6 +23,7 @@ import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.comment.entity.Comment;
 import world.chakchak.domain.comment.repository.CommentRepository;
 import world.chakchak.domain.comment.service.CommentService;
+import world.chakchak.domain.place.entity.PlaceCandidate;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
@@ -78,7 +79,46 @@ class CommentServiceTest {
                 assertThat(saved.getPlaceCandidate()).isNull();
                 assertThat(saved.getBody()).isEqualTo("일정이 빡빡해요");
             }
+
+            @Test
+            @DisplayName("장소 코멘트를 남기면 장소 후보와 작성자, 본문을 담아 저장하고 안건은 비워 둔다")
+            void savesPlaceComment() {
+                Clock clock = Clock.fixed(NOW.atZone(SEOUL).toInstant(), SEOUL);
+                Room room =
+                        Room.create(
+                                "여름 여행",
+                                "부산",
+                                LocalDate.of(2027, 7, 1),
+                                LocalDate.of(2027, 7, 3),
+                                "ABCD1234",
+                                RoomStatus.PLANNING,
+                                clock);
+                RoomMember member =
+                        RoomMember.create(room, User.create("a@example.com", "민수", "hash"), clock);
+                PlaceCandidate place = place(room, member);
+                given(commentRepository.save(any(Comment.class)))
+                        .willAnswer(invocation -> invocation.getArgument(0));
+
+                Comment saved = commentService.addOnPlace(place, member, "줄이 길대요");
+
+                assertThat(saved.getPlaceCandidate()).isSameAs(place);
+                assertThat(saved.getMember()).isSameAs(member);
+                assertThat(saved.getAgendaItem()).isNull();
+                assertThat(saved.getBody()).isEqualTo("줄이 길대요");
+            }
         }
+    }
+
+    private static PlaceCandidate place(Room room, RoomMember member) {
+        return PlaceCandidate.create(
+                room,
+                "place-1",
+                "광장시장",
+                "market",
+                "서울 종로구",
+                "https://maps.google.com/?cid=1",
+                null,
+                member);
     }
 
     @Nested
@@ -124,6 +164,32 @@ class CommentServiceTest {
                         .containsExactly(
                                 new CommentResponse(7L, 11L, "민수", "150만 원은 부담돼요", NOW),
                                 new CommentResponse(8L, 12L, "지은", "저는 괜찮아요", NOW.plusMinutes(5)));
+            }
+
+            @Test
+            @DisplayName("장소 코멘트를 저장소가 준 오래된 순 그대로 작성자 이름과 함께 응답으로 바꾼다")
+            void mapsPlaceCommentsInOrder() {
+                Clock clock = Clock.fixed(NOW.atZone(SEOUL).toInstant(), SEOUL);
+                Room room =
+                        Room.create(
+                                "여름 여행",
+                                "부산",
+                                LocalDate.of(2027, 7, 1),
+                                LocalDate.of(2027, 7, 3),
+                                "ABCD1234",
+                                RoomStatus.PLANNING,
+                                clock);
+                RoomMember minsu =
+                        RoomMember.create(room, User.create("a@example.com", "민수", "hash"), clock);
+                ReflectionTestUtils.setField(minsu, "id", 11L);
+                Comment comment = Comment.onPlace(place(room, minsu), minsu, "줄이 길대요");
+                ReflectionTestUtils.setField(comment, "id", 9L);
+                ReflectionTestUtils.setField(comment, "createdAt", NOW);
+                given(commentRepository.findAllByPlaceCandidateIdOrderByIdAsc(4L))
+                        .willReturn(List.of(comment));
+
+                assertThat(commentService.getOnPlace(4L))
+                        .containsExactly(new CommentResponse(9L, 11L, "민수", "줄이 길대요", NOW));
             }
         }
     }
