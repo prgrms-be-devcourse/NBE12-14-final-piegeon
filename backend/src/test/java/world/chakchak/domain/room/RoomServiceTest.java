@@ -12,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
+import world.chakchak.domain.changelog.service.ChangeLogService;
 import world.chakchak.domain.room.dto.CreateRoomRequest;
 import world.chakchak.domain.room.errorcode.RoomErrorCode;
 import world.chakchak.domain.room.repository.RoomMemberRepository;
@@ -96,6 +97,7 @@ class RoomServiceTest {
                         mock(InvitePreviewRateLimiter.class),
                         mock(RoomMemberService.class),
                         mock(ScheduleDayService.class),
+                        mock(ChangeLogService.class),
                         CLOCK,
                         mock(PlatformTransactionManager.class));
         service.create(1L, new CreateRoomRequest("여행", "서울", startDate, endDate));

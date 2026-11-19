@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.room.dto.CreateRoomRequest;
 import world.chakchak.domain.room.dto.InvitePreviewResponse;
+import world.chakchak.domain.room.dto.JoinRoomResponse;
 import world.chakchak.domain.room.dto.RoomCreatedResponse;
 import world.chakchak.domain.room.dto.RoomDetailResponse;
 import world.chakchak.domain.room.dto.RoomListResponse;
@@ -37,6 +38,13 @@ public class RoomController {
         InvitePreviewResponse response =
                 roomService.getInvitePreview(inviteCode, userId, request.getRemoteAddr());
         return ResponseEntity.ok(ApiResponse.success("INVITE_PREVIEW_FETCHED", response));
+    }
+
+    @PostMapping("/invites/{inviteCode}/join")
+    public ResponseEntity<ApiResponse<JoinRoomResponse>> joinByInviteCode(
+            @AuthenticationPrincipal LoginUser loginUser, @PathVariable String inviteCode) {
+        JoinRoomResponse response = roomService.joinByInviteCode(inviteCode, loginUser.userId());
+        return ResponseEntity.ok(ApiResponse.success("ROOM_JOINED", "여행방에 합류했습니다.", response));
     }
 
     @GetMapping
