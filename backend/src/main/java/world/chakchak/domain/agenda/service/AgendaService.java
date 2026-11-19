@@ -28,6 +28,9 @@ import world.chakchak.domain.agenda.errorcode.AgendaErrorCode;
 import world.chakchak.domain.agenda.repository.AgendaItemRepository;
 import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
 import world.chakchak.domain.agenda.repository.VoteRepository;
+import world.chakchak.domain.comment.dto.CommentListResponse;
+import world.chakchak.domain.comment.dto.CommentRequest;
+import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
@@ -38,7 +41,7 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 7-1 만장일치 판정.
+ * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 안건 코멘트(V-05 목록, V-06 작성), 7-1 만장일치 판정.
  *
  * <p>조회는 방 잠금을 잡지 않는다. 투표는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수 있다.
  */
@@ -102,11 +105,38 @@ public class AgendaService {
     /** 안건 상세와 선택지별 투표자 (V-02) */
     public AgendaDetailResponse getAgenda(Long roomId, Long agendaId, Long userId) {
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
-        AgendaItem agenda =
-                agendaItemRepository
-                        .findByIdAndRoomId(agendaId, roomId)
-                        .orElseThrow(() -> new BusinessException(AgendaErrorCode.AGENDA_NOT_FOUND));
+        AgendaItem agenda = getAgendaInRoom(roomId, agendaId);
         return toDetail(agenda, me);
+    }
+
+    /** 안건 코멘트 목록 (V-05) */
+    public CommentListResponse getComments(Long roomId, Long agendaId, Long userId) {
+        roomMemberService.getActiveMember(roomId, userId);
+        getAgendaInRoom(roomId, agendaId);
+        return new CommentListResponse(commentService.getOnAgenda(agendaId));
+    }
+
+    /**
+     * 안건 코멘트를 남긴다 (V-06). 안건이 이미 마감됐어도 남길 수 있다.
+     *
+     * <p>코멘트는 안건·방 상태를 바꾸지 않으므로 방 잠금을 잡지 않는다 (명세 V-06).
+     */
+    @Transactional
+    public CommentResponse addComment(
+            Long roomId, Long agendaId, Long userId, CommentRequest request) {
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        // 명세 2-1: 코멘트는 확정 전 단계(SURVEYING·PLANNING·REVIEWING)에서만 받는다
+        RoomStatus status = me.getRoom().getStatus();
+        if (status != RoomStatus.SURVEYING
+                && status != RoomStatus.PLANNING
+                && status != RoomStatus.REVIEWING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+        AgendaItem agenda = getAgendaInRoom(roomId, agendaId);
+        CommentResponse response =
+                CommentResponse.from(commentService.addOnAgenda(agenda, me, request.body()));
+        // TODO SSE (커밋 후): comment.created
+        return response;
     }
 
     /**
@@ -125,10 +155,7 @@ public class AgendaService {
             throw new BusinessException(CommonErrorCode.INVALID_STATUS);
         }
 
-        AgendaItem agenda =
-                agendaItemRepository
-                        .findByIdAndRoomId(agendaId, roomId)
-                        .orElseThrow(() -> new BusinessException(AgendaErrorCode.AGENDA_NOT_FOUND));
+        AgendaItem agenda = getAgendaInRoom(roomId, agendaId);
         if (!agenda.isOpenAt(now)) {
             throw new BusinessException(AgendaErrorCode.AGENDA_CLOSED);
         }
@@ -221,6 +248,12 @@ public class AgendaService {
                                 .findTopByRoomIdAndSubjectOrderByRoundDesc(roomId, subject)
                                 .map(latest -> latest.getStatus() == AgendaStatus.RESOLVED)
                                 .orElse(false));
+    }
+
+    private AgendaItem getAgendaInRoom(Long roomId, Long agendaId) {
+        return agendaItemRepository
+                .findByIdAndRoomId(agendaId, roomId)
+                .orElseThrow(() -> new BusinessException(AgendaErrorCode.AGENDA_NOT_FOUND));
     }
 
     /** 상세 응답 조립. V-03 투표, V-04 다음 회차의 응답에서도 쓴다. */
