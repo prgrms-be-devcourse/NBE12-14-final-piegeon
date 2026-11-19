@@ -2,9 +2,13 @@ package world.chakchak.domain.agenda;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.Clock;
@@ -27,6 +31,7 @@ import world.chakchak.domain.agenda.dto.AgendaDetailResponse.OptionResult;
 import world.chakchak.domain.agenda.dto.AgendaListResponse;
 import world.chakchak.domain.agenda.dto.MemberRef;
 import world.chakchak.domain.agenda.dto.OptionRef;
+import world.chakchak.domain.agenda.dto.VoteRequest;
 import world.chakchak.domain.agenda.entity.AgendaItem;
 import world.chakchak.domain.agenda.entity.AgendaOption;
 import world.chakchak.domain.agenda.entity.AgendaStatus;
@@ -38,15 +43,19 @@ import world.chakchak.domain.agenda.repository.AgendaItemRepository;
 import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
 import world.chakchak.domain.agenda.repository.VoteRepository;
 import world.chakchak.domain.agenda.service.AgendaService;
+import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
+import world.chakchak.domain.room.errorcode.RoomErrorCode;
 import world.chakchak.domain.room.service.RoomMemberService;
+import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.domain.survey.entity.Pace;
 import world.chakchak.domain.survey.entity.StayType;
 import world.chakchak.domain.user.entity.User;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
+import world.chakchak.global.error.ErrorCode;
 
 @ExtendWith(MockitoExtension.class)
 class AgendaServiceTest {
@@ -56,7 +65,10 @@ class AgendaServiceTest {
     private static final Long ROOM_ID = 1L;
     private static final Long USER_ID = 100L;
 
+    @Mock private RoomService roomService;
     @Mock private RoomMemberService roomMemberService;
+    @Mock private CommentService commentService;
+    @Mock private Clock clock;
     @Mock private AgendaItemRepository agendaItemRepository;
     @Mock private AgendaOptionRepository agendaOptionRepository;
     @Mock private VoteRepository voteRepository;
@@ -371,8 +383,120 @@ class AgendaServiceTest {
             ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
         }
 
+        // 투표(V-03)의 앞부분: 지금 시각, 방 잠금, 멤버 확인
+        private void givenLockedRoomAndMember(RoomMember member) {
+            given(clock.instant()).willReturn(NOW.atZone(SEOUL).toInstant());
+            given(clock.getZone()).willReturn(SEOUL);
+            given(roomService.getForUpdate(ROOM_ID)).willReturn(room);
+            given(roomMemberService.getActiveMember(ROOM_ID, USER_ID)).willReturn(member);
+        }
+
+        private void givenAgenda(AgendaItem agenda) {
+            given(agendaItemRepository.findByIdAndRoomId(agenda.getId(), ROOM_ID))
+                    .willReturn(Optional.of(agenda));
+        }
+
+        private void givenOption(AgendaItem agenda, AgendaOption option) {
+            given(agendaOptionRepository.findByIdAndAgendaItemId(option.getId(), agenda.getId()))
+                    .willReturn(Optional.of(option));
+        }
+
+        private void givenMyVote(AgendaItem agenda, Vote mine) {
+            given(voteRepository.findByAgendaItemIdAndMemberId(agenda.getId(), me.getId()))
+                    .willReturn(Optional.ofNullable(mine));
+        }
+
+        private AgendaDetailResponse voteFor(
+                AgendaItem agenda, AgendaOption option, String comment) {
+            return agendaService.vote(
+                    ROOM_ID, agenda.getId(), USER_ID, new VoteRequest(option.getId(), comment));
+        }
+
+        private void assertVoteError(Runnable action, ErrorCode errorCode) {
+            assertThatThrownBy(action::run)
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(errorCode);
+        }
+
         @Nested
         class Success {
+
+            @Test
+            @DisplayName("처음 투표하면 내 표를 저장하고 아직 남은 자격자가 있으면 투표 중으로 남는다")
+            void savesFirstVote() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, low);
+                givenMyVote(budget, null);
+                givenVotes(budget, vote(budget, low, me));
+
+                AgendaDetailResponse response = voteFor(budget, low, null);
+
+                verify(voteRepository).save(argThat(v -> v.getMember() == me && v.isFor(low)));
+                assertThat(response.status()).isEqualTo(AgendaStatus.VOTING);
+                assertThat(response.votedCount()).isEqualTo(1);
+                assertThat(response.myOptionId()).isEqualTo(low.getId());
+                verifyNoInteractions(commentService);
+            }
+
+            @Test
+            @DisplayName("이미 투표했으면 새 표를 만들지 않고 내 표의 선지만 바꾼다")
+            void changesExistingVote() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                AgendaOption high = budget(budget, 1_000_000L, 1, null);
+                Vote mine = vote(budget, low, me);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, high);
+                givenMyVote(budget, mine);
+                givenVotes(budget, mine);
+
+                voteFor(budget, high, null);
+
+                assertThat(mine.isFor(high)).isTrue();
+                verify(voteRepository, never()).save(any());
+            }
+
+            @Test
+            @DisplayName("마지막 표로 전원이 같은 선지가 되면 응답의 안건 상태가 RESOLVED다")
+            void resolvesOnLastVote() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, low);
+                givenMyVote(budget, null);
+                givenVotes(budget, vote(budget, low, jieun), vote(budget, low, me));
+                givenLatestRounds(budget, openAgenda(AgendaSubject.STAY, 2));
+
+                AgendaDetailResponse response = voteFor(budget, low, null);
+
+                assertThat(response.status()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(budget.getResolvedOptionId()).isEqualTo(low.getId());
+            }
+
+            @Test
+            @DisplayName("최종 확정에 이유와 함께 반대하면 코멘트를 남기고 안건이 반대로 끝나 방이 PLANNING으로 돌아간다")
+            void rejectsFinalPlanWithComment() {
+                reviewing();
+                AgendaItem finalPlan = openAgenda(AgendaSubject.FINAL_PLAN, 3);
+                AgendaOption reject = finalOption(finalPlan, FinalPlanChoice.REJECT);
+                givenLockedRoomAndMember(me);
+                givenAgenda(finalPlan);
+                givenOption(finalPlan, reject);
+                givenMyVote(finalPlan, null);
+                givenVotes(finalPlan, vote(finalPlan, reject, me));
+
+                AgendaDetailResponse response = voteFor(finalPlan, reject, "일정이 너무 빡빡해요");
+
+                verify(commentService).addOnAgenda(finalPlan, me, "일정이 너무 빡빡해요");
+                assertThat(response.status()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+            }
 
             @Test
             @DisplayName("마지막 표로 전원이 같은 선지를 고르면 설문 안건이 결정되고 다른 항목이 투표 중이면 방은 SURVEYING에 머문다")
@@ -500,6 +624,116 @@ class AgendaServiceTest {
 
         @Nested
         class Exception {
+
+            @Test
+            @DisplayName("방이 없으면 ROOM_NOT_FOUND를 던지고 멤버 확인을 하지 않는다")
+            void rejectsMissingRoom() {
+                given(clock.instant()).willReturn(NOW.atZone(SEOUL).toInstant());
+                given(clock.getZone()).willReturn(SEOUL);
+                given(roomService.getForUpdate(ROOM_ID))
+                        .willThrow(new BusinessException(RoomErrorCode.ROOM_NOT_FOUND));
+
+                assertVoteError(
+                        () -> agendaService.vote(ROOM_ID, 5L, USER_ID, new VoteRequest(1L, null)),
+                        RoomErrorCode.ROOM_NOT_FOUND);
+                verifyNoInteractions(roomMemberService, voteRepository);
+            }
+
+            @Test
+            @DisplayName("방이 SURVEYING·REVIEWING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
+            void rejectsInvalidRoomStatus() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.PLANNING);
+                givenLockedRoomAndMember(me);
+
+                assertVoteError(
+                        () -> agendaService.vote(ROOM_ID, 5L, USER_ID, new VoteRequest(1L, null)),
+                        CommonErrorCode.INVALID_STATUS);
+                verifyNoInteractions(agendaItemRepository, voteRepository);
+            }
+
+            @Test
+            @DisplayName("없거나 다른 방의 안건이면 AGENDA_NOT_FOUND를 던진다")
+            void rejectsAgendaOfOtherRoom() {
+                givenLockedRoomAndMember(me);
+                given(agendaItemRepository.findByIdAndRoomId(5L, ROOM_ID))
+                        .willReturn(Optional.empty());
+
+                assertVoteError(
+                        () -> agendaService.vote(ROOM_ID, 5L, USER_ID, new VoteRequest(1L, null)),
+                        AgendaErrorCode.AGENDA_NOT_FOUND);
+            }
+
+            @Test
+            @DisplayName("마감 시각이 지난 안건이면 AGENDA_CLOSED를 던진다")
+            void rejectsClosedAgenda() {
+                AgendaItem closed =
+                        withId(
+                                AgendaItem.create(
+                                        room,
+                                        AgendaSubject.BUDGET,
+                                        1,
+                                        "안건 제목",
+                                        2,
+                                        NOW.minusDays(2),
+                                        NOW.minusMinutes(1)));
+                AgendaOption low = budget(closed, 600_000L, 0, null);
+                givenLockedRoomAndMember(me);
+                givenAgenda(closed);
+
+                assertVoteError(() -> voteFor(closed, low, null), AgendaErrorCode.AGENDA_CLOSED);
+                verifyNoInteractions(voteRepository);
+            }
+
+            @Test
+            @DisplayName("안건이 열린 뒤에 합류한 멤버면 NOT_ELIGIBLE_VOTER를 던진다")
+            void rejectsLateMember() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                // 안건은 NOW - 1시간에 열렸다
+                givenLockedRoomAndMember(member("현우", NOW));
+                givenAgenda(budget);
+
+                assertVoteError(
+                        () -> voteFor(budget, low, null), AgendaErrorCode.NOT_ELIGIBLE_VOTER);
+                verifyNoInteractions(voteRepository);
+            }
+
+            @Test
+            @DisplayName("이 안건의 선택지가 아니면 OPTION_NOT_IN_AGENDA를 던진다")
+            void rejectsOptionOfOtherAgenda() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                given(agendaOptionRepository.findByIdAndAgendaItemId(99L, budget.getId()))
+                        .willReturn(Optional.empty());
+
+                assertVoteError(
+                        () ->
+                                agendaService.vote(
+                                        ROOM_ID,
+                                        budget.getId(),
+                                        USER_ID,
+                                        new VoteRequest(99L, null)),
+                        AgendaErrorCode.OPTION_NOT_IN_AGENDA);
+                verifyNoInteractions(voteRepository);
+            }
+
+            @Test
+            @DisplayName("최종 확정에 이유 없이 반대하면 REJECT_COMMENT_REQUIRED를 던지고 표와 코멘트를 남기지 않는다")
+            void rejectsRejectWithoutComment() {
+                reviewing();
+                AgendaItem finalPlan = openAgenda(AgendaSubject.FINAL_PLAN, 2);
+                AgendaOption reject = finalOption(finalPlan, FinalPlanChoice.REJECT);
+                givenLockedRoomAndMember(me);
+                givenAgenda(finalPlan);
+                givenOption(finalPlan, reject);
+
+                assertVoteError(
+                        () -> voteFor(finalPlan, reject, "   "),
+                        AgendaErrorCode.REJECT_COMMENT_REQUIRED);
+                verifyNoInteractions(voteRepository, commentService);
+                assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.VOTING);
+            }
 
             @Test
             @DisplayName("자격자 전원이 투표했어도 표가 갈리면 안건과 방 상태가 그대로다")
