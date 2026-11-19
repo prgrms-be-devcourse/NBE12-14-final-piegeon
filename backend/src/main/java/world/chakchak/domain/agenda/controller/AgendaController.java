@@ -1,14 +1,18 @@
 package world.chakchak.domain.agenda.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse;
 import world.chakchak.domain.agenda.dto.AgendaListResponse;
+import world.chakchak.domain.agenda.dto.VoteRequest;
 import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
@@ -37,5 +41,17 @@ public class AgendaController {
         AgendaDetailResponse response =
                 agendaService.getAgenda(roomId, agendaId, loginUser.userId());
         return ResponseEntity.ok(ApiResponse.success("AGENDA_FETCHED", response));
+    }
+
+    /** V-03 투표·표 바꾸기 */
+    @PutMapping("/{agendaId}/vote")
+    public ResponseEntity<ApiResponse<AgendaDetailResponse>> vote(
+            @PathVariable Long roomId,
+            @PathVariable Long agendaId,
+            @Valid @RequestBody VoteRequest request,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        AgendaDetailResponse response =
+                agendaService.vote(roomId, agendaId, loginUser.userId(), request);
+        return ResponseEntity.ok(ApiResponse.success("VOTE_SAVED", "투표했습니다.", response));
     }
 }
