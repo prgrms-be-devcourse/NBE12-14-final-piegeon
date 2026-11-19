@@ -121,7 +121,7 @@ public class RoomService {
     @Transactional
     public void markSeen(Long roomId, Long userId, LocalDateTime seenUntil) {
         RoomMember member = roomMemberService.getActiveMember(roomId, userId);
-        member.markSeenThrough(seenUntil);
+        roomMemberService.advanceLastSeenAt(member.getId(), seenUntil);
     }
 
     public RoomCreatedResponse create(Long userId, CreateRoomRequest request) {

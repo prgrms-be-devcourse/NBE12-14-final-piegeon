@@ -50,6 +50,11 @@ public class RoomMemberService {
         return roomMemberRepository.existsByRoom_IdAndIdAndLeftAtIsNull(roomId, memberId);
     }
 
+    @Transactional
+    public void advanceLastSeenAt(Long memberId, LocalDateTime seenUntil) {
+        roomMemberRepository.advanceLastSeenAt(memberId, seenUntil, LocalDateTime.now(clock));
+    }
+
     /** 방에 남아 있는 멤버 수 (나간 멤버 제외). 장소 칸 계산(PlaceStage)처럼 인원 기준이 필요한 곳에서 쓴다. */
     public long countActiveMembers(Long roomId) {
         return roomMemberRepository.countByRoom_IdAndLeftAtIsNull(roomId);

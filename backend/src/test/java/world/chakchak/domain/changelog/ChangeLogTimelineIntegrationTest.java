@@ -45,16 +45,33 @@ class ChangeLogTimelineIntegrationTest {
     private static final String PASSWORD = "password123!";
     private static final String STREAM_PATH = "/api/rooms/%d/change-logs/stream";
 
-    @LocalServerPort private int port;
-
-    @Autowired private RoomRepository roomRepository;
-    @Autowired private RoomMemberRepository roomMemberRepository;
-    @Autowired private UserRepository userRepository;
-    @Autowired private Clock clock;
-    @Autowired private JdbcTemplate jdbcTemplate;
-    @Autowired private ObjectMapper objectMapper;
+    private final int port;
+    private final RoomRepository roomRepository;
+    private final RoomMemberRepository roomMemberRepository;
+    private final UserRepository userRepository;
+    private final Clock clock;
+    private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
     private final HttpClient client = HttpClient.newHttpClient();
+
+    @Autowired
+    ChangeLogTimelineIntegrationTest(
+            @LocalServerPort int port,
+            RoomRepository roomRepository,
+            RoomMemberRepository roomMemberRepository,
+            UserRepository userRepository,
+            Clock clock,
+            JdbcTemplate jdbcTemplate,
+            ObjectMapper objectMapper) {
+        this.port = port;
+        this.roomRepository = roomRepository;
+        this.roomMemberRepository = roomMemberRepository;
+        this.userRepository = userRepository;
+        this.clock = clock;
+        this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
+    }
 
     @Nested
     class Stream {
