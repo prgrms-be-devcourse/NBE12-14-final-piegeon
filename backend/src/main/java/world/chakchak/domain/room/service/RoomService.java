@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import world.chakchak.domain.room.dto.CreateRoomRequest;
 import world.chakchak.domain.room.dto.RoomCreatedResponse;
+import world.chakchak.domain.room.dto.RoomListResponse;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
@@ -34,6 +35,11 @@ public class RoomService {
     private final ScheduleDayService scheduleDayService;
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
+
+    @Transactional(readOnly = true)
+    public RoomListResponse getMyRooms(Long userId) {
+        return new RoomListResponse(roomRepository.findMyRoomSummaries(userId));
+    }
 
     public RoomCreatedResponse create(Long userId, CreateRoomRequest request) {
         validateDates(request.startDate(), request.endDate());
