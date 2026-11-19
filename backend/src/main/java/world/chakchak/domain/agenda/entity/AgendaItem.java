@@ -15,6 +15,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import world.chakchak.domain.agenda.errorcode.AgendaErrorCode;
 import world.chakchak.domain.room.entity.Room;
+import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.global.entity.BaseEntity;
 import world.chakchak.global.error.BusinessException;
 
@@ -128,6 +129,18 @@ public class AgendaItem extends BaseEntity {
     /** 지금 투표·선지 추가·삭제를 받을 수 있는지. VOTING이고 마감 전이어야 한다. */
     public boolean isOpenAt(LocalDateTime now) {
         return status == AgendaStatus.VOTING && now.isBefore(deadlineAt);
+    }
+
+    /**
+     * 이 멤버에게 투표 자격이 있는지. 안건이 열린 시각(created_at) 이전에 합류한 멤버만 자격이 있다. (V-01·V-02 eligible, V-03)
+     *
+     * <p>방을 나갔는지는 보지 않는다. service가 getActiveMember로 먼저 확인한다.
+     */
+    public boolean isEligible(RoomMember member) {
+        if (getCreatedAt() == null) {
+            throw new IllegalStateException("저장되지 않은 안건은 투표 자격을 판단할 수 없습니다.");
+        }
+        return !member.getJoinedAt().isAfter(getCreatedAt());
     }
 
     /** 선택지 하나로 결정한다. (7-1 만장일치, 최종 확정 반대, D-1 최종 집계) */

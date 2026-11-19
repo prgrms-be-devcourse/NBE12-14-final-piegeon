@@ -67,6 +67,17 @@ class AgendaItemRepositoryTest {
                 AgendaItem.create(room, subject, round, "예산을 정해주세요", 3, NOW, DEADLINE));
     }
 
+    private AgendaItem saveAgenda(
+            Room room, AgendaSubject subject, int round, LocalDateTime deadlineAt) {
+        return agendaItemRepository.saveAndFlush(
+                AgendaItem.create(room, subject, round, "예산을 정해주세요", 3, NOW, deadlineAt));
+    }
+
+    private void setCreatedAt(AgendaItem agenda, LocalDateTime createdAt) {
+        jdbcTemplate.update(
+                "UPDATE agenda_item SET created_at = ? WHERE id = ?", createdAt, agenda.getId());
+    }
+
     // agenda_item.resolved_option_id에 FK가 있어 결정할 선지는 먼저 저장한다
     private AgendaOption saveStayOption(AgendaItem agenda) {
         return agendaOptionRepository.saveAndFlush(AgendaOption.stay(agenda, StayType.HOTEL, 0));
@@ -222,6 +233,58 @@ class AgendaItemRepositoryTest {
                                 .orElseThrow();
 
                 assertThat(latest.getId()).isEqualTo(round2.getId());
+            }
+
+            @Test
+            @DisplayName("투표 중인 안건 목록은 마감 임박 순이고 마감이 같으면 먼저 만든 안건이 앞에 온다")
+            void findsVotingAgendasByDeadline() {
+                AgendaItem later = saveAgenda(room, AgendaSubject.BUDGET, 1, DEADLINE);
+                AgendaItem sameDeadlineFirst =
+                        saveAgenda(room, AgendaSubject.STAY, 1, DEADLINE.minusDays(1));
+                AgendaItem sameDeadlineSecond =
+                        saveAgenda(room, AgendaSubject.PACE, 1, DEADLINE.minusDays(1));
+                AgendaItem expired = saveAgenda(room, AgendaSubject.BUDGET, 2, DEADLINE);
+                expired.expire();
+                agendaItemRepository.flush();
+                saveAgenda(saveRoom(), AgendaSubject.BUDGET, 1, DEADLINE);
+
+                assertThat(
+                                agendaItemRepository
+                                        .findAllByRoomIdAndStatusOrderByDeadlineAtAscIdAsc(
+                                                room.getId(), AgendaStatus.VOTING))
+                        .extracting(AgendaItem::getId)
+                        .containsExactly(
+                                sameDeadlineFirst.getId(),
+                                sameDeadlineSecond.getId(),
+                                later.getId());
+            }
+
+            @Test
+            @DisplayName("끝난 안건 목록은 결정과 미결 안건을 모두 최근 순으로 돌려주고 생성 시각이 같으면 나중에 만든 안건이 앞에 온다")
+            void findsClosedAgendasByRecent() {
+                AgendaItem older = saveAgenda(room, AgendaSubject.BUDGET, 1);
+                older.expire();
+                AgendaItem sameTimeFirst = saveAgenda(room, AgendaSubject.STAY, 1);
+                sameTimeFirst.resolve(saveStayOption(sameTimeFirst), NOW);
+                AgendaItem sameTimeSecond = saveAgenda(room, AgendaSubject.PACE, 1);
+                sameTimeSecond.expire();
+                saveAgenda(room, AgendaSubject.BUDGET, 2);
+                agendaItemRepository.flush();
+                AgendaItem otherRoom = saveAgenda(saveRoom(), AgendaSubject.BUDGET, 1);
+                otherRoom.expire();
+                agendaItemRepository.flush();
+                // 생성 시각은 auditing이 채우므로 SQL로 직접 바꾼다
+                setCreatedAt(older, NOW.minusDays(1));
+                setCreatedAt(sameTimeFirst, NOW);
+                setCreatedAt(sameTimeSecond, NOW);
+
+                assertThat(
+                                agendaItemRepository
+                                        .findAllByRoomIdAndStatusNotOrderByCreatedAtDescIdDesc(
+                                                room.getId(), AgendaStatus.VOTING))
+                        .extracting(AgendaItem::getId)
+                        .containsExactly(
+                                sameTimeSecond.getId(), sameTimeFirst.getId(), older.getId());
             }
 
             @Test
