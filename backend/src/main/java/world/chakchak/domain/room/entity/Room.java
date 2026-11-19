@@ -74,4 +74,31 @@ public class Room extends BaseEntity {
             Clock clock) {
         return new Room(name, destination, startDate, endDate, inviteCode, status, clock);
     }
+
+    /** 설문 항목(예산·숙소·이동 강도)이 모두 결정돼 계획 단계로 넘어간다. (5-2) */
+    public void startPlanning() {
+        requireStatus(RoomStatus.SURVEYING);
+        this.status = RoomStatus.PLANNING;
+    }
+
+    /** 최종 확정 투표가 동의로 결정됐다. 이후 모든 수정이 막힌다. (7-1, 10-1) */
+    public void finalizePlan(LocalDateTime now) {
+        requireStatus(RoomStatus.REVIEWING);
+        this.status = RoomStatus.FINALIZED;
+        this.finalizedAt = now;
+    }
+
+    /** 최종 확정 투표가 반대로 끝났거나 미결 마감돼 계획 단계로 돌아간다. (7-1, 10-1) */
+    public void returnToPlanning() {
+        requireStatus(RoomStatus.REVIEWING);
+        this.status = RoomStatus.PLANNING;
+    }
+
+    // 상태 전이는 방 잠금 안에서 상태를 확인한 뒤에만 부르므로, 여기서 어긋나면 코드 버그다
+    private void requireStatus(RoomStatus expected) {
+        if (status != expected) {
+            throw new IllegalStateException(
+                    "방 상태가 " + expected + "가 아니라 " + status + "입니다: roomId=" + getId());
+        }
+    }
 }

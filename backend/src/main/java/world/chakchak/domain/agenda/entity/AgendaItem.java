@@ -10,6 +10,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -158,6 +160,37 @@ public class AgendaItem extends BaseEntity {
         this.status = AgendaStatus.RESOLVED;
         this.resolvedOptionId = option.getId();
         this.resolvedAt = now;
+    }
+
+    /**
+     * 표가 들어오거나 자격자가 줄었을 때 지금 결정할 선지를 고른다. 아직 결정할 수 없으면 비어 있다. (7-1)
+     *
+     * <ul>
+     *   <li>최종 확정에 반대 표가 하나라도 있으면 그 반대 선지. 만장일치라 더 기다려도 통과할 수 없다.
+     *   <li>표 수가 total_voter에 닿았고 모든 표가 같은 선지면 그 선지.
+     * </ul>
+     *
+     * <p>마감 시각의 판정(13-2)과 D-1 최종 집계(13-3)는 규칙이 달라 여기서 다루지 않는다.
+     *
+     * @param votes 이 안건에 들어온 표 전부
+     */
+    public Optional<AgendaOption> decidableOption(List<Vote> votes) {
+        if (status != AgendaStatus.VOTING) {
+            return Optional.empty();
+        }
+        if (subject == AgendaSubject.FINAL_PLAN) {
+            Optional<AgendaOption> reject =
+                    votes.stream().filter(Vote::isReject).map(Vote::getAgendaOption).findFirst();
+            if (reject.isPresent()) {
+                return reject;
+            }
+        }
+        if (votes.size() < totalVoter) {
+            return Optional.empty();
+        }
+        AgendaOption first = votes.getFirst().getAgendaOption();
+        boolean unanimous = votes.stream().allMatch(v -> v.isFor(first));
+        return unanimous ? Optional.of(first) : Optional.empty();
     }
 
     /** 결정하지 못한 채 마감한다. (13-2 마감 스케줄러) */
