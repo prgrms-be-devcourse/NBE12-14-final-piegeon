@@ -8,10 +8,6 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import world.chakchak.domain.changelog.entity.ActionStatus;
-import world.chakchak.domain.changelog.entity.EntityType;
-import world.chakchak.domain.changelog.entity.EventKind;
-import world.chakchak.domain.changelog.service.ChangeLogService;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
@@ -45,7 +41,6 @@ public class PlaceCandidateService {
     private final EntityManager entityManager;
     private final PlaceCandidateRepository placeCandidateRepository;
     private final PlaceReactionRepository placeReactionRepository;
-    private final ChangeLogService changeLogService;
 
     /**
      * 장소 후보를 저장하고, 올린 사람의 "가고 싶어요"를 함께 남긴다. (P-02 트랜잭션 부분)
@@ -92,14 +87,7 @@ public class PlaceCandidateService {
         placeReactionRepository.save(
                 PlaceReaction.create(candidate, member, PlaceReactionType.WANT));
 
-        changeLogService.record(
-                room.getId(),
-                member.getId(),
-                EntityType.PLACE_CANDIDATE,
-                candidate.getId(),
-                EventKind.PLACE_REGISTERED,
-                ActionStatus.CREATE,
-                candidate.getName() + "을(를) 후보로 올렸습니다.");
+        // TODO change_log PLACE_REGISTERED 기록 (PR #32에서 ChangeLogService가 빠짐. 기록 방식이 다시 정해지면 추가)
 
         // TODO 커밋 후 SSE place.registered (data는 이 메서드의 응답과 같은 객체)
 

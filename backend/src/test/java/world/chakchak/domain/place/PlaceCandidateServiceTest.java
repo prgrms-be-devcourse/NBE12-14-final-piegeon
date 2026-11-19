@@ -11,13 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.PageRequest;
 import world.chakchak.IntegrationTest;
-import world.chakchak.domain.changelog.entity.ActionStatus;
-import world.chakchak.domain.changelog.entity.ChangeLog;
-import world.chakchak.domain.changelog.entity.EntityType;
-import world.chakchak.domain.changelog.entity.EventKind;
-import world.chakchak.domain.changelog.repository.ChangeLogRepository;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
@@ -39,14 +33,13 @@ import world.chakchak.domain.user.entity.User;
 import world.chakchak.domain.user.repository.UserRepository;
 import world.chakchak.global.error.BusinessException;
 
-/** P-02 장소 후보 등록의 트랜잭션 부분. 실제 MySQL에서 방 잠금, 저장, change_log까지 확인한다. */
+/** P-02 장소 후보 등록의 트랜잭션 부분. 실제 MySQL에서 방 잠금과 저장을 확인한다. */
 @IntegrationTest
 class PlaceCandidateServiceTest {
 
     @Autowired private PlaceCandidateService placeCandidateService;
     @Autowired private PlaceCandidateRepository placeCandidateRepository;
     @Autowired private PlaceReactionRepository placeReactionRepository;
-    @Autowired private ChangeLogRepository changeLogRepository;
     @Autowired private RoomRepository roomRepository;
     @Autowired private RoomMemberRepository roomMemberRepository;
     @Autowired private UserRepository userRepository;
@@ -103,29 +96,6 @@ class PlaceCandidateServiceTest {
                 assertThat(item.agreedBy()).containsExactly(me);
                 assertThat(item.suggestedBy()).isEqualTo(me);
                 assertThat(item.confirmedAt()).isNull();
-            }
-
-            @Test
-            @DisplayName("등록하면 change_log에 PLACE_REGISTERED 한 건이 남는다")
-            void recordsChangeLog() {
-                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
-                RoomMember member = saveMember(room, "민수");
-
-                PlaceCandidateItem item =
-                        placeCandidateService.create(member, 3, googlePlace("place-1"));
-
-                List<ChangeLog> logs =
-                        changeLogRepository
-                                .findAllByRoom_IdOrderByIdDesc(room.getId(), PageRequest.of(0, 10))
-                                .getContent();
-                assertThat(logs).hasSize(1);
-                ChangeLog log = logs.getFirst();
-                assertThat(log.getActor().getId()).isEqualTo(member.getId());
-                assertThat(log.getEntityType()).isEqualTo(EntityType.PLACE_CANDIDATE);
-                assertThat(log.getEntityId()).isEqualTo(item.placeId());
-                assertThat(log.getEventKind()).isEqualTo(EventKind.PLACE_REGISTERED);
-                assertThat(log.getActionStatus()).isEqualTo(ActionStatus.CREATE);
-                assertThat(log.getSummary()).isEqualTo("광장시장을(를) 후보로 올렸습니다.");
             }
 
             @Test
