@@ -12,6 +12,8 @@ public interface RoomMemberRepository extends JpaRepository<RoomMember, Long> {
 
     Optional<RoomMember> findByRoom_IdAndUser_Id(Long roomId, Long userId);
 
+    boolean existsByRoom_IdAndIdAndLeftAtIsNull(Long roomId, Long memberId);
+
     List<RoomMember> findAllByRoom_IdAndLeftAtIsNull(Long roomId);
 
     List<RoomMember> findAllByUser_IdAndLeftAtIsNull(Long userId);

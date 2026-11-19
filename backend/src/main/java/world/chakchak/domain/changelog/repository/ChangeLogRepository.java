@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
@@ -16,13 +17,33 @@ public interface ChangeLogRepository extends Repository<ChangeLog, Long> {
 
     Optional<ChangeLog> findById(Long id);
 
+    Optional<ChangeLog> findTopByRoom_IdOrderByIdDesc(Long roomId);
+
     Slice<ChangeLog> findAllByRoom_IdOrderByIdDesc(Long roomId, Pageable pageable);
 
     Slice<ChangeLog> findAllByRoom_IdAndIdLessThanOrderByIdDesc(
             Long roomId, Long cursor, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"room", "actor.user"})
+    @Query(
+            """
+            select changeLog
+            from ChangeLog changeLog
+            where changeLog.room.id = :roomId
+                and (:throughId is null or changeLog.id <= :throughId)
+                and (:cursor is null or changeLog.id < :cursor)
+            order by changeLog.id desc
+            """)
+    Slice<ChangeLog> findTimelinePage(
+            @Param("roomId") Long roomId,
+            @Param("throughId") Long throughId,
+            @Param("cursor") Long cursor,
+            Pageable pageable);
+
+    @EntityGraph(attributePaths = {"actor.user"})
     List<ChangeLog> findTop201ByRoom_IdAndIdGreaterThanOrderByIdAsc(Long roomId, Long lastEventId);
 
+    @EntityGraph(attributePaths = {"actor.user"})
     @Query(
             """
             select changeLog

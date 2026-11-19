@@ -48,4 +48,10 @@ public class RoomMember extends BaseEntity {
     public static RoomMember create(Room room, User user, Clock clock) {
         return new RoomMember(room, user, clock);
     }
+
+    public void markSeenThrough(LocalDateTime seenUntil) {
+        if (seenUntil.isAfter(lastSeenAt)) {
+            lastSeenAt = seenUntil;
+        }
+    }
 }
