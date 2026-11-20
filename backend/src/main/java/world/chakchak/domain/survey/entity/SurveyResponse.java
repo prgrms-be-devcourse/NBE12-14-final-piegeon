@@ -78,7 +78,7 @@ public class SurveyResponse extends BaseEntity {
         if (avoidNote == null || avoidNote.isBlank()) {
             throw new BusinessException(SurveyErrorCode.AVOID_NOTE_REQUIRED);
         }
-        if (avoidNote.length() > MAX_AVOID_NOTE_LENGTH) {
+        if (avoidNote != null && avoidNote.length() > MAX_AVOID_NOTE_LENGTH) {
             throw new BusinessException(SurveyErrorCode.AVOID_NOTE_TOO_LONG);
         }
 
