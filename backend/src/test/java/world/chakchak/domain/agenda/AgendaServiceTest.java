@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -27,7 +28,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
+import world.chakchak.domain.agenda.dto.AddOptionRequest;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse.OptionResult;
 import world.chakchak.domain.agenda.dto.AgendaListResponse;
@@ -893,6 +896,214 @@ class AgendaServiceTest {
                 assertThatThrownBy(() -> agendaService.applyExpired(room, finalPlan))
                         .isInstanceOf(IllegalStateException.class);
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.REVIEWING);
+            }
+        }
+    }
+
+    @Nested
+    class AddOption {
+
+        @BeforeEach
+        void giveRoomId() {
+            ReflectionTestUtils.setField(room, "id", ROOM_ID);
+        }
+
+        // NOW - 1시간에 열린 투표 중 안건
+        private AgendaItem openAgenda(AgendaSubject subject) {
+            return agenda(subject, NOW.minusHours(1), NOW.plusDays(3));
+        }
+
+        private void givenLockedRoomAndMember(RoomMember member) {
+            given(clock.instant()).willReturn(NOW.atZone(SEOUL).toInstant());
+            given(clock.getZone()).willReturn(SEOUL);
+            given(roomService.getForUpdate(ROOM_ID)).willReturn(room);
+            given(roomMemberService.getActiveMember(ROOM_ID, USER_ID)).willReturn(member);
+        }
+
+        private void givenAgenda(AgendaItem agenda) {
+            given(agendaItemRepository.findByIdAndRoomId(agenda.getId(), ROOM_ID))
+                    .willReturn(Optional.of(agenda));
+        }
+
+        private void givenOptions(AgendaItem agenda, AgendaOption... options) {
+            given(
+                            agendaOptionRepository.findAllByAgendaItemIdOrderByDisplayIndexAsc(
+                                    agenda.getId()))
+                    .willReturn(List.of(options));
+        }
+
+        // 선지 수·중복 검사를 통과하는 상태
+        private void givenAddable(AgendaItem agenda, String roundedValue) {
+            given(
+                            agendaOptionRepository.existsByAgendaItemIdAndProposedById(
+                                    agenda.getId(), me.getId()))
+                    .willReturn(false);
+            given(agendaOptionRepository.findByAgendaItemIdAndValue(agenda.getId(), roundedValue))
+                    .willReturn(Optional.empty());
+        }
+
+        private AgendaDetailResponse add(AgendaItem agenda, long amount) {
+            return agendaService.addBudgetOption(
+                    ROOM_ID, agenda.getId(), USER_ID, new AddOptionRequest(amount));
+        }
+
+        private void assertError(Runnable action, ErrorCode errorCode) {
+            assertThatThrownBy(action::run)
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(errorCode);
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("금액을 만원 단위로 반올림해 내가 올린 선지로 맨 뒤에 저장하고 판정은 하지 않는다")
+            void savesRoundedOptionAtEnd() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                AgendaOption high = budget(budget, 1_000_000L, 1, null);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenAddable(budget, "1230000");
+                givenOptions(budget, low, high);
+
+                add(budget, 1_234_567L);
+
+                verify(agendaOptionRepository)
+                        .saveAndFlush(
+                                argThat(o ->
+                                        o.getValue().equals("1230000")
+                                                && o.getLabel().equals("123만원")
+                                                && o.getDisplayIndex() == 2
+                                                && o.isProposedBy(me)
+                                                && o.belongsTo(budget)));
+                assertThat(budget.getStatus()).isEqualTo(AgendaStatus.VOTING);
+                verify(agendaItemRepository, never())
+                        .findTopByRoomIdAndSubjectOrderByRoundDesc(any(), any());
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("방이 SURVEYING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
+            void rejectsInvalidRoomStatus() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.PLANNING);
+                givenLockedRoomAndMember(me);
+
+                assertError(
+                        () ->
+                                agendaService.addBudgetOption(
+                                        ROOM_ID, 5L, USER_ID, new AddOptionRequest(1_000_000L)),
+                        CommonErrorCode.INVALID_STATUS);
+                verifyNoInteractions(agendaItemRepository, agendaOptionRepository);
+            }
+
+            @Test
+            @DisplayName("없거나 다른 방의 안건이면 AGENDA_NOT_FOUND를 던진다")
+            void rejectsAgendaOfOtherRoom() {
+                givenLockedRoomAndMember(me);
+                given(agendaItemRepository.findByIdAndRoomId(5L, ROOM_ID))
+                        .willReturn(Optional.empty());
+
+                assertError(
+                        () ->
+                                agendaService.addBudgetOption(
+                                        ROOM_ID, 5L, USER_ID, new AddOptionRequest(1_000_000L)),
+                        AgendaErrorCode.AGENDA_NOT_FOUND);
+                verifyNoInteractions(agendaOptionRepository);
+            }
+
+            @Test
+            @DisplayName("예산 안건이 아니면 OPTION_NOT_ADDABLE을 던진다")
+            void rejectsNonBudgetAgenda() {
+                AgendaItem stay = openAgenda(AgendaSubject.STAY);
+                givenLockedRoomAndMember(me);
+                givenAgenda(stay);
+
+                assertError(() -> add(stay, 1_000_000L), AgendaErrorCode.OPTION_NOT_ADDABLE);
+                verifyNoInteractions(agendaOptionRepository);
+            }
+
+            @Test
+            @DisplayName("마감 시각이 지난 안건이면 AGENDA_CLOSED를 던진다")
+            void rejectsClosedAgenda() {
+                AgendaItem closed =
+                        agenda(AgendaSubject.BUDGET, NOW.minusDays(2), NOW.minusMinutes(1));
+                givenLockedRoomAndMember(me);
+                givenAgenda(closed);
+
+                assertError(() -> add(closed, 1_000_000L), AgendaErrorCode.AGENDA_CLOSED);
+                verifyNoInteractions(agendaOptionRepository);
+            }
+
+            @Test
+            @DisplayName("안건이 열린 뒤에 합류한 멤버면 NOT_ELIGIBLE_VOTER를 던진다")
+            void rejectsLateMember() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET);
+                givenLockedRoomAndMember(member("현우", NOW));
+                givenAgenda(budget);
+
+                assertError(() -> add(budget, 1_000_000L), AgendaErrorCode.NOT_ELIGIBLE_VOTER);
+                verifyNoInteractions(agendaOptionRepository);
+            }
+
+            @Test
+            @DisplayName("이 회차에 이미 선지를 추가했으면 OPTION_ADD_LIMIT_EXCEEDED를 던지고 저장하지 않는다")
+            void rejectsSecondOptionOfSameMember() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                given(
+                                agendaOptionRepository.existsByAgendaItemIdAndProposedById(
+                                        budget.getId(), me.getId()))
+                        .willReturn(true);
+
+                assertError(
+                        () -> add(budget, 1_000_000L), AgendaErrorCode.OPTION_ADD_LIMIT_EXCEEDED);
+                verify(agendaOptionRepository, never()).saveAndFlush(any());
+            }
+
+            @Test
+            @DisplayName("반올림한 금액이 기존 선지와 같으면 OPTION_ALREADY_EXISTS를 던지고 data에 기존 선지 id를 담는다")
+            void rejectsDuplicateAfterRounding() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET);
+                AgendaOption existing = budget(budget, 1_230_000L, 0, null);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                given(
+                                agendaOptionRepository.existsByAgendaItemIdAndProposedById(
+                                        budget.getId(), me.getId()))
+                        .willReturn(false);
+                given(agendaOptionRepository.findByAgendaItemIdAndValue(budget.getId(), "1230000"))
+                        .willReturn(Optional.of(existing));
+
+                assertThatThrownBy(() -> add(budget, 1_226_000L))
+                        .isInstanceOf(BusinessException.class)
+                        .satisfies(e -> {
+                            BusinessException be = (BusinessException) e;
+                            assertThat(be.getErrorCode())
+                                    .isEqualTo(AgendaErrorCode.OPTION_ALREADY_EXISTS);
+                            assertThat(be.getData())
+                                    .isEqualTo(Map.of("optionId", existing.getId()));
+                        });
+                verify(agendaOptionRepository, never()).saveAndFlush(any());
+            }
+
+            @Test
+            @DisplayName("저장 중 같은 금액의 유니크 제약에 걸리면 OPTION_ALREADY_EXISTS로 바꿔 던진다")
+            void convertsUniqueViolation() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenAddable(budget, "1000000");
+                givenOptions(budget);
+                given(agendaOptionRepository.saveAndFlush(any()))
+                        .willThrow(new DataIntegrityViolationException("uk_agenda_option"));
+
+                assertError(() -> add(budget, 1_000_000L), AgendaErrorCode.OPTION_ALREADY_EXISTS);
             }
         }
     }
