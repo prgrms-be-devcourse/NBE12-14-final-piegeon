@@ -10,13 +10,15 @@ import world.chakchak.domain.room.entity.Room;
 public interface PlaceReactionRepository extends JpaRepository<PlaceReaction, Long> {
 
     /**
-     * 방의 모든 후보에 달린 반응 중 한 종류(WANT)만. (P-03)
+     * 방의 모든 후보에 달린 반응 중 한 종류(WANT 또는 NOPE)만, 방에 남아 있는 멤버의 것만. (P-03)
      *
-     * <p>후보마다 따로 세지 않고 방 전체를 한 번에 가져와, service가 후보별로 묶어 agreeCount와 agreedBy를 만든다. 동의한 사람 이름을 쓰므로
-     * 멤버와 그 사용자까지 JOIN으로 같이 가져온다(N+1 방지).
+     * <p>후보마다 따로 세지 않고 방 전체를 한 번에 가져와, service가 후보별로 묶어 agreedBy, nopedBy를 만든다. 반응한 사람 이름을 쓰므로 멤버와
+     * 그 사용자까지 JOIN으로 같이 가져온다(N+1 방지).
+     *
+     * <p>나간 멤버의 반응은 뺀다. 나갈 때 반응을 지우는 R-06이 빠뜨려도, 나간 사람의 가고 싶어요로 FULL이 되지 않게 막는 방어다.
      */
     @EntityGraph(attributePaths = {"member", "member.user"})
-    List<PlaceReaction> findAllByPlaceCandidate_RoomAndReaction(
+    List<PlaceReaction> findAllByPlaceCandidate_RoomAndReactionAndMember_LeftAtIsNull(
             Room room, PlaceReactionType reaction);
 
     // TODO 후보 + 멤버로 반응 조회 - 반응 바꾸기·취소용 (P-04, P-05)

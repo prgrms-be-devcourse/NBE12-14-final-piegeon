@@ -21,11 +21,13 @@ import world.chakchak.IntegrationTest;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
+import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
 import world.chakchak.domain.place.dto.PlaceLimitExceededData;
 import world.chakchak.domain.place.dto.PlaceStage;
 import world.chakchak.domain.place.entity.PlaceCandidate;
 import world.chakchak.domain.place.entity.PlaceReaction;
+import world.chakchak.domain.place.entity.PlaceReactionType;
 import world.chakchak.domain.place.errorcode.PlaceErrorCode;
 import world.chakchak.domain.place.repository.PlaceCandidateRepository;
 import world.chakchak.domain.place.repository.PlaceReactionRepository;
@@ -42,7 +44,7 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * P-02 장소 후보 등록. 실제 MySQL에서 방 잠금과 저장을 확인한다.
+ * P-02 장소 후보 등록, P-03 칸반 보드. 실제 MySQL에서 방 잠금과 저장, 조회를 확인한다.
  *
  * <p>Google 조회만 가짜로 바꾸고 register를 그대로 부른다. 그래야 트랜잭션이 실제로 열리는지, 멤버의 user를 트랜잭션 안에서 읽는지까지 함께 확인된다.
  */
@@ -257,6 +259,230 @@ class PlaceCandidateServiceTest {
                 assertThat(placeCandidateRepository.countByRoom(room)).isZero();
             }
         }
+    }
+
+    @Nested
+    class Read {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("카드에 칸, 가고 싶어요 수와 누른 멤버, 올린 멤버가 채워지고 인원과 한도가 함께 온다")
+            void fillsCards() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                saveMember(room, "철수");
+                PlaceCandidateItem registered = register(minsu, "place-1");
+                react(jiyoung, registered.placeId(), PlaceReactionType.WANT);
+
+                PlaceBoardResponse board = getBoard(minsu);
+
+                assertThat(board.activeMemberCount()).isEqualTo(3);
+                assertThat(board.limit()).isEqualTo(30);
+                assertThat(board.candidates()).hasSize(1);
+                PlaceCandidateItem card = board.candidates().get(0);
+                assertThat(card.placeId()).isEqualTo(registered.placeId());
+                assertThat(card.name()).isEqualTo("광장시장");
+                assertThat(card.stage()).isEqualTo(PlaceStage.PARTIAL);
+                assertThat(card.agreeCount()).isEqualTo(2);
+                assertThat(card.agreedBy())
+                        .containsExactlyInAnyOrder(
+                                new MemberRef(minsu.getId(), "민수"),
+                                new MemberRef(jiyoung.getId(), "지영"));
+                assertThat(card.nopeCount()).isZero();
+                assertThat(card.nopedBy()).isEmpty();
+                assertThat(card.suggestedBy()).isEqualTo(new MemberRef(minsu.getId(), "민수"));
+                assertThat(card.confirmedAt()).isNull();
+            }
+
+            @Test
+            @DisplayName("칸은 확정, 전체, 부분, 여집합 순이고 같은 칸은 가고 싶어요가 많은 순, 같으면 먼저 올린 순이다")
+            void sortsByStageThenAgreeCount() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember a = saveMember(room, "A");
+                RoomMember b = saveMember(room, "B");
+                RoomMember c = saveMember(room, "C");
+                RoomMember d = saveMember(room, "D");
+                long complement = register(a, "complement").placeId();
+                long partialTwo = register(a, "partial-2").placeId();
+                react(b, partialTwo, PlaceReactionType.WANT);
+                long partialThree = register(a, "partial-3").placeId();
+                react(b, partialThree, PlaceReactionType.WANT);
+                react(c, partialThree, PlaceReactionType.WANT);
+                long full = register(a, "full").placeId();
+                react(b, full, PlaceReactionType.WANT);
+                react(c, full, PlaceReactionType.WANT);
+                react(d, full, PlaceReactionType.WANT);
+                long confirmed = register(a, "confirmed").placeId();
+                confirm(confirmed);
+                long laterPartialTwo = register(b, "later-partial-2").placeId();
+                react(c, laterPartialTwo, PlaceReactionType.WANT);
+
+                List<PlaceCandidateItem> cards = getBoard(a).candidates();
+
+                assertThat(cards)
+                        .extracting(PlaceCandidateItem::placeId)
+                        .containsExactly(
+                                confirmed,
+                                full,
+                                partialThree,
+                                partialTwo,
+                                laterPartialTwo,
+                                complement);
+                assertThat(cards)
+                        .extracting(PlaceCandidateItem::stage)
+                        .containsExactly(
+                                PlaceStage.CONFIRMED,
+                                PlaceStage.FULL,
+                                PlaceStage.PARTIAL,
+                                PlaceStage.PARTIAL,
+                                PlaceStage.PARTIAL,
+                                PlaceStage.COMPLEMENT);
+            }
+
+            @Test
+            @DisplayName("별로예요(NOPE)는 가고 싶어요 수와 칸에 들어가지 않고, 누른 멤버는 nopedBy에 따로 담긴다")
+            void separatesNope() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+                react(jiyoung, placeId, PlaceReactionType.NOPE);
+
+                PlaceCandidateItem card = getBoard(minsu).candidates().get(0);
+
+                assertThat(card.agreeCount()).isEqualTo(1);
+                assertThat(card.agreedBy()).containsExactly(new MemberRef(minsu.getId(), "민수"));
+                assertThat(card.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+                assertThat(card.nopeCount()).isEqualTo(1);
+                assertThat(card.nopedBy()).containsExactly(new MemberRef(jiyoung.getId(), "지영"));
+            }
+
+            @Test
+            @DisplayName("다른 방의 후보와 가고 싶어요는 섞이지 않는다")
+            void excludesOtherRooms() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember outsider = saveMember(otherRoom, "철수");
+                RoomMember outsiderFriend = saveMember(otherRoom, "영희");
+                long otherPlaceId = register(outsider, "place-1").placeId();
+                react(outsiderFriend, otherPlaceId, PlaceReactionType.WANT);
+                register(outsider, "place-2");
+
+                List<PlaceCandidateItem> cards = getBoard(minsu).candidates();
+
+                assertThat(cards).extracting(PlaceCandidateItem::placeId).containsExactly(placeId);
+                assertThat(cards.get(0).agreeCount()).isEqualTo(1);
+            }
+
+            @Test
+            @DisplayName("나간 멤버는 인원에서 빠지고, 한도는 여행 일수 × 10이다")
+            void excludesLeftMembersFromCount() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 5));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                leave(saveMember(room, "철수"));
+                long placeId = register(minsu, "place-1").placeId();
+                react(jiyoung, placeId, PlaceReactionType.WANT);
+
+                PlaceBoardResponse board = getBoard(minsu);
+
+                assertThat(board.activeMemberCount()).isEqualTo(2);
+                assertThat(board.limit()).isEqualTo(50);
+                assertThat(board.candidates().get(0).stage()).isEqualTo(PlaceStage.FULL);
+            }
+
+            @Test
+            @DisplayName("나간 멤버의 반응은 동의 수와 칸, nopedBy에 들어가지 않는다 (나간 사람 가고 싶어요로 FULL이 되지 않음)")
+            void ignoresLeftMembersReactions() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember a = saveMember(room, "A");
+                RoomMember b = saveMember(room, "B");
+                saveMember(room, "C");
+                RoomMember d = saveMember(room, "D");
+                long placeId = register(b, "place-1").placeId();
+                react(a, placeId, PlaceReactionType.WANT);
+                react(d, placeId, PlaceReactionType.NOPE);
+                leave(a);
+                leave(d);
+
+                PlaceCandidateItem card = getBoard(b).candidates().get(0);
+
+                assertThat(card.agreeCount()).isEqualTo(1);
+                assertThat(card.agreedBy()).containsExactly(new MemberRef(b.getId(), "B"));
+                assertThat(card.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+                assertThat(card.nopeCount()).isZero();
+                assertThat(card.nopedBy()).isEmpty();
+            }
+
+            @Test
+            @DisplayName("후보가 없으면 빈 목록이다")
+            void emptyBoard() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+
+                PlaceBoardResponse board = getBoard(minsu);
+
+                assertThat(board.candidates()).isEmpty();
+                assertThat(board.activeMemberCount()).isEqualTo(1);
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("다른 방의 멤버면 FORBIDDEN으로 막는다")
+            void rejectsNonMember() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember outsider = saveMember(otherRoom, "민수");
+
+                assertThatThrownBy(() ->
+                                placeCandidateService.getBoard(
+                                        room.getId(), outsider.getUser().getId()))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.FORBIDDEN));
+            }
+
+            @Test
+            @DisplayName("방을 나간 멤버면 FORBIDDEN으로 막는다")
+            void rejectsLeftMember() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember member = saveMember(room, "민수");
+                leave(member);
+
+                assertThatThrownBy(() -> getBoard(member))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.FORBIDDEN));
+            }
+        }
+    }
+
+    private PlaceBoardResponse getBoard(RoomMember member) {
+        return placeCandidateService.getBoard(member.getRoom().getId(), member.getUser().getId());
+    }
+
+    private void react(RoomMember member, Long placeId, PlaceReactionType reaction) {
+        PlaceCandidate candidate = placeCandidateRepository.findById(placeId).orElseThrow();
+        placeReactionRepository.saveAndFlush(PlaceReaction.create(candidate, member, reaction));
+    }
+
+    private void confirm(Long placeId) {
+        PlaceCandidate candidate = placeCandidateRepository.findById(placeId).orElseThrow();
+        candidate.confirm(clock);
+        placeCandidateRepository.saveAndFlush(candidate);
     }
 
     private PlaceCandidateItem register(RoomMember member, String googlePlaceId) {

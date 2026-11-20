@@ -150,10 +150,37 @@ class PlaceReactionRepositoryTest {
                                 otherRoomCandidate, otherRoomMember, PlaceReactionType.WANT));
 
                 List<PlaceReaction> found =
-                        placeReactionRepository.findAllByPlaceCandidate_RoomAndReaction(
-                                room, PlaceReactionType.WANT);
+                        placeReactionRepository
+                                .findAllByPlaceCandidate_RoomAndReactionAndMember_LeftAtIsNull(
+                                        room, PlaceReactionType.WANT);
 
                 assertThat(found).extracting(PlaceReaction::getId).containsExactly(want.getId());
+            }
+
+            @Test
+            @DisplayName("방을 나간 멤버의 반응은 담지 않는다")
+            void excludesLeftMembers() {
+                RoomMember leaver = saveMember(room, "나간사람");
+                placeReactionRepository.save(
+                        PlaceReaction.create(candidate, member, PlaceReactionType.WANT));
+                placeReactionRepository.save(
+                        PlaceReaction.create(candidate, leaver, PlaceReactionType.WANT));
+                entityManager.flush();
+                entityManager
+                        .createNativeQuery(
+                                "UPDATE plan_room_member SET left_at = NOW(6) WHERE id = ?")
+                        .setParameter(1, leaver.getId())
+                        .executeUpdate();
+                entityManager.clear();
+
+                List<PlaceReaction> found =
+                        placeReactionRepository
+                                .findAllByPlaceCandidate_RoomAndReactionAndMember_LeftAtIsNull(
+                                        room, PlaceReactionType.WANT);
+
+                assertThat(found)
+                        .extracting(reaction -> reaction.getMember().getId())
+                        .containsExactly(member.getId());
             }
 
             @Test
@@ -166,7 +193,7 @@ class PlaceReactionRepositoryTest {
 
                 PlaceReaction found =
                         placeReactionRepository
-                                .findAllByPlaceCandidate_RoomAndReaction(
+                                .findAllByPlaceCandidate_RoomAndReactionAndMember_LeftAtIsNull(
                                         room, PlaceReactionType.WANT)
                                 .getFirst();
 

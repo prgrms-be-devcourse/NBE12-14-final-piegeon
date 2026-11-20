@@ -16,6 +16,10 @@ public record PlaceCandidateItem(
         long agreeCount,
         // 가고 싶어요를 누른 멤버
         List<MemberRef> agreedBy,
+        // 별로예요 수. 칸 계산에는 쓰지 않는다
+        long nopeCount,
+        // 별로예요를 누른 멤버
+        List<MemberRef> nopedBy,
         // 후보를 올린 멤버
         MemberRef suggestedBy,
         // 확정 시각. 미확정이면 null

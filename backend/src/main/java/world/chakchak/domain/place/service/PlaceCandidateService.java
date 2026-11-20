@@ -1,8 +1,11 @@
 package world.chakchak.domain.place.service;
 
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -15,6 +18,7 @@ import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
+import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
 import world.chakchak.domain.place.dto.PlaceLimitExceededData;
 import world.chakchak.domain.place.dto.PlaceStage;
@@ -32,13 +36,19 @@ import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
-/** 장소 후보 기능. (P-02, P-08·P-09 장소 코멘트) */
+/** 장소 후보 기능. (P-02 등록, P-03 칸반 보드, P-08, P-09 장소 코멘트) */
 @Service
 @RequiredArgsConstructor
 public class PlaceCandidateService {
 
     // 여행 하루에 올릴 수 있는 후보 수 (한도 = 여행 일수 x 10)
     private static final int CANDIDATES_PER_DAY = 10;
+
+    // 칸반 정렬: 칸(확정 -> 전체 -> 부분 -> 여집합) -> 가고 싶어요 많은 순 -> 먼저 올린 순
+    private static final Comparator<PlaceCandidateItem> BOARD_ORDER =
+            Comparator.comparing(PlaceCandidateItem::stage, Comparator.reverseOrder())
+                    .thenComparing(PlaceCandidateItem::agreeCount, Comparator.reverseOrder())
+                    .thenComparing(PlaceCandidateItem::placeId);
 
     private final RoomService roomService;
     private final PlatformTransactionManager transactionManager;
@@ -127,8 +137,41 @@ public class PlaceCandidateService {
                 PlaceStage.of(false, 1, activeMemberCount),
                 1,
                 List.of(me),
+                0,
+                List.of(),
                 me,
                 candidate.getConfirmedAt());
+    }
+
+    /**
+     * 장소 칸반 보드. 방의 후보 전부를 칸과 함께 돌려준다. (P-03)
+     *
+     * <p>읽기만 하므로 방 잠금을 잡지 않는다. 후보 목록과 가고 싶어요 목록을 한 번씩만 조회해서 메모리에서 합친다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN
+     */
+    @Transactional(readOnly = true)
+    public PlaceBoardResponse getBoard(Long roomId, Long userId) {
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        Room room = me.getRoom();
+        long activeMemberCount = roomMemberService.countActiveMembers(roomId);
+
+        // 후보 id -> 그 반응을 누른 멤버들. 아무도 안 누른 후보는 맵에 없다
+        Map<Long, List<MemberRef>> agreedByPlace = membersByPlace(room, PlaceReactionType.WANT);
+        Map<Long, List<MemberRef>> nopedByPlace = membersByPlace(room, PlaceReactionType.NOPE);
+
+        List<PlaceCandidateItem> candidates =
+                placeCandidateRepository.findAllByRoom(room).stream()
+                        .map(candidate ->
+                                toItem(
+                                        candidate,
+                                        agreedByPlace.getOrDefault(candidate.getId(), List.of()),
+                                        nopedByPlace.getOrDefault(candidate.getId(), List.of()),
+                                        activeMemberCount))
+                        .sorted(BOARD_ORDER)
+                        .toList();
+
+        return new PlaceBoardResponse(activeMemberCount, limitOf(room), candidates);
     }
 
     /** 장소 후보 코멘트 목록, 오래된 순. (P-08) */
@@ -166,6 +209,45 @@ public class PlaceCandidateService {
         return placeCandidateRepository
                 .findByIdAndRoom_Id(placeId, roomId)
                 .orElseThrow(() -> new BusinessException(PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND));
+    }
+
+    // 방의 반응 중 한 종류(WANT 또는 NOPE)를 후보별로 묶는다. 나간 멤버의 반응은 뺀다. 종류마다 SELECT 1번
+    private Map<Long, List<MemberRef>> membersByPlace(Room room, PlaceReactionType type) {
+        return placeReactionRepository
+                .findAllByPlaceCandidate_RoomAndReactionAndMember_LeftAtIsNull(room, type)
+                .stream()
+                .collect(
+                        Collectors.groupingBy(
+                                reaction -> reaction.getPlaceCandidate().getId(),
+                                Collectors.mapping(
+                                        reaction -> toMemberRef(reaction.getMember()),
+                                        Collectors.toList())));
+    }
+
+    // 칸반 카드 하나. 칸은 저장하지 않고 지금 인원으로 계산한다 (명세 8-1). 칸은 가고 싶어요로만 정한다
+    private PlaceCandidateItem toItem(
+            PlaceCandidate candidate,
+            List<MemberRef> agreedBy,
+            List<MemberRef> nopedBy,
+            long activeMemberCount) {
+        return new PlaceCandidateItem(
+                candidate.getId(),
+                candidate.getGooglePlaceId(),
+                candidate.getName(),
+                candidate.getAddress(),
+                candidate.getPlaceType(),
+                PlaceStage.of(candidate.isConfirmed(), agreedBy.size(), activeMemberCount),
+                agreedBy.size(),
+                agreedBy,
+                nopedBy.size(),
+                nopedBy,
+                toMemberRef(candidate.getSuggestedBy()),
+                candidate.getConfirmedAt());
+    }
+
+    // user는 지연 로딩이지만 조회 쿼리에서 @EntityGraph로 함께 가져와서 SELECT가 더 나가지 않는다
+    private MemberRef toMemberRef(RoomMember member) {
+        return new MemberRef(member.getId(), member.getUser().getName());
     }
 
     // 여행 일수 × 10. 7월 1일~3일이면 3일이라 30개
