@@ -3,6 +3,9 @@ package world.chakchak.domain.place.repository;
 import java.util.List;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import world.chakchak.domain.place.entity.PlaceReaction;
 import world.chakchak.domain.place.entity.PlaceReactionType;
 import world.chakchak.domain.room.entity.Room;
@@ -18,6 +21,10 @@ public interface PlaceReactionRepository extends JpaRepository<PlaceReaction, Lo
     @EntityGraph(attributePaths = {"member", "member.user"})
     List<PlaceReaction> findAllByPlaceCandidate_RoomAndReaction(
             Room room, PlaceReactionType reaction);
+
+    @Modifying
+    @Query("delete from PlaceReaction reaction where reaction.member.id = :memberId")
+    int deleteAllByMemberId(@Param("memberId") Long memberId);
 
     // TODO 후보 + 멤버로 반응 조회 - 반응 바꾸기·취소용 (P-04, P-05)
     // TODO 후보의 반응 전부 삭제 - 후보 삭제 전에 먼저 지운다 (P-07)

@@ -31,11 +31,29 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import world.chakchak.IntegrationTest;
+import world.chakchak.domain.agenda.entity.AgendaItem;
+import world.chakchak.domain.agenda.entity.AgendaOption;
+import world.chakchak.domain.agenda.entity.AgendaStatus;
+import world.chakchak.domain.agenda.entity.AgendaSubject;
+import world.chakchak.domain.agenda.entity.Vote;
+import world.chakchak.domain.agenda.repository.AgendaItemRepository;
+import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
+import world.chakchak.domain.agenda.repository.VoteRepository;
+import world.chakchak.domain.place.entity.PlaceCandidate;
+import world.chakchak.domain.place.entity.PlaceReaction;
+import world.chakchak.domain.place.entity.PlaceReactionType;
+import world.chakchak.domain.place.repository.PlaceCandidateRepository;
+import world.chakchak.domain.place.repository.PlaceReactionRepository;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.repository.RoomMemberRepository;
 import world.chakchak.domain.room.repository.RoomRepository;
+import world.chakchak.domain.survey.entity.ActivityCode;
+import world.chakchak.domain.survey.entity.Pace;
+import world.chakchak.domain.survey.entity.StayType;
+import world.chakchak.domain.survey.entity.SurveyResponse;
+import world.chakchak.domain.survey.repository.SurveyResponseRepository;
 import world.chakchak.domain.user.entity.User;
 import world.chakchak.domain.user.repository.UserRepository;
 
@@ -49,11 +67,239 @@ class ChangeLogTimelineIntegrationTest {
     private final RoomRepository roomRepository;
     private final RoomMemberRepository roomMemberRepository;
     private final UserRepository userRepository;
+    private final AgendaItemRepository agendaItemRepository;
+    private final AgendaOptionRepository agendaOptionRepository;
+    private final VoteRepository voteRepository;
+    private final SurveyResponseRepository surveyResponseRepository;
+    private final PlaceCandidateRepository placeCandidateRepository;
+    private final PlaceReactionRepository placeReactionRepository;
     private final Clock clock;
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
     private final HttpClient client = HttpClient.newHttpClient();
+
+    @Nested
+    class Delete {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("활동 멤버가 방을 나가면 상태·활동 기록·member.left SSE가 저장된다")
+            void leavesRoomAndPublishesMemberLeft() throws Exception {
+                Room room = saveRoom();
+                String leavingEmail = uniqueEmail();
+                String leavingCookie = login(leavingEmail, "퇴장 멤버");
+                User leavingUser = userRepository.findByEmail(leavingEmail).orElseThrow();
+                RoomMember leavingMember = join(room, leavingUser);
+                String listenerEmail = uniqueEmail();
+                String listenerCookie = login(listenerEmail, "남은 멤버");
+                User listenerUser = userRepository.findByEmail(listenerEmail).orElseThrow();
+                RoomMember listenerMember = join(room, listenerUser);
+                surveyResponseRepository.saveAndFlush(surveyResponse(leavingMember));
+                surveyResponseRepository.saveAndFlush(surveyResponse(listenerMember));
+
+                LocalDateTime now = LocalDateTime.now(clock);
+                AgendaItem toResolve =
+                        agendaItemRepository.saveAndFlush(
+                                AgendaItem.create(
+                                        room,
+                                        AgendaSubject.BUDGET,
+                                        1,
+                                        "예산",
+                                        2,
+                                        now,
+                                        now.plusDays(1)));
+                AgendaOption budget =
+                        agendaOptionRepository.saveAndFlush(
+                                AgendaOption.budget(toResolve, 100_000L, 0, null));
+                voteRepository.saveAndFlush(Vote.create(toResolve, budget, listenerMember, now));
+
+                AgendaItem toExpire =
+                        agendaItemRepository.saveAndFlush(
+                                AgendaItem.create(
+                                        room,
+                                        AgendaSubject.PACE,
+                                        1,
+                                        "이동 강도",
+                                        1,
+                                        now,
+                                        now.plusDays(1)));
+                AgendaItem votedAgenda =
+                        agendaItemRepository.saveAndFlush(
+                                AgendaItem.create(
+                                        room,
+                                        AgendaSubject.STAY,
+                                        1,
+                                        "숙소",
+                                        2,
+                                        now,
+                                        now.plusDays(1)));
+                AgendaOption stay =
+                        agendaOptionRepository.saveAndFlush(
+                                AgendaOption.stay(votedAgenda, StayType.HOTEL, 0));
+                voteRepository.saveAndFlush(Vote.create(votedAgenda, stay, leavingMember, now));
+
+                PlaceCandidate candidate =
+                        PlaceCandidate.create(
+                                room,
+                                "google-place-1",
+                                "확정 장소",
+                                "RESTAURANT",
+                                "부산",
+                                "https://maps.example/place-1",
+                                null,
+                                leavingMember);
+                candidate.confirm(clock);
+                candidate = placeCandidateRepository.saveAndFlush(candidate);
+                placeReactionRepository.saveAndFlush(
+                        PlaceReaction.create(candidate, leavingMember, PlaceReactionType.WANT));
+                placeReactionRepository.saveAndFlush(
+                        PlaceReaction.create(candidate, listenerMember, PlaceReactionType.WANT));
+                HttpResponse<InputStream> stream = openStream(room.getId(), listenerCookie, null);
+                try (SseReader reader = new SseReader(stream.body())) {
+                    assertThat(reader.readEvent()).contains("event:connected");
+
+                    HttpResponse<String> response =
+                            delete("/api/rooms/" + room.getId() + "/members/me", leavingCookie);
+
+                    assertThat(response.statusCode()).isEqualTo(200);
+                    assertThat(response.body()).contains("\"code\":\"ROOM_LEFT\"");
+                    assertThat(response.body()).contains("방에서 나갔습니다.");
+                    assertThat(
+                                    roomMemberRepository
+                                            .findById(leavingMember.getId())
+                                            .orElseThrow()
+                                            .getLeftAt())
+                            .isNotNull();
+                    assertThat(surveyResponseRepository.findByRoomMember_Id(leavingMember.getId()))
+                            .isEmpty();
+                    assertThat(
+                                    roomRepository
+                                            .findById(room.getId())
+                                            .orElseThrow()
+                                            .getSurveyClosedAt())
+                            .isNotNull();
+                    assertThat(agendaItemRepository.findById(toResolve.getId()).orElseThrow())
+                            .satisfies(agenda -> {
+                                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                                assertThat(agenda.getTotalVoter()).isEqualTo(1);
+                            });
+                    assertThat(
+                                    voteRepository.findByAgendaItemIdAndMemberId(
+                                            toResolve.getId(), listenerMember.getId()))
+                            .isPresent();
+                    assertThat(
+                                    agendaItemRepository
+                                            .findById(toExpire.getId())
+                                            .orElseThrow()
+                                            .getStatus())
+                            .isEqualTo(AgendaStatus.EXPIRED);
+                    assertThat(
+                                    agendaItemRepository
+                                            .findById(votedAgenda.getId())
+                                            .orElseThrow()
+                                            .getTotalVoter())
+                            .isEqualTo(2);
+                    assertThat(
+                                    voteRepository.findByAgendaItemIdAndMemberId(
+                                            votedAgenda.getId(), leavingMember.getId()))
+                            .isPresent();
+                    assertThat(
+                                    placeReactionRepository.findAllByPlaceCandidate_RoomAndReaction(
+                                            room, PlaceReactionType.WANT))
+                            .extracting(reaction -> reaction.getMember().getId())
+                            .containsExactly(listenerMember.getId());
+                    assertThat(
+                                    placeCandidateRepository
+                                            .findById(candidate.getId())
+                                            .orElseThrow()
+                                            .getConfirmedAt())
+                            .isNotNull();
+                    assertThat(
+                                    jdbcTemplate.queryForObject(
+                                            "select event_kind from change_log where plan_room_id = ?"
+                                                    + " order by id desc limit 1",
+                                            String.class,
+                                            room.getId()))
+                            .isEqualTo("MEMBER_LEFT");
+                    assertThat(reader.readEvent()).contains("event:activity");
+                    assertThat(reader.readEvent()).contains("event:member.left");
+                }
+
+                Room soloRoom = saveRoom(RoomStatus.REVIEWING);
+                String soloEmail = uniqueEmail();
+                String soloCookie = login(soloEmail, "마지막 멤버");
+                RoomMember soloMember =
+                        join(soloRoom, userRepository.findByEmail(soloEmail).orElseThrow());
+                AgendaItem finalPlan =
+                        agendaItemRepository.saveAndFlush(
+                                AgendaItem.create(
+                                        soloRoom,
+                                        AgendaSubject.FINAL_PLAN,
+                                        1,
+                                        "최종 확정",
+                                        1,
+                                        now,
+                                        now.plusDays(1)));
+
+                HttpResponse<String> finalMemberLeave =
+                        delete("/api/rooms/" + soloRoom.getId() + "/members/me", soloCookie);
+
+                assertThat(finalMemberLeave.statusCode()).isEqualTo(200);
+                assertThat(roomRepository.findById(soloRoom.getId()).orElseThrow().getStatus())
+                        .isEqualTo(RoomStatus.REVIEWING);
+                assertThat(
+                                agendaItemRepository
+                                        .findById(finalPlan.getId())
+                                        .orElseThrow()
+                                        .getStatus())
+                        .isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(
+                                roomMemberRepository
+                                        .findById(soloMember.getId())
+                                        .orElseThrow()
+                                        .getLeftAt())
+                        .isNotNull();
+            }
+        }
+
+        @Nested
+        class Failure {
+
+            @Test
+            @DisplayName("비인증·비멤버·존재하지 않는 방과 중복 퇴장을 거부한다")
+            void rejectsUnauthorizedAndRepeatedLeaveRequests() throws Exception {
+                String path = "/api/rooms/99999999/members/me";
+                HttpResponse<String> anonymous = delete(path, null);
+                assertThat(anonymous.statusCode()).isEqualTo(401);
+
+                String outsiderCookie = login(uniqueEmail(), "방 외부 사용자");
+                HttpResponse<String> missingRoom = delete(path, outsiderCookie);
+                assertThat(missingRoom.statusCode()).isEqualTo(404);
+                assertThat(missingRoom.body()).contains("ROOM_NOT_FOUND");
+
+                Room room = saveRoom();
+                HttpResponse<String> nonMember =
+                        delete("/api/rooms/" + room.getId() + "/members/me", outsiderCookie);
+                assertThat(nonMember.statusCode()).isEqualTo(403);
+                assertThat(nonMember.body()).contains("FORBIDDEN");
+
+                String memberEmail = uniqueEmail();
+                String memberCookie = login(memberEmail, "퇴장 멤버");
+                join(room, userRepository.findByEmail(memberEmail).orElseThrow());
+                HttpResponse<String> firstLeave =
+                        delete("/api/rooms/" + room.getId() + "/members/me", memberCookie);
+                assertThat(firstLeave.statusCode()).isEqualTo(200);
+
+                HttpResponse<String> repeated =
+                        delete("/api/rooms/" + room.getId() + "/members/me", memberCookie);
+                assertThat(repeated.statusCode()).isEqualTo(403);
+                assertThat(repeated.body()).contains("FORBIDDEN");
+            }
+        }
+    }
 
     @Autowired
     ChangeLogTimelineIntegrationTest(
@@ -61,6 +307,12 @@ class ChangeLogTimelineIntegrationTest {
             RoomRepository roomRepository,
             RoomMemberRepository roomMemberRepository,
             UserRepository userRepository,
+            AgendaItemRepository agendaItemRepository,
+            AgendaOptionRepository agendaOptionRepository,
+            VoteRepository voteRepository,
+            SurveyResponseRepository surveyResponseRepository,
+            PlaceCandidateRepository placeCandidateRepository,
+            PlaceReactionRepository placeReactionRepository,
             Clock clock,
             JdbcTemplate jdbcTemplate,
             ObjectMapper objectMapper) {
@@ -68,6 +320,12 @@ class ChangeLogTimelineIntegrationTest {
         this.roomRepository = roomRepository;
         this.roomMemberRepository = roomMemberRepository;
         this.userRepository = userRepository;
+        this.agendaItemRepository = agendaItemRepository;
+        this.agendaOptionRepository = agendaOptionRepository;
+        this.voteRepository = voteRepository;
+        this.surveyResponseRepository = surveyResponseRepository;
+        this.placeCandidateRepository = placeCandidateRepository;
+        this.placeReactionRepository = placeReactionRepository;
         this.clock = clock;
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
@@ -463,7 +721,20 @@ class ChangeLogTimelineIntegrationTest {
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    private HttpResponse<String> delete(String path, String cookie) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path)).DELETE();
+        if (cookie != null) {
+            builder.header("Cookie", cookie);
+        }
+        HttpRequest request = builder.build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     private Room saveRoom() {
+        return saveRoom(RoomStatus.SURVEYING);
+    }
+
+    private Room saveRoom(RoomStatus status) {
         LocalDate startDate = LocalDate.now(clock).plusDays(10);
         String inviteCode = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         return roomRepository.saveAndFlush(
@@ -473,8 +744,19 @@ class ChangeLogTimelineIntegrationTest {
                         startDate,
                         startDate.plusDays(2),
                         inviteCode,
-                        RoomStatus.SURVEYING,
+                        status,
                         clock));
+    }
+
+    private SurveyResponse surveyResponse(RoomMember member) {
+        return SurveyResponse.createForSurveying(
+                member,
+                100_000L,
+                StayType.HOTEL,
+                Pace.NORMAL,
+                List.of(ActivityCode.FOOD),
+                "없음",
+                clock);
     }
 
     private RoomMember join(Room room, User user) {
