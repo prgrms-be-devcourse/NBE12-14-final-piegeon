@@ -25,6 +25,7 @@ import world.chakchak.domain.agenda.entity.AgendaItem;
 import world.chakchak.domain.agenda.entity.AgendaOption;
 import world.chakchak.domain.agenda.entity.AgendaStatus;
 import world.chakchak.domain.agenda.entity.AgendaSubject;
+import world.chakchak.domain.agenda.entity.FinalPlanChoice;
 import world.chakchak.domain.agenda.entity.Vote;
 import world.chakchak.domain.agenda.errorcode.AgendaErrorCode;
 import world.chakchak.domain.agenda.repository.AgendaItemRepository;
@@ -46,7 +47,7 @@ import world.chakchak.global.error.CommonErrorCode;
 
 /**
  * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 안건 코멘트(V-05 목록, V-06 작성), 다음 회차 열기(V-04), 예산 선지 추가·삭제(V-07,
- * V-08), 7-1 만장일치 판정.
+ * V-08), 최종 확정 투표 열기(C-01), 7-1 만장일치 판정.
  *
  * <p>조회는 방 잠금을 잡지 않는다. 투표, 다음 회차 열기, 선지 추가·삭제는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수
  * 있다.
@@ -530,5 +531,48 @@ public class AgendaService {
         List<AgendaOption> copied = new ArrayList<>();
         previousOptions.forEach(option -> copied.add(option.copyTo(next, copied.size())));
         return copied;
+    }
+
+    /**
+     * 최종 확정 투표를 연다 (C-01). FINAL_PLAN 안건과 동의·반대 선지를 만들고, 연 사람의 동의 표를 넣고, 방을 REVIEWING으로 바꿔 보드를 잠근다.
+     *
+     * <p>방이 PLANNING이 되는 길은 설문 3항목이 모두 결정됐을 때(5-2)뿐이라, PLANNING인지만 보면 "설문 항목이 모두 결정됨" 조건도 충족된다.
+     * 반대·미결로 PLANNING에 돌아온 뒤 다시 열면 다음 회차가 된다. 활동 멤버가 연 사람 혼자면 그 동의 표로 바로 만장일치가 되어 FINALIZED까지 간다.
+     */
+    @Transactional
+    public AgendaDetailResponse openFinalReview(Long roomId, Long userId) {
+        Room room = roomService.getForUpdate(roomId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        if (room.getStatus() != RoomStatus.PLANNING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+
+        int round =
+                agendaItemRepository
+                        .findTopByRoomIdAndSubjectOrderByRoundDesc(roomId, AgendaSubject.FINAL_PLAN)
+                        .map(previous -> previous.getRound() + 1)
+                        .orElse(1);
+        // 같은 방의 요청은 방 잠금으로 한 줄로 처리되고, 열린 뒤에는 방이 REVIEWING이라 위에서 막혀 회차가 겹치지 않는다
+        AgendaItem agenda =
+                agendaItemRepository.save(
+                        AgendaItem.openFinalReview(
+                                room,
+                                round,
+                                Math.toIntExact(roomMemberService.countActiveMembers(roomId)),
+                                now));
+        AgendaOption agree = AgendaOption.finalPlan(agenda, FinalPlanChoice.AGREE);
+        agendaOptionRepository.saveAll(
+                List.of(agree, AgendaOption.finalPlan(agenda, FinalPlanChoice.REJECT)));
+
+        // 1인 방이면 아래 판정에서 바로 FINALIZED가 되므로, 방을 먼저 REVIEWING으로 바꾼다
+        room.startReview();
+        // 연 사람은 이 계획에 동의한 것으로 본다 (명세 C-01)
+        voteRepository.save(Vote.create(agenda, agree, me, now));
+        judge(room, agenda, now);
+        // TODO change_log: AGENDA CREATE, PLAN_ROOM UPDATE (기록 방식이 정해지면 추가)
+        // TODO SSE (커밋 후): agenda.opened, room.status_changed
+
+        return toDetail(agenda, me);
     }
 }

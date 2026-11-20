@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
@@ -1545,6 +1546,160 @@ class AgendaServiceTest {
                 assertError(() -> open(previous), AgendaErrorCode.AGENDA_ALREADY_REOPENED);
                 verifyNoInteractions(surveyResponseService);
                 verify(agendaOptionRepository, never()).saveAll(any());
+            }
+        }
+    }
+
+    @Nested
+    class OpenFinalReview {
+
+        // 서비스가 저장한 선지와 표. 판정과 응답 조립이 저장소에서 다시 읽을 때 그대로 돌려준다
+        private final List<AgendaOption> savedOptions = new ArrayList<>();
+        private final List<Vote> savedVotes = new ArrayList<>();
+
+        @BeforeEach
+        void planningRoom() {
+            ReflectionTestUtils.setField(room, "id", ROOM_ID);
+            ReflectionTestUtils.setField(room, "status", RoomStatus.PLANNING);
+        }
+
+        private void givenLockedRoomAndMember(LocalDateTime now) {
+            given(clock.instant()).willReturn(now.atZone(SEOUL).toInstant());
+            given(clock.getZone()).willReturn(SEOUL);
+            given(roomService.getForUpdate(ROOM_ID)).willReturn(room);
+            given(roomMemberService.getActiveMember(ROOM_ID, USER_ID)).willReturn(me);
+        }
+
+        private void givenActiveMembers(long count) {
+            given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(count);
+        }
+
+        private void givenPreviousFinalReview(AgendaItem previous) {
+            given(
+                            agendaItemRepository.findTopByRoomIdAndSubjectOrderByRoundDesc(
+                                    ROOM_ID, AgendaSubject.FINAL_PLAN))
+                    .willReturn(Optional.ofNullable(previous));
+        }
+
+        // 저장하면 DB처럼 id와 생성 시각을 채운다
+        private void givenSaving() {
+            given(agendaItemRepository.save(any(AgendaItem.class)))
+                    .willAnswer(invocation -> {
+                        AgendaItem agenda = withId(invocation.<AgendaItem>getArgument(0));
+                        ReflectionTestUtils.setField(agenda, "createdAt", NOW);
+                        return agenda;
+                    });
+            given(agendaOptionRepository.saveAll(anyList()))
+                    .willAnswer(invocation -> {
+                        List<AgendaOption> options = invocation.getArgument(0);
+                        options.forEach(option -> savedOptions.add(withId(option)));
+                        return options;
+                    });
+            given(voteRepository.save(any(Vote.class)))
+                    .willAnswer(invocation -> {
+                        Vote vote = withId(invocation.<Vote>getArgument(0));
+                        savedVotes.add(vote);
+                        return vote;
+                    });
+            given(voteRepository.findAllByAgendaItemId(any()))
+                    .willAnswer(invocation -> List.copyOf(savedVotes));
+            given(agendaOptionRepository.findAllByAgendaItemIdOrderByDisplayIndexAsc(any()))
+                    .willAnswer(invocation -> List.copyOf(savedOptions));
+        }
+
+        private void assertOpenError(ErrorCode errorCode) {
+            assertThatThrownBy(() -> agendaService.openFinalReview(ROOM_ID, USER_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(errorCode);
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("최종 확정 투표를 열면 1회차 안건과 동의·반대 선지를 만들고 내 동의 표를 넣은 뒤 방을 REVIEWING으로 바꾼다")
+            void opensFirstRound() {
+                givenLockedRoomAndMember(NOW);
+                givenActiveMembers(2);
+                givenPreviousFinalReview(null);
+                givenSaving();
+
+                AgendaDetailResponse response = agendaService.openFinalReview(ROOM_ID, USER_ID);
+
+                assertThat(response.subject()).isEqualTo(AgendaSubject.FINAL_PLAN);
+                assertThat(response.round()).isEqualTo(1);
+                assertThat(response.status()).isEqualTo(AgendaStatus.VOTING);
+                assertThat(response.totalVoter()).isEqualTo(2);
+                assertThat(response.deadlineAt()).isEqualTo(NOW.plusDays(7));
+                assertThat(response.options())
+                        .extracting(OptionResult::value)
+                        .containsExactly("AGREE", "REJECT");
+                assertThat(response.votedCount()).isEqualTo(1);
+                assertThat(response.myOptionId()).isEqualTo(response.options().get(0).optionId());
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.REVIEWING);
+            }
+
+            @Test
+            @DisplayName("반대나 미결로 끝난 최종 확정이 있으면 그다음 회차로 연다")
+            void opensNextRound() {
+                AgendaItem previous = AgendaItem.openFinalReview(room, 1, 2, NOW.minusDays(3));
+                previous.expire();
+                givenLockedRoomAndMember(NOW);
+                givenActiveMembers(2);
+                givenPreviousFinalReview(previous);
+                givenSaving();
+
+                AgendaDetailResponse response = agendaService.openFinalReview(ROOM_ID, USER_ID);
+
+                assertThat(response.round()).isEqualTo(2);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.REVIEWING);
+            }
+
+            @Test
+            @DisplayName("활동 멤버가 나 혼자면 내 동의 표로 바로 결정되어 방이 FINALIZED가 된다")
+            void finalizesSoloRoom() {
+                givenLockedRoomAndMember(NOW);
+                givenActiveMembers(1);
+                givenPreviousFinalReview(null);
+                givenSaving();
+
+                AgendaDetailResponse response = agendaService.openFinalReview(ROOM_ID, USER_ID);
+
+                assertThat(response.status()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.FINALIZED);
+                assertThat(room.getFinalizedAt()).isEqualTo(NOW);
+            }
+        }
+
+        @Nested
+        class Failure {
+
+            @ParameterizedTest
+            @EnumSource(
+                    value = RoomStatus.class,
+                    names = "PLANNING",
+                    mode = EnumSource.Mode.EXCLUDE)
+            @DisplayName("방이 PLANNING이 아니면 INVALID_STATUS로 막고 아무것도 저장하지 않는다")
+            void rejectsOutsidePlanning(RoomStatus status) {
+                ReflectionTestUtils.setField(room, "status", status);
+                givenLockedRoomAndMember(NOW);
+
+                assertOpenError(CommonErrorCode.INVALID_STATUS);
+                verify(agendaItemRepository, never()).save(any());
+                assertThat(room.getStatus()).isEqualTo(status);
+            }
+
+            @Test
+            @DisplayName("출발 전날 00시가 지나면 AGENDA_DEADLINE_PASSED로 막고 방은 PLANNING에 남는다")
+            void rejectsAfterDayBeforeDeparture() {
+                givenLockedRoomAndMember(LocalDateTime.of(2027, 6, 30, 0, 0));
+                givenActiveMembers(2);
+                givenPreviousFinalReview(null);
+
+                assertOpenError(AgendaErrorCode.AGENDA_DEADLINE_PASSED);
+                verify(agendaItemRepository, never()).save(any());
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
             }
         }
     }
