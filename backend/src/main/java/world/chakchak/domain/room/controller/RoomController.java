@@ -17,6 +17,7 @@ import world.chakchak.domain.room.dto.JoinRoomResponse;
 import world.chakchak.domain.room.dto.RoomCreatedResponse;
 import world.chakchak.domain.room.dto.RoomDetailResponse;
 import world.chakchak.domain.room.dto.RoomListResponse;
+import world.chakchak.domain.room.dto.SeenRequest;
 import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
@@ -55,6 +56,16 @@ public class RoomController {
             @AuthenticationPrincipal LoginUser loginUser, @PathVariable Long roomId) {
         RoomDetailResponse response = roomService.getRoomDetail(roomId, loginUser.userId());
         return ResponseEntity.ok(ApiResponse.success("ROOM_FETCHED", response));
+    }
+
+    @PostMapping("/{roomId}/seen")
+    public ResponseEntity<ApiResponse<Void>> markSeen(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long roomId,
+            @Valid @RequestBody SeenRequest request) {
+        roomService.markSeen(roomId, loginUser.userId(), request.seenUntil());
+        return ResponseEntity.ok(
+                ApiResponse.successWithoutData("ROOM_SEEN_UPDATED", "확인 시각을 갱신했습니다."));
     }
 
     @PostMapping

@@ -1,6 +1,7 @@
 package world.chakchak.domain.room.service;
 
 import java.time.Clock;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,21 @@ public class RoomMemberService {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }
         return access.getActiveMember();
+    }
+
+    public RoomMember getActiveMemberForStream(Long roomId, Long userId) {
+        return getActiveMember(roomId, userId);
+    }
+
+    public boolean isActiveMember(Long roomId, Long memberId) {
+        return roomMemberRepository.existsByRoom_IdAndIdAndLeftAtIsNull(roomId, memberId);
+    }
+
+    @Transactional
+    public void advanceLastSeenAt(Long memberId, LocalDateTime seenUntil) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime boundedSeenUntil = seenUntil.isAfter(now) ? now : seenUntil;
+        roomMemberRepository.advanceLastSeenAt(memberId, boundedSeenUntil, now);
     }
 
     /** 방에 남아 있는 멤버 수 (나간 멤버 제외). 장소 칸 계산(PlaceStage)처럼 인원 기준이 필요한 곳에서 쓴다. */

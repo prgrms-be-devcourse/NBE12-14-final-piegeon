@@ -31,7 +31,7 @@ public class RoomMember extends BaseEntity {
     @Column(name = "joined_at", nullable = false)
     private LocalDateTime joinedAt;
 
-    @Column(name = "last_seen_at", nullable = false)
+    @Column(name = "last_seen_at")
     private LocalDateTime lastSeenAt;
 
     @Column(name = "left_at")
