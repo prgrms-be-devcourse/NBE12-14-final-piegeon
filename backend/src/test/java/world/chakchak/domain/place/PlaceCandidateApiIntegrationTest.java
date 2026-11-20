@@ -233,6 +233,98 @@ class PlaceCandidateApiIntegrationTest {
         }
     }
 
+    @Nested
+    class React {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("별로예요를 누르면 200과 PLACE_REACTION_SAVED, 내 반응이 들어간 상세가 반환된다")
+            void savesReaction() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+
+                HttpResponse<String> response =
+                        send("PUT", roomId, placeId, "{\"reaction\":\"NOPE\"}", cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"PLACE_REACTION_SAVED\"")
+                        .contains("\"reaction\":{\"value\":\"NOPE\",\"label\":\"별로예요\"}")
+                        .contains("\"agreeCount\":0");
+            }
+
+            @Test
+            @DisplayName("반응을 지우면 200과 PLACE_REACTION_DELETED, 내 반응이 null인 상세가 반환된다")
+            void deletesReaction() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+
+                HttpResponse<String> response = send("DELETE", roomId, placeId, null, cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"PLACE_REACTION_DELETED\"")
+                        .contains("\"reaction\":null");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("reaction이 없거나 없는 값이면 400 INVALID_INPUT이다")
+            void rejectsInvalidReaction() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+
+                HttpResponse<String> missing = send("PUT", roomId, placeId, "{}", cookie);
+                HttpResponse<String> unknown =
+                        send("PUT", roomId, placeId, "{\"reaction\":\"MAYBE\"}", cookie);
+
+                assertThat(missing.statusCode()).isEqualTo(400);
+                assertThat(missing.body()).contains("\"code\":\"INVALID_INPUT\"");
+                assertThat(unknown.statusCode()).isEqualTo(400);
+                assertThat(unknown.body()).contains("\"code\":\"INVALID_INPUT\"");
+            }
+        }
+    }
+
+    // 반응 API 호출. body가 null이면 본문 없이 보낸다
+    private HttpResponse<String> send(
+            String method, long roomId, long placeId, String body, String cookie)
+            throws java.lang.Exception {
+        HttpRequest request =
+                HttpRequest.newBuilder(
+                                URI.create(
+                                        "http://localhost:"
+                                                + port
+                                                + "/api/rooms/"
+                                                + roomId
+                                                + "/place-candidates/"
+                                                + placeId
+                                                + "/reaction"))
+                        .header("Cookie", cookie)
+                        .header("Content-Type", "application/json")
+                        .method(
+                                method,
+                                body == null
+                                        ? HttpRequest.BodyPublishers.noBody()
+                                        : HttpRequest.BodyPublishers.ofString(body))
+                        .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     private HttpResponse<String> get(long roomId, String suffix, String cookie)
             throws java.lang.Exception {
         HttpRequest request =
