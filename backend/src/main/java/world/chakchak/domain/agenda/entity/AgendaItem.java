@@ -32,6 +32,9 @@ import world.chakchak.global.error.BusinessException;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AgendaItem extends BaseEntity {
 
+    /** 설문 마감 때 여는 1회차 안건의 투표 기간 (명세 5-1) */
+    static final int FIRST_ROUND_VOTING_DAYS = 4;
+
     /** 다음 회차 안건의 투표 기간 */
     static final int NEXT_ROUND_VOTING_DAYS = 7;
 
@@ -114,6 +117,44 @@ public class AgendaItem extends BaseEntity {
     }
 
     /**
+     * 설문 마감 때 설문 항목의 1회차 안건을 연다. (5-1)
+     *
+     * <p>마감은 설문 마감 + 4일이고 D-1보다 늦으면 D-1로 줄인다. 만장일치 항목도 이렇게 연 뒤 선지를 만들고 {@link #resolveWithoutVote}로
+     * 바로 결정한다.
+     *
+     * @param surveyClosedAt 설문 마감 시각. 안건을 여는 지금 시각이기도 하다
+     */
+    public static AgendaItem openFirstRound(
+            Room room, AgendaSubject subject, int totalVoter, LocalDateTime surveyClosedAt) {
+        return create(
+                room,
+                subject,
+                1,
+                firstRoundTitle(subject),
+                totalVoter,
+                surveyClosedAt,
+                surveyClosedAt.plusDays(FIRST_ROUND_VOTING_DAYS));
+    }
+
+    private static String firstRoundTitle(AgendaSubject subject) {
+        return switch (subject) {
+            case BUDGET -> "예산을 정해주세요";
+            case STAY -> "숙소 타입을 정해주세요";
+            case PACE -> "이동 강도를 정해주세요";
+            case FINAL_PLAN -> throw new IllegalArgumentException("최종 확정 안건은 설문 마감 때 열지 않습니다.");
+        };
+    }
+
+    /**
+     * 지금 이 방에 안건을 열 수 있는지. 출발 전날 00:00(D-1)이 됐거나 지났으면 열 수 없다.
+     *
+     * <p>설문 마감(5-1)처럼 다른 요청(퇴장, 설문 제출) 안에서 안건을 열 때, 409로 그 요청까지 실패시키지 않고 건너뛰려고 미리 확인한다.
+     */
+    public static boolean canOpenAt(Room room, LocalDateTime now) {
+        return now.isBefore(dayBeforeDeparture(room.getStartDate()));
+    }
+
+    /**
      * 마감 시각을 출발 전날 00:00(D-1)보다 늦지 않게 줄인다.
      *
      * <p>생성자에서 항상 적용하므로 외부에서 부를 일이 없어 private으로 바꿨다.
@@ -160,6 +201,13 @@ public class AgendaItem extends BaseEntity {
         this.status = AgendaStatus.RESOLVED;
         this.resolvedOptionId = option.getId();
         this.resolvedAt = now;
+    }
+
+    /** 투표 없이 바로 결정한다. 설문 답이 모두 같아 선지가 하나뿐인 1회차 안건에 쓴다. 마감도 지금으로 맞춘다. (5-1 만장일치 항목) */
+    public void resolveWithoutVote(AgendaOption option, LocalDateTime now) {
+        requireVoting();
+        this.deadlineAt = now;
+        resolve(option, now);
     }
 
     /**
