@@ -43,9 +43,10 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 안건 코멘트(V-05 목록, V-06 작성), 예산 선지 추가(V-07), 7-1 만장일치 판정.
+ * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 안건 코멘트(V-05 목록, V-06 작성), 예산 선지 추가·삭제(V-07, V-08), 7-1 만장일치
+ * 판정.
  *
- * <p>조회는 방 잠금을 잡지 않는다. 투표와 선지 추가는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수 있다.
+ * <p>조회는 방 잠금을 잡지 않는다. 투표와 선지 추가·삭제는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수 있다.
  */
 @Service
 @RequiredArgsConstructor
@@ -375,6 +376,48 @@ public class AgendaService {
             throw new BusinessException(AgendaErrorCode.OPTION_ALREADY_EXISTS);
         }
         // TODO SSE (커밋 후): agenda.option_added. change_log는 남기지 않는다 (명세 V-07)
+
+        return toDetail(agenda, me);
+    }
+
+    /**
+     * 내가 추가한 예산 선지를 지운다 (V-08). 그 선지에 있던 내 표도 함께 지운다.
+     *
+     * <p>다른 멤버의 표가 있으면 지우지 않는다. 지우면 그 사람의 표가 몰래 사라지기 때문이다. 표가 줄기만 하므로 이 삭제로 안건이 결정되지는 않아 7-1 판정은 하지
+     * 않는다. 지운 뒤에는 이 회차에 다시 1개를 추가할 수 있다(V-07).
+     */
+    @Transactional
+    public AgendaDetailResponse deleteBudgetOption(
+            Long roomId, Long agendaId, Long optionId, Long userId) {
+        Room room = roomService.getForUpdate(roomId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        // 명세 2-1: 예산 선지는 설문 조율 구간(SURVEYING)에서만 지운다
+        if (room.getStatus() != RoomStatus.SURVEYING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+
+        AgendaItem agenda = getAgendaInRoom(roomId, agendaId);
+        if (!agenda.isOpenAt(now)) {
+            throw new BusinessException(AgendaErrorCode.AGENDA_CLOSED);
+        }
+        AgendaOption option =
+                agendaOptionRepository
+                        .findByIdAndAgendaItemId(optionId, agendaId)
+                        .orElseThrow(() -> new BusinessException(AgendaErrorCode.OPTION_NOT_FOUND));
+        // 설문에서 나온 선지와 예산이 아닌 안건의 선지는 올린 사람이 없어 여기서 막힌다
+        option.requireProposedBy(me);
+        long othersVoteCount =
+                voteRepository.countByAgendaOptionIdAndMemberIdNot(optionId, me.getId());
+        if (othersVoteCount > 0) {
+            throw new BusinessException(
+                    AgendaErrorCode.OPTION_HAS_VOTES, Map.of("voteCount", othersVoteCount));
+        }
+
+        // 표가 선지를 참조하므로 내 표를 먼저 지운다
+        voteRepository.deleteByAgendaOptionIdAndMemberId(optionId, me.getId());
+        agendaOptionRepository.delete(option);
+        // TODO SSE (커밋 후): agenda.option_deleted, 내 표가 있었으면 vote.updated
 
         return toDetail(agenda, me);
     }
