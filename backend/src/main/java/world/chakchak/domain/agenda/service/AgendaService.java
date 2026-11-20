@@ -39,14 +39,17 @@ import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.domain.room.service.RoomService;
+import world.chakchak.domain.survey.entity.SurveyResponse;
+import world.chakchak.domain.survey.service.SurveyService;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 안건 코멘트(V-05 목록, V-06 작성), 예산 선지 추가·삭제(V-07, V-08), 7-1 만장일치
- * 판정.
+ * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 안건 코멘트(V-05 목록, V-06 작성), 다음 회차 열기(V-04), 예산 선지 추가·삭제(V-07,
+ * V-08), 7-1 만장일치 판정.
  *
- * <p>조회는 방 잠금을 잡지 않는다. 투표와 선지 추가·삭제는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수 있다.
+ * <p>조회는 방 잠금을 잡지 않는다. 투표, 다음 회차 열기, 선지 추가·삭제는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수
+ * 있다.
  */
 @Service
 @RequiredArgsConstructor
@@ -62,6 +65,7 @@ public class AgendaService {
     private final AgendaItemRepository agendaItemRepository;
     private final AgendaOptionRepository agendaOptionRepository;
     private final VoteRepository voteRepository;
+    private final SurveyService surveyService;
     private final Clock clock;
 
     /** 방의 안건 전체 목록 (V-01). 필터 없이 모두 돌려주고 걸러 보기는 프론트가 한다. */
@@ -420,5 +424,86 @@ public class AgendaService {
         // TODO SSE (커밋 후): agenda.option_deleted, 내 표가 있었으면 vote.updated
 
         return toDetail(agenda, me);
+    }
+
+    /**
+     * 미결(EXPIRED)로 끝난 설문 안건의 다음 회차를 연다 (V-04). 자동으로 열리지 않고 멤버가 직접 연다.
+     *
+     * <p>투표 자격자는 지금 방에 남은 멤버 전원이다. 선지는 남은 멤버의 설문 답과 직전 회차에 남은 멤버가 추가한 예산 선지로 다시 만든다. 남은 멤버 중 이 항목에
+     * 답한 사람이 없으면 직전 회차 선지를 그대로 옮긴다. 두 명이 동시에 눌러도 방 잠금으로 한 명씩 처리되어 두 번째는 AGENDA_ALREADY_REOPENED가
+     * 된다.
+     */
+    @Transactional
+    public AgendaDetailResponse openNextRound(Long roomId, Long agendaId, Long userId) {
+        Room room = roomService.getForUpdate(roomId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        // 명세 2-1: 다음 회차는 설문 조율 구간(SURVEYING)에서만 연다
+        if (room.getStatus() != RoomStatus.SURVEYING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+
+        AgendaItem previous = getAgendaInRoom(roomId, agendaId);
+        if (!previous.getSubject().isSurvey() || previous.getStatus() != AgendaStatus.EXPIRED) {
+            throw new BusinessException(AgendaErrorCode.AGENDA_NOT_REOPENABLE);
+        }
+        AgendaItem latest =
+                agendaItemRepository
+                        .findTopByRoomIdAndSubjectOrderByRoundDesc(roomId, previous.getSubject())
+                        .orElse(previous);
+        if (!latest.getId().equals(previous.getId())) {
+            throw new BusinessException(
+                    AgendaErrorCode.AGENDA_ALREADY_REOPENED, Map.of("agendaId", latest.getId()));
+        }
+
+        AgendaItem next =
+                previous.openNextRound(
+                        Math.toIntExact(roomMemberService.countActiveMembers(roomId)), now);
+        try {
+            agendaItemRepository.saveAndFlush(next);
+        } catch (DataIntegrityViolationException e) {
+            // 방 잠금으로 먼저 막으므로 여기까지 오는 것은 UNIQUE(plan_room_id, subject, round)가 마지막으로 막은 경우다
+            throw new BusinessException(AgendaErrorCode.AGENDA_ALREADY_REOPENED);
+        }
+        agendaOptionRepository.saveAll(nextRoundOptions(roomId, previous, next));
+        // TODO change_log(AGENDA CREATE) + SSE (커밋 후): agenda.opened
+
+        return toDetail(next, me);
+    }
+
+    private List<AgendaOption> nextRoundOptions(Long roomId, AgendaItem previous, AgendaItem next) {
+        // 직전 회차에 남은 멤버가 추가한 예산 선지는 올린 사람을 유지해 옮긴다
+        List<AgendaOption> carried =
+                previous.getSubject() == AgendaSubject.BUDGET
+                        ? agendaOptionRepository.findAllProposedByActiveMembers(previous.getId())
+                        : List.of();
+        // 설문 응답에서 이 주제의 값만 꺼내 넘긴다. 선지 규칙은 AgendaOption이 설문 엔티티를 모른 채 값으로만 정한다
+        List<SurveyResponse> answers = surveyService.getActiveMemberResponses(roomId);
+        List<AgendaOption> built =
+                switch (next.getSubject()) {
+                    case BUDGET ->
+                            AgendaOption.budgetOptions(
+                                    next,
+                                    answers.stream().map(SurveyResponse::getBudget).toList(),
+                                    carried);
+                    case STAY ->
+                            AgendaOption.stayOptions(
+                                    next,
+                                    answers.stream().map(SurveyResponse::getStayType).toList());
+                    case PACE ->
+                            AgendaOption.paceOptions(
+                                    next, answers.stream().map(SurveyResponse::getPace).toList());
+                    case FINAL_PLAN -> throw new IllegalStateException("최종 확정 안건은 다음 회차로 열지 않습니다.");
+                };
+        if (!built.isEmpty()) {
+            return built;
+        }
+        // 남은 멤버 중 이 항목에 답한 사람이 없다. 투표를 이어갈 수 있게 직전 회차 선지를 그대로 옮긴다
+        List<AgendaOption> previousOptions =
+                agendaOptionRepository.findAllByAgendaItemIdOrderByDisplayIndexAsc(
+                        previous.getId());
+        List<AgendaOption> copied = new ArrayList<>();
+        previousOptions.forEach(option -> copied.add(option.copyTo(next, copied.size())));
+        return copied;
     }
 }
