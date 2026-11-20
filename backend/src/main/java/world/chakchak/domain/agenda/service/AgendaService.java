@@ -326,7 +326,7 @@ public class AgendaService {
      */
     @Transactional
     public AgendaDetailResponse addBudgetOption(
-        Long roomId, Long agendaId, Long userId, AddOptionRequest request) {
+            Long roomId, Long agendaId, Long userId, AddOptionRequest request) {
         Room room = roomService.getForUpdate(roomId);
         LocalDateTime now = LocalDateTime.now(clock);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
@@ -352,24 +352,24 @@ public class AgendaService {
         // 반올림하면 다른 금액도 같은 선지가 되므로 반올림한 값으로 중복을 확인한다
         String value = String.valueOf(AgendaOption.roundBudget(request.amount()));
         agendaOptionRepository
-            .findByAgendaItemIdAndValue(agendaId, value)
-            .ifPresent(existing -> {
-                throw new BusinessException(
-                    AgendaErrorCode.OPTION_ALREADY_EXISTS,
-                    Map.of("optionId", existing.getId()));
-            });
+                .findByAgendaItemIdAndValue(agendaId, value)
+                .ifPresent(existing -> {
+                    throw new BusinessException(
+                            AgendaErrorCode.OPTION_ALREADY_EXISTS,
+                            Map.of("optionId", existing.getId()));
+                });
 
         int nextIndex =
-            agendaOptionRepository
-                .findAllByAgendaItemIdOrderByDisplayIndexAsc(agendaId)
-                .stream()
-                .mapToInt(AgendaOption::getDisplayIndex)
-                .max()
-                .orElse(-1)
-                + 1;
+                agendaOptionRepository
+                                .findAllByAgendaItemIdOrderByDisplayIndexAsc(agendaId)
+                                .stream()
+                                .mapToInt(AgendaOption::getDisplayIndex)
+                                .max()
+                                .orElse(-1)
+                        + 1;
         try {
             agendaOptionRepository.saveAndFlush(
-                AgendaOption.budget(agenda, request.amount(), nextIndex, me));
+                    AgendaOption.budget(agenda, request.amount(), nextIndex, me));
         } catch (DataIntegrityViolationException e) {
             // 방 잠금으로 먼저 막으므로 여기까지 오는 것은 UNIQUE(agenda_id, value)가 마지막으로 막은 경우다
             throw new BusinessException(AgendaErrorCode.OPTION_ALREADY_EXISTS);

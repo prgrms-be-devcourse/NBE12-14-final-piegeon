@@ -88,13 +88,13 @@ public class AgendaController {
     /** V-07 예산 선지 추가 */
     @PostMapping("/{agendaId}/options")
     public ResponseEntity<ApiResponse<AgendaDetailResponse>> addBudgetOption(
-        @PathVariable Long roomId,
-        @PathVariable Long agendaId,
-        @Valid @RequestBody AddOptionRequest request,
-        @AuthenticationPrincipal LoginUser loginUser) {
+            @PathVariable Long roomId,
+            @PathVariable Long agendaId,
+            @Valid @RequestBody AddOptionRequest request,
+            @AuthenticationPrincipal LoginUser loginUser) {
         AgendaDetailResponse response =
-            agendaService.addBudgetOption(roomId, agendaId, loginUser.userId(), request);
+                agendaService.addBudgetOption(roomId, agendaId, loginUser.userId(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("OPTION_CREATED", "선지를 추가했습니다.", response));
+                .body(ApiResponse.success("OPTION_CREATED", "선지를 추가했습니다.", response));
     }
 }
