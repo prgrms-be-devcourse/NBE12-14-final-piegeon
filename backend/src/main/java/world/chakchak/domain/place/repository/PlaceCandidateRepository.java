@@ -1,5 +1,6 @@
 package world.chakchak.domain.place.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -23,6 +24,10 @@ public interface PlaceCandidateRepository extends JpaRepository<PlaceCandidate, 
 
     /** 같은 방에 이미 올라온 장소. 있으면 PLACE_ALREADY_REGISTERED의 data.placeId로 쓴다 (P-02) */
     Optional<PlaceCandidate> findByRoomAndGooglePlaceId(Room room, String googlePlaceId);
+
+    /** 검색 결과 중 이 방에 이미 올라온 후보들. 결과 20개를 한 번의 IN 쿼리로 확인한다 (P-01) */
+    List<PlaceCandidate> findAllByRoom_IdAndGooglePlaceIdIn(
+            Long roomId, Collection<String> googlePlaceIds);
 
     /** 이 방의 후보. 없거나 다른 방의 후보면 빈 값이라 PLACE_CANDIDATE_NOT_FOUND로 막는다 (P-08, P-09) */
     Optional<PlaceCandidate> findByIdAndRoom_Id(Long id, Long roomId);

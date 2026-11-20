@@ -184,6 +184,24 @@ class PlaceCandidateRepositoryTest {
             }
 
             @Test
+            @DisplayName("Google 장소 ID 여러 개로 찾으면 이 방에 올라온 것만 돌려주고 다른 방의 후보는 뺀다")
+            void findsCandidatesByRoomAndGooglePlaceIds() {
+                Room room = saveRoom();
+                Room otherRoom = saveRoom();
+                RoomMember member = saveMember(room);
+                placeCandidateRepository.saveAndFlush(candidate(room, "place-1", member));
+                placeCandidateRepository.saveAndFlush(candidate(room, "place-3", member));
+                placeCandidateRepository.saveAndFlush(
+                        candidate(otherRoom, "place-2", saveMember(otherRoom)));
+
+                assertThat(
+                                placeCandidateRepository.findAllByRoom_IdAndGooglePlaceIdIn(
+                                        room.getId(), List.of("place-1", "place-2", "place-4")))
+                        .extracting(PlaceCandidate::getGooglePlaceId)
+                        .containsExactly("place-1");
+            }
+
+            @Test
             @DisplayName("후보 ID와 방 ID로 찾으면 그 방의 후보만 찾고 다른 방의 후보는 빈 값이다")
             void findsCandidateByIdOnlyInRoom() {
                 Room room = saveRoom();
