@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,6 +19,7 @@ import world.chakchak.domain.room.dto.RoomCreatedResponse;
 import world.chakchak.domain.room.dto.RoomDetailResponse;
 import world.chakchak.domain.room.dto.RoomListResponse;
 import world.chakchak.domain.room.dto.SeenRequest;
+import world.chakchak.domain.room.service.RoomLeaveService;
 import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
@@ -28,6 +30,7 @@ import world.chakchak.global.security.LoginUser;
 public class RoomController {
 
     private final RoomService roomService;
+    private final RoomLeaveService roomLeaveService;
 
     @GetMapping("/invites/{inviteCode}")
     public ResponseEntity<ApiResponse<InvitePreviewResponse>> getInvitePreview(
@@ -66,6 +69,13 @@ public class RoomController {
         roomService.markSeen(roomId, loginUser.userId(), request.seenUntil());
         return ResponseEntity.ok(
                 ApiResponse.successWithoutData("ROOM_SEEN_UPDATED", "확인 시각을 갱신했습니다."));
+    }
+
+    @DeleteMapping("/{roomId}/members/me")
+    public ResponseEntity<ApiResponse<Void>> leave(
+            @AuthenticationPrincipal LoginUser loginUser, @PathVariable Long roomId) {
+        roomLeaveService.leave(roomId, loginUser.userId());
+        return ResponseEntity.ok(ApiResponse.successWithoutData("ROOM_LEFT", "방에서 나갔습니다."));
     }
 
     @PostMapping

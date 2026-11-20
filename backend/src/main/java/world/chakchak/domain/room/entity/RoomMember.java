@@ -48,4 +48,11 @@ public class RoomMember extends BaseEntity {
     public static RoomMember create(Room room, User user, Clock clock) {
         return new RoomMember(room, user, clock);
     }
+
+    public void leave(LocalDateTime leftAt) {
+        if (this.leftAt != null) {
+            throw new IllegalStateException("이미 퇴장한 멤버입니다: memberId=" + getId());
+        }
+        this.leftAt = leftAt;
+    }
 }

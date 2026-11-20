@@ -737,6 +737,28 @@ class AgendaServiceTest {
             }
 
             @Test
+            @DisplayName("마지막 활동 멤버가 나가면 동의 표가 만장일치가 되어도 안건과 방 상태를 유지한다")
+            void keepsFinalPlanVotingWhenLastMemberLeaves() {
+                reviewing();
+                AgendaItem finalPlan = openAgenda(AgendaSubject.FINAL_PLAN, 2);
+                AgendaOption agree = finalOption(finalPlan, FinalPlanChoice.AGREE);
+                given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(0L);
+                given(agendaItemRepository.findAllByRoomIdAndStatus(ROOM_ID, AgendaStatus.VOTING))
+                        .willReturn(List.of(finalPlan));
+                given(
+                                voteRepository.findByAgendaItemIdAndMemberId(
+                                        finalPlan.getId(), jieun.getId()))
+                        .willReturn(Optional.empty());
+
+                agendaService.memberLeft(room, jieun, NOW);
+
+                assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.VOTING);
+                assertThat(finalPlan.getResolvedOptionId()).isNull();
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.REVIEWING);
+                assertThat(room.getFinalizedAt()).isNull();
+            }
+
+            @Test
             @DisplayName("최종 확정 안건이 미결 마감되면 방이 PLANNING으로 돌아간다")
             void returnsToPlanningWhenFinalPlanExpired() {
                 reviewing();
