@@ -567,6 +567,78 @@ class AgendaItemTest {
 
     // openNextRound는 출발일을 room에서 꺼내므로 startDate 인자 없이 부른다
     @Nested
+    class FirstRound {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("설문 마감 때 1회차 안건은 주제별 제목으로 열리고 마감은 설문 마감부터 4일 뒤다")
+            void opensFirstRound() {
+                AgendaItem agenda = AgendaItem.openFirstRound(room(), AgendaSubject.STAY, 3, NOW);
+
+                assertThat(agenda.getSubject()).isEqualTo(AgendaSubject.STAY);
+                assertThat(agenda.getRound()).isEqualTo(1);
+                assertThat(agenda.getTitle()).isEqualTo("숙소 타입을 정해주세요");
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.VOTING);
+                assertThat(agenda.getTotalVoter()).isEqualTo(3);
+                assertThat(agenda.getDeadlineAt()).isEqualTo(NOW.plusDays(4));
+            }
+
+            @Test
+            @DisplayName("출발까지 4일이 안 남았으면 1회차 마감을 출발 전날 00시로 줄인다")
+            void capsFirstRoundDeadline() {
+                AgendaItem agenda =
+                        AgendaItem.openFirstRound(
+                                room(), AgendaSubject.BUDGET, 3, D_MINUS_1.minusDays(2));
+
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
+            }
+
+            @Test
+            @DisplayName("투표 없이 결정하면 마감이 지금으로 바뀌고 RESOLVED가 된다")
+            void resolvesWithoutVote() {
+                AgendaItem agenda = AgendaItem.openFirstRound(room(), AgendaSubject.PACE, 3, NOW);
+
+                agenda.resolveWithoutVote(optionOf(agenda), NOW);
+
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(agenda.getDeadlineAt()).isEqualTo(NOW);
+                assertThat(agenda.getResolvedOptionId()).isEqualTo(OPTION_ID);
+            }
+
+            @Test
+            @DisplayName("출발 전날 00시 전에만 안건을 열 수 있다")
+            void canOpenOnlyBeforeDayBeforeDeparture() {
+                assertThat(AgendaItem.canOpenAt(room(), D_MINUS_1.minusSeconds(1))).isTrue();
+                assertThat(AgendaItem.canOpenAt(room(), D_MINUS_1)).isFalse();
+            }
+        }
+
+        @Nested
+        class Failure {
+
+            @Test
+            @DisplayName("최종 확정 안건은 설문 마감 때 1회차로 열 수 없다")
+            void rejectsFinalPlan() {
+                assertThatThrownBy(() ->
+                                AgendaItem.openFirstRound(room(), AgendaSubject.FINAL_PLAN, 3, NOW))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
+            @DisplayName("이미 끝난 안건은 투표 없이 결정할 수 없다")
+            void rejectsResolvingClosedAgenda() {
+                AgendaItem agenda = expiredAgenda(AgendaSubject.STAY);
+
+                assertErrorCode(
+                        () -> agenda.resolveWithoutVote(optionOf(agenda), NOW),
+                        AgendaErrorCode.AGENDA_CLOSED);
+            }
+        }
+    }
+
+    @Nested
     class NextRound {
 
         @Nested

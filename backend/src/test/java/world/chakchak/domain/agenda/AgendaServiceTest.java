@@ -930,6 +930,171 @@ class AgendaServiceTest {
     }
 
     @Nested
+    class OpenSurveyAgendas {
+
+        // 서비스가 저장한 안건과 선지
+        private final List<AgendaItem> savedAgendas = new ArrayList<>();
+        private final List<AgendaOption> savedOptions = new ArrayList<>();
+
+        @BeforeEach
+        void closedSurvey() {
+            ReflectionTestUtils.setField(room, "id", ROOM_ID);
+            ReflectionTestUtils.setField(room, "surveyClosedAt", NOW);
+        }
+
+        private SurveyResponse answer(
+                RoomMember member, long budget, StayType stay, Pace pace, LocalDateTime at) {
+            return SurveyResponse.createForSurveying(
+                    member, budget, stay, pace, List.of(ActivityCode.FOOD), "없음", clockAt(at));
+        }
+
+        private void givenNoSurveyAgendas() {
+            given(
+                            agendaItemRepository.findTopByRoomIdAndSubjectOrderByRoundDesc(
+                                    ROOM_ID, AgendaSubject.BUDGET))
+                    .willReturn(Optional.empty());
+        }
+
+        // 저장하면 DB처럼 id를 채운다
+        private void givenAnswers(SurveyResponse... answers) {
+            given(surveyResponseService.getActiveMemberResponses(ROOM_ID))
+                    .willReturn(List.of(answers));
+            given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(2L);
+            given(agendaItemRepository.save(any(AgendaItem.class)))
+                    .willAnswer(invocation -> {
+                        AgendaItem agenda = withId(invocation.<AgendaItem>getArgument(0));
+                        savedAgendas.add(agenda);
+                        return agenda;
+                    });
+            given(agendaOptionRepository.saveAll(any()))
+                    .willAnswer(invocation -> {
+                        List<AgendaOption> options = invocation.getArgument(0);
+                        options.forEach(option -> savedOptions.add(withId(option)));
+                        return options;
+                    });
+        }
+
+        private AgendaItem saved(AgendaSubject subject) {
+            return savedAgendas.stream()
+                    .filter(agenda -> agenda.getSubject() == subject)
+                    .findFirst()
+                    .orElseThrow();
+        }
+
+        private List<String> optionValues(AgendaItem agenda) {
+            return savedOptions.stream()
+                    .filter(option -> option.getAgendaItem() == agenda)
+                    .map(AgendaOption::getValue)
+                    .toList();
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("설문 답이 모두 같으면 세 안건을 투표 없이 결정하고 방을 PLANNING으로 넘긴다")
+            void resolvesUnanimousSubjects() {
+                givenNoSurveyAgendas();
+                givenAnswers(
+                        answer(me, 600_000L, StayType.HOTEL, Pace.NORMAL, NOW.minusHours(2)),
+                        answer(jieun, 604_000L, StayType.HOTEL, Pace.NORMAL, NOW.minusHours(1)));
+
+                agendaService.openSurveyAgendas(room, NOW);
+
+                assertThat(savedAgendas)
+                        .extracting(AgendaItem::getSubject)
+                        .containsExactly(
+                                AgendaSubject.BUDGET, AgendaSubject.STAY, AgendaSubject.PACE);
+                assertThat(savedAgendas)
+                        .allSatisfy(agenda -> {
+                            assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                            assertThat(agenda.getDeadlineAt()).isEqualTo(NOW);
+                            assertThat(agenda.getTotalVoter()).isEqualTo(2);
+                        });
+                // 604,000원은 만원 반올림하면 60만원이라 같은 답으로 본다
+                assertThat(optionValues(saved(AgendaSubject.BUDGET))).containsExactly("600000");
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+            }
+
+            @Test
+            @DisplayName("예산만 다르면 예산 안건만 낮은 순 선지로 투표를 열고 방은 SURVEYING에 남는다")
+            void opensVotingForConflictingSubject() {
+                givenNoSurveyAgendas();
+                givenAnswers(
+                        answer(me, 1_000_000L, StayType.HOTEL, Pace.NORMAL, NOW.minusHours(2)),
+                        answer(jieun, 600_000L, StayType.HOTEL, Pace.NORMAL, NOW.minusHours(1)));
+
+                agendaService.openSurveyAgendas(room, NOW);
+
+                AgendaItem budget = saved(AgendaSubject.BUDGET);
+                assertThat(budget.getStatus()).isEqualTo(AgendaStatus.VOTING);
+                assertThat(budget.getDeadlineAt()).isEqualTo(NOW.plusDays(4));
+                assertThat(optionValues(budget)).containsExactly("600000", "1000000");
+                assertThat(saved(AgendaSubject.STAY).getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(saved(AgendaSubject.PACE).getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.SURVEYING);
+            }
+
+            @Test
+            @DisplayName("설문 마감 뒤에 낸 응답은 판정에서 빠진다")
+            void ignoresAnswersAfterClose() {
+                givenNoSurveyAgendas();
+                givenAnswers(
+                        answer(me, 600_000L, StayType.HOTEL, Pace.NORMAL, NOW.minusHours(2)),
+                        answer(jieun, 1_000_000L, StayType.SOCIAL, Pace.HURRY, NOW.plusHours(1)));
+
+                agendaService.openSurveyAgendas(room, NOW);
+
+                assertThat(savedAgendas)
+                        .allSatisfy(agenda ->
+                                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED));
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+            }
+
+            @Test
+            @DisplayName("출발 전날 00시가 지났으면 안건을 만들지 않는다")
+            void skipsAfterDayBeforeDeparture() {
+                LocalDateTime dayBeforeDeparture = LocalDateTime.of(2027, 6, 30, 0, 0);
+                ReflectionTestUtils.setField(room, "surveyClosedAt", dayBeforeDeparture);
+                givenNoSurveyAgendas();
+
+                agendaService.openSurveyAgendas(room, dayBeforeDeparture);
+
+                verify(agendaItemRepository, never()).save(any());
+                verifyNoInteractions(surveyResponseService);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.SURVEYING);
+            }
+        }
+
+        @Nested
+        class Failure {
+
+            @Test
+            @DisplayName("설문이 마감되지 않은 방이면 호출 버그로 보고 막는다")
+            void rejectsOpenSurvey() {
+                ReflectionTestUtils.setField(room, "surveyClosedAt", null);
+
+                assertThatThrownBy(() -> agendaService.openSurveyAgendas(room, NOW))
+                        .isInstanceOf(IllegalStateException.class);
+                verify(agendaItemRepository, never()).save(any());
+            }
+
+            @Test
+            @DisplayName("이미 설문 안건이 열린 방이면 두 번 열지 않는다")
+            void rejectsAlreadyOpened() {
+                given(
+                                agendaItemRepository.findTopByRoomIdAndSubjectOrderByRoundDesc(
+                                        ROOM_ID, AgendaSubject.BUDGET))
+                        .willReturn(Optional.of(votingAgenda(NOW.plusDays(3))));
+
+                assertThatThrownBy(() -> agendaService.openSurveyAgendas(room, NOW))
+                        .isInstanceOf(IllegalStateException.class);
+                verify(agendaItemRepository, never()).save(any());
+            }
+        }
+    }
+
+    @Nested
     class AddOption {
 
         @BeforeEach
