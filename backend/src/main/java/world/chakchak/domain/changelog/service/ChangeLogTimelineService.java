@@ -18,27 +18,24 @@ import world.chakchak.global.error.CommonErrorCode;
 @RequiredArgsConstructor
 public class ChangeLogTimelineService {
 
-    private static final int DEFAULT_PAGE_SIZE = 20;
-    private static final int MAX_PAGE_SIZE = 100;
-
     private final ChangeLogRepository changeLogRepository;
     private final RoomMemberService roomMemberService;
 
     @Transactional(readOnly = true)
     public ChangeLogPageResponse getTimeline(
-            Long roomId, Long userId, Long cursor, Long throughId, Integer requestedSize) {
+            Long roomId, Long userId, Long cursor, Long requestedSize) {
         roomMemberService.getActiveMember(roomId, userId);
-        int pageSize = requestedSize == null ? DEFAULT_PAGE_SIZE : requestedSize;
-        if (pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+        long pageSize = requestedSize == null ? 20L : requestedSize;
+        if (pageSize < 1 || pageSize > 100) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
 
         Slice<ChangeLog> page =
                 changeLogRepository.findTimelinePage(
-                        roomId, throughId, cursor, PageRequest.of(0, pageSize));
+                        roomId, cursor, PageRequest.of(0, (int) pageSize));
         List<ChangeLogItemResponse> items =
                 page.getContent().stream().map(ChangeLogItemResponse::from).toList();
-        Long nextCursor = page.hasNext() ? items.getLast().id() : null;
+        Long nextCursor = page.hasNext() ? items.getLast().logId() : null;
         return new ChangeLogPageResponse(items, nextCursor);
     }
 }

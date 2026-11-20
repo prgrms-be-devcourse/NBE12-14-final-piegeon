@@ -108,7 +108,6 @@ class RoomMemberServiceTest {
                 RoomRepository.RoomMemberAccessProjection access = access(null);
                 given(roomRepository.findRoomAndMemberForAccess(ROOM_ID, USER_ID))
                         .willReturn(Optional.of(access));
-
                 assertErrorCode(
                         () -> roomMemberService.getActiveMember(ROOM_ID, USER_ID),
                         CommonErrorCode.FORBIDDEN);
@@ -120,7 +119,6 @@ class RoomMemberServiceTest {
                 RoomRepository.RoomMemberAccessProjection access = access(null);
                 given(roomRepository.findRoomAndMemberForAccess(ROOM_ID, USER_ID))
                         .willReturn(Optional.of(access));
-
                 assertErrorCode(
                         () -> roomMemberService.getActiveMember(ROOM_ID, USER_ID),
                         CommonErrorCode.FORBIDDEN);

@@ -1,6 +1,7 @@
 package world.chakchak.domain.room.service;
 
 import java.time.Clock;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,10 @@ public class RoomMemberService {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }
         return access.getActiveMember();
+    }
+
+    public RoomMember getActiveMemberForStream(Long roomId, Long userId) {
+        return getActiveMember(roomId, userId);
     }
 
     public boolean isActiveMember(Long roomId, Long memberId) {

@@ -30,15 +30,11 @@ public interface ChangeLogRepository extends Repository<ChangeLog, Long> {
             select changeLog
             from ChangeLog changeLog
             where changeLog.room.id = :roomId
-                and (:throughId is null or changeLog.id <= :throughId)
                 and (:cursor is null or changeLog.id < :cursor)
             order by changeLog.id desc
             """)
     Slice<ChangeLog> findTimelinePage(
-            @Param("roomId") Long roomId,
-            @Param("throughId") Long throughId,
-            @Param("cursor") Long cursor,
-            Pageable pageable);
+            @Param("roomId") Long roomId, @Param("cursor") Long cursor, Pageable pageable);
 
     @EntityGraph(attributePaths = {"actor.user"})
     List<ChangeLog> findTop201ByRoom_IdAndIdGreaterThanOrderByIdAsc(Long roomId, Long lastEventId);

@@ -9,12 +9,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import world.chakchak.domain.changelog.dto.ChangeLogItemResponse;
 import world.chakchak.domain.changelog.dto.ChangeLogResyncRequiredResponse;
 import world.chakchak.domain.changelog.dto.ChangeLogStreamReadyResponse;
-import world.chakchak.domain.changelog.repository.ChangeLogRepository;
+import world.chakchak.domain.changelog.event.RoomEvent;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.global.error.BusinessException;
@@ -24,19 +23,27 @@ import world.chakchak.global.error.CommonErrorCode;
 @RequiredArgsConstructor
 public class ChangeLogStreamService {
 
-    private static final long KEEP_ALIVE_DELAY_MILLIS = 15_000L;
+    private static final long KEEP_ALIVE_DELAY_MILLIS = 25_000L;
+    private static final long CONNECTION_TIMEOUT_MILLIS = 30 * 60 * 1_000L;
+    private static final int MAX_CONNECTIONS_PER_MEMBER = 3;
 
-    private final ChangeLogRepository changeLogRepository;
+    private final ChangeLogReplayService changeLogReplayService;
     private final RoomMemberService roomMemberService;
     private final Map<Long, Set<StreamConnection>> connections = new ConcurrentHashMap<>();
 
-    @Transactional(readOnly = true)
     public SseEmitter connect(Long roomId, Long userId, String lastEventIdHeader) {
-        RoomMember member = roomMemberService.getActiveMember(roomId, userId);
+        RoomMember member = roomMemberService.getActiveMemberForStream(roomId, userId);
         Long memberId = member.getId();
         Long lastEventId = parseLastEventId(lastEventIdHeader);
-        SseEmitter emitter = new SseEmitter(0L);
-        StreamConnection connection = new StreamConnection(roomId, memberId, emitter);
+        Set<StreamConnection> memberConnections =
+                connections.computeIfAbsent(roomId, ignored -> ConcurrentHashMap.newKeySet());
+        long memberConnectionCount =
+                memberConnections.stream().filter(c -> c.memberId.equals(memberId)).count();
+        if (memberConnectionCount >= MAX_CONNECTIONS_PER_MEMBER) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+        SseEmitter emitter = new SseEmitter(CONNECTION_TIMEOUT_MILLIS);
+        StreamConnection connection = new StreamConnection(roomId, memberId, userId, emitter);
         connections.compute(
                 roomId,
                 (ignored, roomConnections) -> {
@@ -52,14 +59,13 @@ public class ChangeLogStreamService {
         emitter.onError(ignored -> remove(connection));
 
         try {
-            Long latestActivityId =
-                    changeLogRepository
-                            .findTopByRoom_IdOrderByIdDesc(roomId)
-                            .map(changeLog -> changeLog.getId())
-                            .orElse(null);
-            Replay replay = replay(roomId, lastEventId, latestActivityId);
+            ChangeLogReplayService.Snapshot replay =
+                    changeLogReplayService.getSnapshot(roomId, lastEventId);
             connection.initialize(
-                    latestActivityId, lastEventId, replay.activities(), replay.resyncRequired());
+                    replay.latestActivityId(),
+                    lastEventId,
+                    replay.activities(),
+                    replay.resyncRequired());
         } catch (RuntimeException e) {
             connection.complete();
             throw e;
@@ -67,25 +73,21 @@ public class ChangeLogStreamService {
         return emitter;
     }
 
-    private Replay replay(Long roomId, Long lastEventId, Long latestActivityId) {
-        if (lastEventId == null) {
-            return new Replay(List.of(), false);
-        }
-        if (latestActivityId == null) {
-            return lastEventId == 0L
-                    ? new Replay(List.of(), false)
-                    : new Replay(List.of(), true);
-        }
-        if (lastEventId > latestActivityId) {
-            return new Replay(List.of(), true);
-        }
-        var missing =
-                changeLogRepository.findTop201ByRoom_IdAndIdGreaterThanOrderByIdAsc(
-                        roomId, lastEventId);
-        if (missing.size() > 200) {
-            return new Replay(List.of(), true);
-        }
-        return new Replay(missing.stream().map(ChangeLogItemResponse::from).toList(), false);
+    public void closeConnectionsForMember(Long roomId, Long memberId) {
+        Set<StreamConnection> roomConnections = connections.get(roomId);
+        if (roomConnections != null)
+            roomConnections.stream()
+                    .filter(c -> c.memberId.equals(memberId))
+                    .toList()
+                    .forEach(StreamConnection::complete);
+    }
+
+    public void closeConnectionsForUser(Long userId) {
+        connections.values().stream()
+                .flatMap(Set::stream)
+                .filter(c -> c.userId.equals(userId))
+                .toList()
+                .forEach(StreamConnection::complete);
     }
 
     private Long parseLastEventId(String lastEventIdHeader) {
@@ -103,16 +105,14 @@ public class ChangeLogStreamService {
         }
     }
 
-    private record Replay(List<ChangeLogItemResponse> activities, boolean resyncRequired) {}
-
-    public void publish(ChangeLogItemResponse activity) {
-        Set<StreamConnection> roomConnections = connections.get(activity.roomId());
+    public void publish(RoomEvent event) {
+        Set<StreamConnection> roomConnections = connections.get(event.roomId());
         if (roomConnections == null) {
             return;
         }
         for (StreamConnection connection : roomConnections) {
             if (isActiveMember(connection)) {
-                connection.offer(activity);
+                connection.offer(event);
             } else {
                 connection.complete();
             }
@@ -153,14 +153,16 @@ public class ChangeLogStreamService {
 
         private final Long roomId;
         private final Long memberId;
+        private final Long userId;
         private final SseEmitter emitter;
         private final TreeMap<Long, ChangeLogItemResponse> pending = new TreeMap<>();
         private boolean initialized;
         private long lastSentActivityId;
 
-        private StreamConnection(Long roomId, Long memberId, SseEmitter emitter) {
+        private StreamConnection(Long roomId, Long memberId, Long userId, SseEmitter emitter) {
             this.roomId = roomId;
             this.memberId = memberId;
+            this.userId = userId;
             this.emitter = emitter;
         }
 
@@ -169,6 +171,10 @@ public class ChangeLogStreamService {
                 Long lastEventId,
                 List<ChangeLogItemResponse> replay,
                 boolean resyncRequired) {
+            send(
+                    SseEmitter.event()
+                            .name("connected")
+                            .data(new ChangeLogStreamReadyResponse(latestActivityId)));
             if (resyncRequired) {
                 lastSentActivityId = latestActivityId == null ? 0L : latestActivityId;
                 send(
@@ -178,29 +184,30 @@ public class ChangeLogStreamService {
             } else {
                 lastSentActivityId = lastEventId == null ? 0L : lastEventId;
                 replay.forEach(this::sendActivity);
-                lastSentActivityId = Math.max(
-                        lastSentActivityId, latestActivityId == null ? 0L : latestActivityId);
+                lastSentActivityId =
+                        Math.max(
+                                lastSentActivityId,
+                                latestActivityId == null ? 0L : latestActivityId);
             }
-            send(
-                    SseEmitter.event()
-                            .name("ready")
-                            .data(new ChangeLogStreamReadyResponse(latestActivityId)));
             pending.tailMap(lastSentActivityId, false).values().forEach(this::sendActivity);
             pending.clear();
             initialized = true;
         }
 
-        private synchronized void offer(ChangeLogItemResponse activity) {
+        private synchronized void offer(RoomEvent event) {
             if (!initialized) {
-                pending.put(activity.id(), activity);
+                if (event.changeLogId() != null
+                        && event.data() instanceof ChangeLogItemResponse activity) {
+                    pending.put(activity.logId(), activity);
+                }
                 return;
             }
-            sendActivity(activity);
+            sendRoomEvent(event);
         }
 
         private synchronized void keepAlive() {
             if (initialized) {
-                send(SseEmitter.event().comment("keep-alive"));
+                send(SseEmitter.event().comment("ping"));
             }
         }
 
@@ -209,15 +216,25 @@ public class ChangeLogStreamService {
         }
 
         private void sendActivity(ChangeLogItemResponse activity) {
-            if (activity.id() <= lastSentActivityId) {
+            if (activity.logId() <= lastSentActivityId) {
                 return;
             }
             send(
                     SseEmitter.event()
-                            .id(activity.id().toString())
+                            .id(activity.logId().toString())
                             .name("activity")
                             .data(activity));
-            lastSentActivityId = activity.id();
+            lastSentActivityId = activity.logId();
+        }
+
+        private void sendRoomEvent(RoomEvent event) {
+            SseEmitter.SseEventBuilder builder =
+                    SseEmitter.event().name(event.name()).data(event.data());
+            if (event.changeLogId() != null) {
+                builder.id(event.changeLogId().toString());
+                lastSentActivityId = Math.max(lastSentActivityId, event.changeLogId());
+            }
+            send(builder);
         }
 
         private void send(SseEmitter.SseEventBuilder event) {
