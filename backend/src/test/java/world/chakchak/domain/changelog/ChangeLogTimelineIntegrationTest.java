@@ -307,29 +307,6 @@ class ChangeLogTimelineIntegrationTest {
                 get("/api/rooms/" + room.getId() + "/change-logs", ownerCookie);
                 assertThat(lastSeenAt(ownerMember.getId())).isEqualTo(displayedActivityAt);
             }
-
-            @Test
-            @DisplayName("확인 시각이 비어 있으면 전달한 시각으로 초기화한다")
-            void initializesNullSeenTimeFromRequest() throws Exception {
-                String ownerEmail = uniqueEmail();
-                String ownerCookie = login(ownerEmail, "방장");
-                User owner = userRepository.findByEmail(ownerEmail).orElseThrow();
-                Room room = saveRoom();
-                RoomMember ownerMember = join(room, owner);
-                LocalDateTime seenUntil = LocalDateTime.of(2026, 11, 13, 10, 0);
-                jdbcTemplate.update(
-                        "update plan_room_member set last_seen_at = null where id = ?",
-                        ownerMember.getId());
-
-                HttpResponse<String> response =
-                        postJson(
-                                "/api/rooms/" + room.getId() + "/seen",
-                                "{\"seenUntil\":\"" + seenUntil + "\"}",
-                                ownerCookie);
-
-                assertThat(response.statusCode()).isEqualTo(200);
-                assertThat(lastSeenAt(ownerMember.getId())).isEqualTo(seenUntil);
-            }
         }
 
         @Nested

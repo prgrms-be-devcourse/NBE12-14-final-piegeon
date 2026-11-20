@@ -23,7 +23,7 @@ public interface RoomMemberRepository extends JpaRepository<RoomMember, Long> {
                 member.modifiedAt = :modifiedAt
             where member.id = :memberId
                 and member.leftAt is null
-                and (member.lastSeenAt is null or member.lastSeenAt < :seenUntil)
+                and member.lastSeenAt < :seenUntil
             """)
     int advanceLastSeenAt(
             @Param("memberId") Long memberId,
