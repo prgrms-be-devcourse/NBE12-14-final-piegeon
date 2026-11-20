@@ -7,6 +7,8 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -49,6 +51,14 @@ class AgendaOptionTest {
         return RoomMember.create(ROOM, User.create(name + "@example.com", name, "hash"), CLOCK);
     }
 
+    private static List<String> values(List<AgendaOption> options) {
+        return options.stream().map(AgendaOption::getValue).toList();
+    }
+
+    private static List<Integer> indexes(List<AgendaOption> options) {
+        return options.stream().map(AgendaOption::getDisplayIndex).toList();
+    }
+
     private static void assertErrorCode(Runnable action, AgendaErrorCode errorCode) {
         assertThatThrownBy(action::run)
                 .isInstanceOf(BusinessException.class)
@@ -85,6 +95,107 @@ class AgendaOptionTest {
                         AgendaOption.budget(agenda(AgendaSubject.BUDGET), 1_500_000L, 3, minsu);
 
                 assertThat(option.getProposedBy()).isSameAs(minsu);
+            }
+
+            @Test
+            @DisplayName("다음 회차로 옮긴 선지는 값, 라벨, 추가한 멤버가 같고 새 안건과 순서를 가진다")
+            void copiesToNextRound() {
+                RoomMember minsu = member("minsu");
+                AgendaOption original =
+                        AgendaOption.budget(agenda(AgendaSubject.BUDGET), 1_200_000L, 3, minsu);
+                AgendaItem next = agenda(AgendaSubject.BUDGET);
+
+                AgendaOption copied = original.copyTo(next, 0);
+
+                assertThat(copied.getAgendaItem()).isSameAs(next);
+                assertThat(copied.getValue()).isEqualTo("1200000");
+                assertThat(copied.getLabel()).isEqualTo("120만원");
+                assertThat(copied.getDisplayIndex()).isZero();
+                assertThat(copied.getProposedBy()).isSameAs(minsu);
+            }
+
+            @Test
+            @DisplayName("설문 금액들은 만원 단위로 반올림하고 같은 금액을 하나로 합쳐 낮은 순의 예산 선지가 된다")
+            void buildsBudgetOptionsInAscendingOrder() {
+                List<AgendaOption> options =
+                        AgendaOption.budgetOptions(
+                                agenda(AgendaSubject.BUDGET),
+                                List.of(1_000_000L, 604_000L, 596_000L),
+                                List.of());
+
+                assertThat(values(options)).containsExactly("600000", "1000000");
+                assertThat(indexes(options)).containsExactly(0, 1);
+                assertThat(options).allMatch(o -> o.getProposedBy() == null);
+            }
+
+            @Test
+            @DisplayName("직전 회차에 멤버가 추가한 예산 선지는 추가한 멤버를 유지한 채 금액 순서에 끼워 넣는다")
+            void carriesProposedOptionsWithProposer() {
+                RoomMember minsu = member("minsu");
+                AgendaOption proposed =
+                        AgendaOption.budget(agenda(AgendaSubject.BUDGET), 800_000L, 2, minsu);
+
+                List<AgendaOption> options =
+                        AgendaOption.budgetOptions(
+                                agenda(AgendaSubject.BUDGET),
+                                List.of(600_000L, 1_000_000L),
+                                List.of(proposed));
+
+                assertThat(values(options)).containsExactly("600000", "800000", "1000000");
+                assertThat(indexes(options)).containsExactly(0, 1, 2);
+                assertThat(options.get(1).getProposedBy()).isSameAs(minsu);
+            }
+
+            @Test
+            @DisplayName("직전 회차 추가 선지가 설문 금액과 같으면 설문 선지 하나만 남는다")
+            void keepsSurveyOptionOnDuplicateAmount() {
+                AgendaOption proposed =
+                        AgendaOption.budget(agenda(AgendaSubject.BUDGET), 600_000L, 1, member("a"));
+
+                List<AgendaOption> options =
+                        AgendaOption.budgetOptions(
+                                agenda(AgendaSubject.BUDGET), List.of(600_000L), List.of(proposed));
+
+                assertThat(options)
+                        .singleElement()
+                        .satisfies(o -> {
+                            assertThat(o.getValue()).isEqualTo("600000");
+                            assertThat(o.getProposedBy()).isNull();
+                        });
+            }
+
+            @Test
+            @DisplayName("숙소 타입과 이동 강도는 나온 값을 중복 없이 선언 순서대로 선지로 만든다")
+            void buildsEnumOptionsInDeclarationOrder() {
+                List<AgendaOption> stays =
+                        AgendaOption.stayOptions(
+                                agenda(AgendaSubject.STAY),
+                                List.of(StayType.SOCIAL, StayType.HOTEL, StayType.SOCIAL));
+                List<AgendaOption> paces =
+                        AgendaOption.paceOptions(
+                                agenda(AgendaSubject.PACE),
+                                List.of(Pace.HURRY, Pace.RELAXED, Pace.HURRY));
+
+                assertThat(values(stays)).containsExactly("HOTEL", "SOCIAL");
+                assertThat(stays.getFirst().getLabel()).isEqualTo(StayType.HOTEL.getLabel());
+                assertThat(indexes(stays)).containsExactly(0, 1);
+                assertThat(values(paces)).containsExactly("RELAXED", "HURRY");
+            }
+
+            @Test
+            @DisplayName("답이 없으면 직전 회차 추가 선지가 있어도 빈 목록이다")
+            void returnsEmptyWithoutAnswers() {
+                AgendaOption proposed =
+                        AgendaOption.budget(agenda(AgendaSubject.BUDGET), 800_000L, 0, member("a"));
+
+                assertThat(
+                                AgendaOption.budgetOptions(
+                                        agenda(AgendaSubject.BUDGET),
+                                        Arrays.asList(null, null),
+                                        List.of(proposed)))
+                        .isEmpty();
+                assertThat(AgendaOption.stayOptions(agenda(AgendaSubject.STAY), List.of()))
+                        .isEmpty();
             }
 
             @ParameterizedTest(name = "{0}원 → {1} / {2}")
@@ -168,7 +279,7 @@ class AgendaOptionTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("예산 안건이 아니면 예산 선지를 추가할 수 없다")
@@ -178,6 +289,35 @@ class AgendaOptionTest {
                                 AgendaOption.budget(
                                         agenda(AgendaSubject.STAY), 1_000_000L, 0, member("a")),
                         AgendaErrorCode.OPTION_NOT_ADDABLE);
+            }
+
+            @Test
+            @DisplayName("주제가 다른 안건으로는 선지를 옮길 수 없다")
+            void rejectsCopyToOtherSubject() {
+                AgendaOption budget =
+                        AgendaOption.budget(agenda(AgendaSubject.BUDGET), 1_000_000L, 0, null);
+
+                assertThatThrownBy(() -> budget.copyTo(agenda(AgendaSubject.STAY), 0))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
+            @DisplayName("예산 안건이 아니면 설문 금액들로 예산 선지 목록을 만들 수 없다")
+            void rejectsBudgetOptionsOnOtherSubject() {
+                assertErrorCode(
+                        () ->
+                                AgendaOption.budgetOptions(
+                                        agenda(AgendaSubject.STAY), List.of(1_000_000L), List.of()),
+                        AgendaErrorCode.OPTION_NOT_ADDABLE);
+            }
+
+            @Test
+            @DisplayName("숙소 안건이 아니면 숙소 선지 목록을 만들 수 없다")
+            void rejectsStayOptionsOnOtherSubject() {
+                assertThatThrownBy(() ->
+                                AgendaOption.stayOptions(
+                                        agenda(AgendaSubject.PACE), List.of(StayType.HOTEL)))
+                        .isInstanceOf(IllegalArgumentException.class);
             }
 
             @ParameterizedTest
@@ -274,7 +414,7 @@ class AgendaOptionTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("예산 선지가 아니면 금액을 꺼낼 수 없다")
@@ -304,7 +444,7 @@ class AgendaOptionTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("다른 멤버가 추가한 선지는 지울 수 없다")

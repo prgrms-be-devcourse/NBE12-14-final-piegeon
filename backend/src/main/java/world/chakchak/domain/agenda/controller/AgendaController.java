@@ -110,4 +110,16 @@ public class AgendaController {
                 agendaService.deleteBudgetOption(roomId, agendaId, optionId, loginUser.userId());
         return ResponseEntity.ok(ApiResponse.success("OPTION_DELETED", "선지를 삭제했습니다.", response));
     }
+
+    /** V-04 다음 회차 열기 */
+    @PostMapping("/{agendaId}/next-round")
+    public ResponseEntity<ApiResponse<AgendaDetailResponse>> openNextRound(
+            @PathVariable Long roomId,
+            @PathVariable Long agendaId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        AgendaDetailResponse response =
+                agendaService.openNextRound(roomId, agendaId, loginUser.userId());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("AGENDA_ROUND_OPENED", "다음 회차 투표를 열었습니다.", response));
+    }
 }

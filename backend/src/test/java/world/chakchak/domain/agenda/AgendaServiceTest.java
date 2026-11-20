@@ -16,6 +16,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -61,8 +62,11 @@ import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.errorcode.RoomErrorCode;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.domain.room.service.RoomService;
+import world.chakchak.domain.survey.entity.ActivityCode;
 import world.chakchak.domain.survey.entity.Pace;
 import world.chakchak.domain.survey.entity.StayType;
+import world.chakchak.domain.survey.entity.SurveyResponse;
+import world.chakchak.domain.survey.service.SurveyResponseService;
 import world.chakchak.domain.user.entity.User;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
@@ -83,6 +87,7 @@ class AgendaServiceTest {
     @Mock private AgendaItemRepository agendaItemRepository;
     @Mock private AgendaOptionRepository agendaOptionRepository;
     @Mock private VoteRepository voteRepository;
+    @Mock private SurveyResponseService surveyResponseService;
 
     @InjectMocks private AgendaService agendaService;
 
@@ -317,7 +322,7 @@ class AgendaServiceTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("방의 활동 멤버가 아니면 멤버 확인에서 던진 에러를 그대로 돌려주고 안건을 조회하지 않는다")
@@ -423,7 +428,7 @@ class AgendaServiceTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @ParameterizedTest
             @EnumSource(
@@ -783,7 +788,7 @@ class AgendaServiceTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("방이 없으면 ROOM_NOT_FOUND를 던지고 시각을 구하거나 멤버를 확인하지 않는다")
@@ -1009,7 +1014,7 @@ class AgendaServiceTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("방이 SURVEYING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
@@ -1211,7 +1216,7 @@ class AgendaServiceTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("방이 SURVEYING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
@@ -1313,6 +1318,233 @@ class AgendaServiceTest {
                             assertThat(be.getData()).isEqualTo(Map.of("voteCount", 2L));
                         });
                 verifyNothingDeleted();
+            }
+        }
+    }
+
+    @Nested
+    class OpenNextRound {
+
+        @BeforeEach
+        void giveRoomId() {
+            ReflectionTestUtils.setField(room, "id", ROOM_ID);
+        }
+
+        // NOW - 8일에 열려 NOW - 1일에 미결 마감된 1회차 설문 안건
+        private AgendaItem expiredAgenda(AgendaSubject subject) {
+            AgendaItem expired = agenda(subject, NOW.minusDays(8), NOW.minusDays(1));
+            expired.expire();
+            return expired;
+        }
+
+        private void givenLockedRoomAndMember(RoomMember member) {
+            given(clock.instant()).willReturn(NOW.atZone(SEOUL).toInstant());
+            given(clock.getZone()).willReturn(SEOUL);
+            given(roomService.getForUpdate(ROOM_ID)).willReturn(room);
+            given(roomMemberService.getActiveMember(ROOM_ID, USER_ID)).willReturn(member);
+        }
+
+        private void givenAgenda(AgendaItem agenda) {
+            given(agendaItemRepository.findByIdAndRoomId(agenda.getId(), ROOM_ID))
+                    .willReturn(Optional.of(agenda));
+        }
+
+        private void givenLatestRound(AgendaItem latest) {
+            given(
+                            agendaItemRepository.findTopByRoomIdAndSubjectOrderByRoundDesc(
+                                    ROOM_ID, latest.getSubject()))
+                    .willReturn(Optional.of(latest));
+        }
+
+        // 저장하면 DB가 id와 생성 시각을 채운다
+        private void givenSavedNextRound() {
+            given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(3L);
+            given(agendaItemRepository.saveAndFlush(any()))
+                    .willAnswer(invocation -> {
+                        AgendaItem next = invocation.getArgument(0);
+                        withId(next);
+                        ReflectionTestUtils.setField(next, "createdAt", NOW);
+                        return next;
+                    });
+        }
+
+        // saveAll로 저장된 선지를 모은다
+        private List<AgendaOption> captureSavedOptions() {
+            List<AgendaOption> saved = new ArrayList<>();
+            given(agendaOptionRepository.saveAll(any()))
+                    .willAnswer(invocation -> {
+                        Iterable<AgendaOption> options = invocation.getArgument(0);
+                        options.forEach(saved::add);
+                        return saved;
+                    });
+            return saved;
+        }
+
+        private SurveyResponse answer(RoomMember member, long budget) {
+            return SurveyResponse.createForSurveying(
+                    member,
+                    budget,
+                    StayType.HOTEL,
+                    Pace.NORMAL,
+                    List.of(ActivityCode.FOOD),
+                    "없음",
+                    clockAt(NOW));
+        }
+
+        private AgendaDetailResponse open(AgendaItem agenda) {
+            return agendaService.openNextRound(ROOM_ID, agenda.getId(), USER_ID);
+        }
+
+        private void assertError(Runnable action, ErrorCode errorCode) {
+            assertThatThrownBy(action::run)
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(errorCode);
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("다음 회차는 round + 1, 남은 멤버 수만큼의 자격자로 열리고 설문 금액과 직전 회차 추가 선지로 선지를 만든다")
+            void opensNextBudgetRound() {
+                AgendaItem previous = expiredAgenda(AgendaSubject.BUDGET);
+                AgendaOption proposed = budget(previous, 800_000L, 2, jieun);
+                givenLockedRoomAndMember(me);
+                givenAgenda(previous);
+                givenLatestRound(previous);
+                givenSavedNextRound();
+                given(agendaOptionRepository.findAllProposedByActiveMembers(previous.getId()))
+                        .willReturn(List.of(proposed));
+                given(surveyResponseService.getActiveMemberResponses(ROOM_ID))
+                        .willReturn(List.of(answer(me, 600_000L), answer(jieun, 1_000_000L)));
+                List<AgendaOption> saved = captureSavedOptions();
+
+                AgendaDetailResponse response = open(previous);
+
+                assertThat(response.round()).isEqualTo(2);
+                assertThat(response.status()).isEqualTo(AgendaStatus.VOTING);
+                assertThat(response.totalVoter()).isEqualTo(3);
+                assertThat(response.eligible()).isTrue();
+                assertThat(saved)
+                        .extracting(AgendaOption::getValue)
+                        .containsExactly("600000", "800000", "1000000");
+                assertThat(saved.get(1).getProposedBy()).isSameAs(jieun);
+                assertThat(saved).allMatch(o -> o.getAgendaItem().getRound() == 2);
+            }
+
+            @Test
+            @DisplayName("남은 멤버 중 이 항목에 답한 사람이 없으면 직전 회차 선지를 그대로 옮긴다")
+            void copiesPreviousOptionsWithoutAnswers() {
+                AgendaItem previous = expiredAgenda(AgendaSubject.STAY);
+                AgendaOption hotel = withId(AgendaOption.stay(previous, StayType.HOTEL, 0));
+                AgendaOption social = withId(AgendaOption.stay(previous, StayType.SOCIAL, 1));
+                givenLockedRoomAndMember(me);
+                givenAgenda(previous);
+                givenLatestRound(previous);
+                givenSavedNextRound();
+                given(surveyResponseService.getActiveMemberResponses(ROOM_ID))
+                        .willReturn(List.of());
+                given(
+                                agendaOptionRepository.findAllByAgendaItemIdOrderByDisplayIndexAsc(
+                                        previous.getId()))
+                        .willReturn(List.of(hotel, social));
+                List<AgendaOption> saved = captureSavedOptions();
+
+                open(previous);
+
+                assertThat(saved)
+                        .extracting(AgendaOption::getValue)
+                        .containsExactly("HOTEL", "SOCIAL");
+                assertThat(saved).allMatch(o -> o.getAgendaItem() != previous);
+                // 숙소 안건이라 직전 회차 추가 선지는 조회하지 않는다
+                verify(agendaOptionRepository, never()).findAllProposedByActiveMembers(any());
+            }
+        }
+
+        @Nested
+        class Failure {
+
+            @Test
+            @DisplayName("방이 SURVEYING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
+            void rejectsInvalidRoomStatus() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.PLANNING);
+                givenLockedRoomAndMember(me);
+
+                assertError(
+                        () -> agendaService.openNextRound(ROOM_ID, 5L, USER_ID),
+                        CommonErrorCode.INVALID_STATUS);
+                verifyNoInteractions(agendaItemRepository, agendaOptionRepository);
+            }
+
+            @Test
+            @DisplayName("없거나 다른 방의 안건이면 AGENDA_NOT_FOUND를 던진다")
+            void rejectsAgendaOfOtherRoom() {
+                givenLockedRoomAndMember(me);
+                given(agendaItemRepository.findByIdAndRoomId(5L, ROOM_ID))
+                        .willReturn(Optional.empty());
+
+                assertError(
+                        () -> agendaService.openNextRound(ROOM_ID, 5L, USER_ID),
+                        AgendaErrorCode.AGENDA_NOT_FOUND);
+            }
+
+            @Test
+            @DisplayName("최종 확정 안건이면 미결 마감이어도 AGENDA_NOT_REOPENABLE을 던진다")
+            void rejectsFinalPlan() {
+                AgendaItem finalPlan = expiredAgenda(AgendaSubject.FINAL_PLAN);
+                givenLockedRoomAndMember(me);
+                givenAgenda(finalPlan);
+
+                assertError(() -> open(finalPlan), AgendaErrorCode.AGENDA_NOT_REOPENABLE);
+                verify(agendaItemRepository, never()).saveAndFlush(any());
+            }
+
+            @Test
+            @DisplayName("아직 투표 중인 설문 안건이면 AGENDA_NOT_REOPENABLE을 던진다")
+            void rejectsVotingAgenda() {
+                AgendaItem voting = votingAgenda(NOW.plusDays(1));
+                givenLockedRoomAndMember(me);
+                givenAgenda(voting);
+
+                assertError(() -> open(voting), AgendaErrorCode.AGENDA_NOT_REOPENABLE);
+                verify(agendaItemRepository, never()).saveAndFlush(any());
+            }
+
+            @Test
+            @DisplayName("이미 다음 회차가 열렸으면 AGENDA_ALREADY_REOPENED를 던지고 data에 최신 회차 id를 담는다")
+            void rejectsAlreadyReopened() {
+                AgendaItem previous = expiredAgenda(AgendaSubject.BUDGET);
+                AgendaItem latest = votingAgenda(NOW.plusDays(7));
+                givenLockedRoomAndMember(me);
+                givenAgenda(previous);
+                givenLatestRound(latest);
+
+                assertThatThrownBy(() -> open(previous))
+                        .isInstanceOf(BusinessException.class)
+                        .satisfies(e -> {
+                            BusinessException be = (BusinessException) e;
+                            assertThat(be.getErrorCode())
+                                    .isEqualTo(AgendaErrorCode.AGENDA_ALREADY_REOPENED);
+                            assertThat(be.getData()).isEqualTo(Map.of("agendaId", latest.getId()));
+                        });
+                verify(agendaItemRepository, never()).saveAndFlush(any());
+            }
+
+            @Test
+            @DisplayName("저장 중 회차 유니크 제약에 걸리면 AGENDA_ALREADY_REOPENED로 바꿔 던지고 선지를 만들지 않는다")
+            void convertsUniqueViolation() {
+                AgendaItem previous = expiredAgenda(AgendaSubject.BUDGET);
+                givenLockedRoomAndMember(me);
+                givenAgenda(previous);
+                givenLatestRound(previous);
+                given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(3L);
+                given(agendaItemRepository.saveAndFlush(any()))
+                        .willThrow(new DataIntegrityViolationException("uk_agenda_item_round"));
+
+                assertError(() -> open(previous), AgendaErrorCode.AGENDA_ALREADY_REOPENED);
+                verifyNoInteractions(surveyResponseService);
+                verify(agendaOptionRepository, never()).saveAll(any());
             }
         }
     }

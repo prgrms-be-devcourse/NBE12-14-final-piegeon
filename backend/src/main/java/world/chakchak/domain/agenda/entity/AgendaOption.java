@@ -6,6 +6,14 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.TreeMap;
+import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -127,11 +135,76 @@ public class AgendaOption extends BaseEntity {
         return new AgendaOption(agendaItem, pace.getLabel(), pace.name(), displayIndex, null);
     }
 
+    /**
+     * 설문 금액들로 예산 선지 목록을 만든다. 다음 회차(V-04)와 설문 마감 때의 1회차(5-1)가 같이 쓴다.
+     *
+     * <p>금액은 만원 단위로 반올림해 중복을 없애고 낮은 순으로 둔다 (명세 6-1). 직전 회차에 멤버가 추가한 선지는 올린 사람을 유지한 채 금액 순서에 끼워 넣고,
+     * 설문 금액과 같으면 설문 선지만 남긴다.
+     *
+     * @param amounts 설문에 적힌 금액(원). null은 무시한다
+     * @param carried 직전 회차에 멤버가 추가한 예산 선지(V-07). 1회차면 빈 목록
+     * @return 금액이 하나도 없으면 빈 목록. 그때 무엇으로 열지는 부르는 쪽이 정한다
+     */
+    public static List<AgendaOption> budgetOptions(
+            AgendaItem agendaItem, List<Long> amounts, List<AgendaOption> carried) {
+        // 금액 → 올린 사람. 설문에서 나온 금액은 올린 사람이 없다(null)
+        Map<Long, RoomMember> proposerByAmount = new TreeMap<>();
+        amounts.stream()
+                .filter(Objects::nonNull)
+                .map(AgendaOption::roundBudget)
+                .forEach(amount -> proposerByAmount.put(amount, null));
+        if (proposerByAmount.isEmpty()) {
+            return List.of();
+        }
+        // putIfAbsent는 값이 null인 키를 빈 자리로 보고 덮어쓰므로 containsKey로 확인한다
+        carried.forEach(option -> {
+            if (!proposerByAmount.containsKey(option.budgetAmount())) {
+                proposerByAmount.put(option.budgetAmount(), option.getProposedBy());
+            }
+        });
+
+        List<AgendaOption> options = new ArrayList<>();
+        proposerByAmount.forEach((amount, proposer) ->
+                options.add(budget(agendaItem, amount, options.size(), proposer)));
+        return options;
+    }
+
+    /** 설문에 나온 숙소 타입들로 선지 목록을 만든다. 중복 없이 선언 순서대로 둔다. 답이 없으면 빈 목록이다. */
+    public static List<AgendaOption> stayOptions(AgendaItem agendaItem, List<StayType> stayTypes) {
+        return enumOptions(
+                stayTypes, StayType.class, (value, index) -> stay(agendaItem, value, index));
+    }
+
+    /** 설문에 나온 이동 강도들로 선지 목록을 만든다. 중복 없이 선언 순서대로 둔다. 답이 없으면 빈 목록이다. */
+    public static List<AgendaOption> paceOptions(AgendaItem agendaItem, List<Pace> paces) {
+        return enumOptions(paces, Pace.class, (value, index) -> pace(agendaItem, value, index));
+    }
+
+    private static <E extends Enum<E>> List<AgendaOption> enumOptions(
+            List<E> answers, Class<E> type, BiFunction<E, Integer, AgendaOption> factory) {
+        EnumSet<E> values =
+                answers.stream()
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toCollection(() -> EnumSet.noneOf(type)));
+        List<AgendaOption> options = new ArrayList<>();
+        values.forEach(value -> options.add(factory.apply(value, options.size())));
+        return options;
+    }
+
     /** 최종 확정 선지. 순서는 동의 → 반대로 고정이다. (C-01) */
     public static AgendaOption finalPlan(AgendaItem agendaItem, FinalPlanChoice choice) {
         requireSubject(agendaItem, AgendaSubject.FINAL_PLAN);
         return new AgendaOption(
                 agendaItem, choice.getLabel(), choice.name(), choice.ordinal(), null);
+    }
+
+    /**
+     * 같은 value, label, 올린 사람으로 다음 회차에 옮긴다. 남은 멤버 중 이 항목에 답한 사람이 없을 때 직전 회차 선지를 그대로 이어 쓰는 데 쓴다.
+     * (V-04)
+     */
+    public AgendaOption copyTo(AgendaItem next, int displayIndex) {
+        requireSubject(next, agendaItem.getSubject());
+        return new AgendaOption(next, label, value, displayIndex, proposedBy);
     }
 
     private static void requireSubject(AgendaItem agendaItem, AgendaSubject expected) {
