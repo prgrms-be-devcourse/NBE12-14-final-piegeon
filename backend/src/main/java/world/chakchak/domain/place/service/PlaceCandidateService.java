@@ -21,6 +21,7 @@ import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
+import world.chakchak.domain.place.dto.PlaceCategory;
 import world.chakchak.domain.place.dto.PlaceDetailResponse;
 import world.chakchak.domain.place.dto.PlaceLimitExceededData;
 import world.chakchak.domain.place.dto.PlaceStage;
@@ -229,7 +230,8 @@ public class PlaceCandidateService {
                 candidate.getId(),
                 candidate.getGooglePlaceId(),
                 candidate.getName(),
-                candidate.getPlaceType(),
+                PlaceDetailResponse.CategoryLabel.of(
+                        PlaceCategory.fromGoogleType(candidate.getPlaceType())),
                 candidate.getAddress(),
                 candidate.getGoogleMapsUrl(),
                 PlaceStage.of(candidate.isConfirmed(), agreeCount, activeMemberCount),

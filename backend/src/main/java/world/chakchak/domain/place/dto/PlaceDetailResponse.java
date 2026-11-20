@@ -10,7 +10,8 @@ public record PlaceDetailResponse(
         // 프론트가 이 값으로 Google 사진(UI Kit)과 지도(Maps Embed)를 그린다
         String googlePlaceId,
         String name,
-        String placeType,
+        // 장소 종류. 분류할 수 없는 종류면 null
+        CategoryLabel category,
         String address,
         // "지도에서 열기" 버튼. 없으면 null
         String googleMapsUrl,
@@ -28,6 +29,15 @@ public record PlaceDetailResponse(
 
     /** 멤버 한 명의 반응. 아직 안 골랐으면 reaction이 null */
     public record MemberReaction(Long memberId, String name, ReactionLabel reaction) {}
+
+    /** 장소 종류와 화면에 보여 줄 글자. 예: FOOD / "맛집" */
+    public record CategoryLabel(PlaceCategory value, String label) {
+
+        /** 카테고리가 없으면(null) null을 돌려준다 */
+        public static CategoryLabel of(PlaceCategory category) {
+            return category == null ? null : new CategoryLabel(category, category.getLabel());
+        }
+    }
 
     /** 반응 값과 화면에 보여 줄 글자. 예: WANT / "가고 싶어요" */
     public record ReactionLabel(PlaceReactionType value, String label) {

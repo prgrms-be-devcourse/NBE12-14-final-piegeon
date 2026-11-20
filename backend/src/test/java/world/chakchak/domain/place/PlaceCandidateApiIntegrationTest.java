@@ -199,6 +199,7 @@ class PlaceCandidateApiIntegrationTest {
                 assertThat(response.body())
                         .contains("\"code\":\"PLACE_CANDIDATE_FETCHED\"")
                         .contains("\"placeId\":" + placeId)
+                        .contains("\"category\":{\"value\":\"SHOPPING\",\"label\":\"쇼핑·투어\"}")
                         .contains("\"reaction\":{\"value\":\"WANT\",\"label\":\"가고 싶어요\"}")
                         .contains("\"commentCount\":0");
             }

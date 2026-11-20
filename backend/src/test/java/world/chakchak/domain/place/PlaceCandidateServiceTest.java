@@ -24,6 +24,7 @@ import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
+import world.chakchak.domain.place.dto.PlaceCategory;
 import world.chakchak.domain.place.dto.PlaceDetailResponse;
 import world.chakchak.domain.place.dto.PlaceDetailResponse.MemberReaction;
 import world.chakchak.domain.place.dto.PlaceDetailResponse.ReactionLabel;
@@ -482,7 +483,10 @@ class PlaceCandidateServiceTest {
                 assertThat(detail.placeId()).isEqualTo(placeId);
                 assertThat(detail.googlePlaceId()).isEqualTo("place-1");
                 assertThat(detail.name()).isEqualTo("광장시장");
-                assertThat(detail.placeType()).isEqualTo("market");
+                assertThat(detail.category())
+                        .isEqualTo(
+                                new PlaceDetailResponse.CategoryLabel(
+                                        PlaceCategory.SHOPPING, "쇼핑·투어"));
                 assertThat(detail.address()).isEqualTo("서울 종로구");
                 assertThat(detail.googleMapsUrl()).isEqualTo("https://maps.google.com/?cid=1");
                 assertThat(detail.suggestedBy()).isEqualTo(new MemberRef(minsu.getId(), "민수"));
