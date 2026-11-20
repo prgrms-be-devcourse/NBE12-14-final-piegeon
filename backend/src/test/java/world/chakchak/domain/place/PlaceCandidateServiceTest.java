@@ -819,6 +819,22 @@ class PlaceCandidateServiceTest {
             }
 
             @Test
+            @DisplayName("PLANNING이 아닌 방에서는 없는 후보를 눌러도 방 상태부터 막혀 INVALID_STATUS다")
+            void checksStatusBeforeCandidate() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                jdbcTemplate.update(
+                        "UPDATE plan_room SET status = 'REVIEWING' WHERE id = ?", room.getId());
+
+                assertThatThrownBy(() -> press(minsu, 999_999L, PlaceReactionType.WANT))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.INVALID_STATUS));
+            }
+
+            @Test
             @DisplayName("다른 방의 후보에 누르면 PLACE_CANDIDATE_NOT_FOUND다")
             void rejectsCandidateOfOtherRoom() {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
