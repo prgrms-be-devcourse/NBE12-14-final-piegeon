@@ -249,15 +249,8 @@ public class AgendaService {
                 }
             } else if (activeMembersRemain) {
                 judge(lockedRoom, agenda, now);
-            } else {
-                resolveWithoutRoomTransition(agenda, now);
             }
         }
-    }
-
-    private void resolveWithoutRoomTransition(AgendaItem agenda, LocalDateTime now) {
-        agenda.decidableOption(voteRepository.findAllByAgendaItemId(agenda.getId()))
-                .ifPresent(option -> agenda.resolve(option, now));
     }
 
     private void applyResolved(
