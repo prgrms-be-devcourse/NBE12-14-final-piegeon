@@ -15,4 +15,8 @@ public interface SurveyResponseRepository extends JpaRepository<SurveyResponse, 
     List<SurveyResponse> findAllByRoomMember_Room_Id(Long roomId);
 
     List<SurveyResponse> findAllByRoomMember_Room_IdAndRoomMember_LeftAtIsNull(Long roomId);
+
+    long countByRoomMember_Room_IdAndRoomMember_LeftAtIsNull(Long roomId);
+
+    void deleteByRoomMember_Id(Long roomMemberId);
 }

@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import world.chakchak.domain.comment.dto.CommentListResponse;
@@ -57,6 +58,11 @@ public class PlaceCandidateService {
     private final PlaceCandidateRepository placeCandidateRepository;
     private final PlaceReactionRepository placeReactionRepository;
     private final CommentService commentService;
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void deleteReactionsByMember(Long memberId) {
+        placeReactionRepository.deleteAllByMemberId(memberId);
+    }
 
     /**
      * 장소 후보를 등록하고, 올린 사람의 "가고 싶어요"를 함께 남긴다. (P-02)
