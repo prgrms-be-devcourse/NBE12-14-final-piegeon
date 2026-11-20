@@ -81,6 +81,19 @@ public class Room extends BaseEntity {
         this.status = RoomStatus.PLANNING;
     }
 
+    public boolean closeSurveyIfReady(
+            long activeMemberCount, long responseCount, LocalDateTime now) {
+        if (status != RoomStatus.SURVEYING || surveyClosedAt != null) {
+            return false;
+        }
+        if (now.isBefore(opinionDeadlineAt)
+                && (activeMemberCount == 0 || responseCount < activeMemberCount)) {
+            return false;
+        }
+        this.surveyClosedAt = now;
+        return true;
+    }
+
     /** 최종 확정 투표가 동의로 결정됐다. 이후 모든 수정이 막힌다. (7-1, 10-1) */
     public void finalizePlan(LocalDateTime now) {
         requireStatus(RoomStatus.REVIEWING);

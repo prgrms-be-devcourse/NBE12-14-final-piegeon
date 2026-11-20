@@ -232,6 +232,31 @@ public class AgendaService {
         }
     }
 
+    /** 활성 멤버가 퇴장한 후 진행 중인 안건의 참여 자격을 조정합니다. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void memberLeft(Room lockedRoom, RoomMember member, LocalDateTime now) {
+        boolean activeMembersRemain = roomMemberService.countActiveMembers(lockedRoom.getId()) > 0;
+        List<AgendaItem> votingAgendas =
+                agendaItemRepository.findAllByRoomIdAndStatus(
+                        lockedRoom.getId(), AgendaStatus.VOTING);
+        for (AgendaItem agenda : votingAgendas) {
+            if (!agenda.isEligible(member)
+                    || voteRepository
+                            .findByAgendaItemIdAndMemberId(agenda.getId(), member.getId())
+                            .isPresent()) {
+                continue;
+            }
+            agenda.removeVoter();
+            if (agenda.getStatus() == AgendaStatus.EXPIRED) {
+                if (activeMembersRemain) {
+                    applyExpired(lockedRoom, agenda);
+                }
+            } else if (activeMembersRemain) {
+                judge(lockedRoom, agenda, now);
+            }
+        }
+    }
+
     private void applyResolved(
             Room lockedRoom, AgendaItem agenda, AgendaOption option, LocalDateTime now) {
         if (agenda.getSubject() == AgendaSubject.FINAL_PLAN) {

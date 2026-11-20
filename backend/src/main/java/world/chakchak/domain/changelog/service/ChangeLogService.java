@@ -35,6 +35,23 @@ public class ChangeLogService {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
+    public void recordMemberLeft(Room room, RoomMember member) {
+        ChangeLog changeLog =
+                ChangeLog.create(
+                        room,
+                        member,
+                        EntityType.MEMBER,
+                        member.getId(),
+                        EventKind.MEMBER_LEFT,
+                        ActionStatus.DELETE,
+                        member.getUser().getName() + "님이 나갔어요");
+        ChangeLog saved = changeLogRepository.save(changeLog);
+        ChangeLogItemResponse item = ChangeLogItemResponse.from(saved);
+        eventPublisher.publishEvent(new RoomEvent(room.getId(), saved.getId(), "activity", item));
+        eventPublisher.publishEvent(new RoomEvent(room.getId(), null, "member.left", item));
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
     public void record(
             Room room,
             RoomMember actor,
