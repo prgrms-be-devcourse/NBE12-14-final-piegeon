@@ -137,6 +137,8 @@ public class PlaceCandidateService {
                 PlaceStage.of(false, 1, activeMemberCount),
                 1,
                 List.of(me),
+                0,
+                List.of(),
                 me,
                 candidate.getConfirmedAt());
     }
@@ -154,17 +156,9 @@ public class PlaceCandidateService {
         Room room = me.getRoom();
         long activeMemberCount = roomMemberService.countActiveMembers(roomId);
 
-        // 후보 id -> 가고 싶어요를 누른 멤버들. 아무도 안 누른 후보는 맵에 없다
-        Map<Long, List<MemberRef>> agreedByPlace =
-                placeReactionRepository
-                        .findAllByPlaceCandidate_RoomAndReaction(room, PlaceReactionType.WANT)
-                        .stream()
-                        .collect(
-                                Collectors.groupingBy(
-                                        reaction -> reaction.getPlaceCandidate().getId(),
-                                        Collectors.mapping(
-                                                reaction -> toMemberRef(reaction.getMember()),
-                                                Collectors.toList())));
+        // 후보 id -> 그 반응을 누른 멤버들. 아무도 안 누른 후보는 맵에 없다
+        Map<Long, List<MemberRef>> agreedByPlace = membersByPlace(room, PlaceReactionType.WANT);
+        Map<Long, List<MemberRef>> nopedByPlace = membersByPlace(room, PlaceReactionType.NOPE);
 
         List<PlaceCandidateItem> candidates =
                 placeCandidateRepository.findAllByRoom(room).stream()
@@ -172,6 +166,7 @@ public class PlaceCandidateService {
                                 toItem(
                                         candidate,
                                         agreedByPlace.getOrDefault(candidate.getId(), List.of()),
+                                        nopedByPlace.getOrDefault(candidate.getId(), List.of()),
                                         activeMemberCount))
                         .sorted(BOARD_ORDER)
                         .toList();
@@ -216,9 +211,25 @@ public class PlaceCandidateService {
                 .orElseThrow(() -> new BusinessException(PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND));
     }
 
-    // 칸반 카드 하나. 칸은 저장하지 않고 지금 인원으로 계산한다 (명세 8-1)
+    // 방의 반응 중 한 종류(WANT 또는 NOPE)를 후보별로 묶는다. 나간 멤버의 반응은 뺀다. 종류마다 SELECT 1번
+    private Map<Long, List<MemberRef>> membersByPlace(Room room, PlaceReactionType type) {
+        return placeReactionRepository
+                .findAllByPlaceCandidate_RoomAndReactionAndMember_LeftAtIsNull(room, type)
+                .stream()
+                .collect(
+                        Collectors.groupingBy(
+                                reaction -> reaction.getPlaceCandidate().getId(),
+                                Collectors.mapping(
+                                        reaction -> toMemberRef(reaction.getMember()),
+                                        Collectors.toList())));
+    }
+
+    // 칸반 카드 하나. 칸은 저장하지 않고 지금 인원으로 계산한다 (명세 8-1). 칸은 가고 싶어요로만 정한다
     private PlaceCandidateItem toItem(
-            PlaceCandidate candidate, List<MemberRef> agreedBy, long activeMemberCount) {
+            PlaceCandidate candidate,
+            List<MemberRef> agreedBy,
+            List<MemberRef> nopedBy,
+            long activeMemberCount) {
         return new PlaceCandidateItem(
                 candidate.getId(),
                 candidate.getGooglePlaceId(),
@@ -228,6 +239,8 @@ public class PlaceCandidateService {
                 PlaceStage.of(candidate.isConfirmed(), agreedBy.size(), activeMemberCount),
                 agreedBy.size(),
                 agreedBy,
+                nopedBy.size(),
+                nopedBy,
                 toMemberRef(candidate.getSuggestedBy()),
                 candidate.getConfirmedAt());
     }

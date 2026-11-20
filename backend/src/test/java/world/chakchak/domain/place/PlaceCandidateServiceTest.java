@@ -291,6 +291,8 @@ class PlaceCandidateServiceTest {
                         .containsExactlyInAnyOrder(
                                 new MemberRef(minsu.getId(), "민수"),
                                 new MemberRef(jiyoung.getId(), "지영"));
+                assertThat(card.nopeCount()).isZero();
+                assertThat(card.nopedBy()).isEmpty();
                 assertThat(card.suggestedBy()).isEqualTo(new MemberRef(minsu.getId(), "민수"));
                 assertThat(card.confirmedAt()).isNull();
             }
@@ -341,8 +343,8 @@ class PlaceCandidateServiceTest {
             }
 
             @Test
-            @DisplayName("별로예요(NOPE)는 가고 싶어요 수에 들어가지 않는다")
-            void ignoresNope() {
+            @DisplayName("별로예요(NOPE)는 가고 싶어요 수와 칸에 들어가지 않고, 누른 멤버는 nopedBy에 따로 담긴다")
+            void separatesNope() {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
                 RoomMember minsu = saveMember(room, "민수");
                 RoomMember jiyoung = saveMember(room, "지영");
@@ -354,6 +356,8 @@ class PlaceCandidateServiceTest {
                 assertThat(card.agreeCount()).isEqualTo(1);
                 assertThat(card.agreedBy()).containsExactly(new MemberRef(minsu.getId(), "민수"));
                 assertThat(card.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+                assertThat(card.nopeCount()).isEqualTo(1);
+                assertThat(card.nopedBy()).containsExactly(new MemberRef(jiyoung.getId(), "지영"));
             }
 
             @Test
@@ -391,6 +395,29 @@ class PlaceCandidateServiceTest {
                 assertThat(board.activeMemberCount()).isEqualTo(2);
                 assertThat(board.limit()).isEqualTo(50);
                 assertThat(board.candidates().get(0).stage()).isEqualTo(PlaceStage.FULL);
+            }
+
+            @Test
+            @DisplayName("나간 멤버의 반응은 동의 수와 칸, nopedBy에 들어가지 않는다 (나간 사람 가고 싶어요로 FULL이 되지 않음)")
+            void ignoresLeftMembersReactions() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember a = saveMember(room, "A");
+                RoomMember b = saveMember(room, "B");
+                saveMember(room, "C");
+                RoomMember d = saveMember(room, "D");
+                long placeId = register(b, "place-1").placeId();
+                react(a, placeId, PlaceReactionType.WANT);
+                react(d, placeId, PlaceReactionType.NOPE);
+                leave(a);
+                leave(d);
+
+                PlaceCandidateItem card = getBoard(b).candidates().get(0);
+
+                assertThat(card.agreeCount()).isEqualTo(1);
+                assertThat(card.agreedBy()).containsExactly(new MemberRef(b.getId(), "B"));
+                assertThat(card.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+                assertThat(card.nopeCount()).isZero();
+                assertThat(card.nopedBy()).isEmpty();
             }
 
             @Test

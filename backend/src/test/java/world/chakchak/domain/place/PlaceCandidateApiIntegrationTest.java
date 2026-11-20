@@ -71,6 +71,8 @@ class PlaceCandidateApiIntegrationTest {
                         .contains("\"name\":\"광장시장\"")
                         .contains("\"stage\":\"FULL\"")
                         .contains("\"agreeCount\":1")
+                        .contains("\"nopeCount\":0")
+                        .contains("\"nopedBy\":[]")
                         .contains("\"name\":\"여행자\"");
                 assertThat(placeCandidateRepository.countByRoom(room(roomId))).isEqualTo(1);
             }
