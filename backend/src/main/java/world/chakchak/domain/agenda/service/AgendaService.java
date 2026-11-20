@@ -10,9 +10,11 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import world.chakchak.domain.agenda.dto.AddOptionRequest;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse.OptionResult;
 import world.chakchak.domain.agenda.dto.AgendaListResponse;
@@ -41,9 +43,9 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 안건 코멘트(V-05 목록, V-06 작성), 7-1 만장일치 판정.
+ * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 안건 코멘트(V-05 목록, V-06 작성), 예산 선지 추가(V-07), 7-1 만장일치 판정.
  *
- * <p>조회는 방 잠금을 잡지 않는다. 투표는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수 있다.
+ * <p>조회는 방 잠금을 잡지 않는다. 투표와 선지 추가는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수 있다.
  */
 @Service
 @RequiredArgsConstructor
@@ -314,5 +316,66 @@ public class AgendaService {
                 .map(v -> v.getAgendaOption().getId())
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * 예산 안건에 내가 생각하는 금액을 선지로 추가한다 (V-07). 금액은 만원 단위로 반올림해 저장하고, 선지 목록의 맨 뒤에 붙인다.
+     *
+     * <p>선지가 늘어도 기존 표는 그대로이고 결정도 바뀌지 않으므로 7-1 판정은 하지 않는다. 같은 금액을 두 명이 동시에 올려도 방 잠금으로 한 명씩 처리되어 두
+     * 번째는 OPTION_ALREADY_EXISTS가 된다.
+     */
+    @Transactional
+    public AgendaDetailResponse addBudgetOption(
+        Long roomId, Long agendaId, Long userId, AddOptionRequest request) {
+        Room room = roomService.getForUpdate(roomId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        // 명세 2-1: 예산 선지는 설문 조율 구간(SURVEYING)에서만 추가한다
+        if (room.getStatus() != RoomStatus.SURVEYING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+
+        AgendaItem agenda = getAgendaInRoom(roomId, agendaId);
+        if (agenda.getSubject() != AgendaSubject.BUDGET) {
+            throw new BusinessException(AgendaErrorCode.OPTION_NOT_ADDABLE);
+        }
+        if (!agenda.isOpenAt(now)) {
+            throw new BusinessException(AgendaErrorCode.AGENDA_CLOSED);
+        }
+        if (!agenda.isEligible(me)) {
+            throw new BusinessException(AgendaErrorCode.NOT_ELIGIBLE_VOTER);
+        }
+        // 회차마다 1인 1개. 내 선지를 지우면(V-08) 다시 추가할 수 있다
+        if (agendaOptionRepository.existsByAgendaItemIdAndProposedById(agendaId, me.getId())) {
+            throw new BusinessException(AgendaErrorCode.OPTION_ADD_LIMIT_EXCEEDED);
+        }
+        // 반올림하면 다른 금액도 같은 선지가 되므로 반올림한 값으로 중복을 확인한다
+        String value = String.valueOf(AgendaOption.roundBudget(request.amount()));
+        agendaOptionRepository
+            .findByAgendaItemIdAndValue(agendaId, value)
+            .ifPresent(existing -> {
+                throw new BusinessException(
+                    AgendaErrorCode.OPTION_ALREADY_EXISTS,
+                    Map.of("optionId", existing.getId()));
+            });
+
+        int nextIndex =
+            agendaOptionRepository
+                .findAllByAgendaItemIdOrderByDisplayIndexAsc(agendaId)
+                .stream()
+                .mapToInt(AgendaOption::getDisplayIndex)
+                .max()
+                .orElse(-1)
+                + 1;
+        try {
+            agendaOptionRepository.saveAndFlush(
+                AgendaOption.budget(agenda, request.amount(), nextIndex, me));
+        } catch (DataIntegrityViolationException e) {
+            // 방 잠금으로 먼저 막으므로 여기까지 오는 것은 UNIQUE(agenda_id, value)가 마지막으로 막은 경우다
+            throw new BusinessException(AgendaErrorCode.OPTION_ALREADY_EXISTS);
+        }
+        // TODO SSE (커밋 후): agenda.option_added. change_log는 남기지 않는다 (명세 V-07)
+
+        return toDetail(agenda, me);
     }
 }

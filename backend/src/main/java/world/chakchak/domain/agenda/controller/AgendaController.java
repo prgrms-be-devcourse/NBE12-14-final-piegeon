@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import world.chakchak.domain.agenda.dto.AddOptionRequest;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse;
 import world.chakchak.domain.agenda.dto.AgendaListResponse;
 import world.chakchak.domain.agenda.dto.VoteRequest;
@@ -82,5 +83,18 @@ public class AgendaController {
                 agendaService.addComment(roomId, agendaId, loginUser.userId(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("COMMENT_CREATED", "코멘트를 남겼습니다.", response));
+    }
+
+    /** V-07 예산 선지 추가 */
+    @PostMapping("/{agendaId}/options")
+    public ResponseEntity<ApiResponse<AgendaDetailResponse>> addBudgetOption(
+        @PathVariable Long roomId,
+        @PathVariable Long agendaId,
+        @Valid @RequestBody AddOptionRequest request,
+        @AuthenticationPrincipal LoginUser loginUser) {
+        AgendaDetailResponse response =
+            agendaService.addBudgetOption(roomId, agendaId, loginUser.userId(), request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success("OPTION_CREATED", "선지를 추가했습니다.", response));
     }
 }
