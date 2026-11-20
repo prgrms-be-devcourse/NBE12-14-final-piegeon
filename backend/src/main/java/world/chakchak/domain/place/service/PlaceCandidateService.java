@@ -21,6 +21,7 @@ import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
+import world.chakchak.domain.place.dto.PlaceDetailResponse;
 import world.chakchak.domain.place.dto.PlaceLimitExceededData;
 import world.chakchak.domain.place.dto.PlaceStage;
 import world.chakchak.domain.place.entity.PlaceCandidate;
@@ -178,6 +179,67 @@ public class PlaceCandidateService {
                         .toList();
 
         return new PlaceBoardResponse(activeMemberCount, limitOf(room), candidates);
+    }
+
+    /**
+     * 카드를 눌렀을 때 펼쳐지는 장소 상세. 남아 있는 멤버 전원의 반응을 함께 준다. (P-10)
+     *
+     * <p>읽기만 하므로 방 잠금을 잡지 않는다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 없거나 다른 방의 후보면
+     *     PLACE_CANDIDATE_NOT_FOUND
+     */
+    @Transactional(readOnly = true)
+    public PlaceDetailResponse getDetail(Long roomId, Long placeId, Long userId) {
+        roomMemberService.getActiveMember(roomId, userId);
+        PlaceCandidate candidate = getCandidateInRoom(roomId, placeId);
+
+        // 멤버 id -> 그 멤버의 반응. 반응 안 한 멤버는 맵에 없다
+        Map<Long, PlaceReactionType> reactionByMember =
+                placeReactionRepository.findAllByPlaceCandidate(candidate).stream()
+                        .collect(
+                                Collectors.toMap(
+                                        reaction -> reaction.getMember().getId(),
+                                        PlaceReaction::getReaction));
+
+        // 방에 남아 있는 멤버를 한 명씩 보면서 그 사람이 누른 반응을 찾아 붙인다.
+        // 나간 사람은 멤버 목록에 없으니 반응 목록에도, 가고 싶어요 수에도 안 들어간다.
+        List<PlaceDetailResponse.MemberReaction> reactions =
+                roomMemberService.getActiveMemberSummaries(roomId).stream()
+                        .map(member -> {
+                            PlaceReactionType type = reactionByMember.get(member.getMemberId());
+                            return new PlaceDetailResponse.MemberReaction(
+                                    member.getMemberId(),
+                                    member.getName(),
+                                    type == null
+                                            ? null
+                                            : PlaceDetailResponse.ReactionLabel.of(type));
+                        })
+                        .toList();
+
+        long agreeCount =
+                reactions.stream()
+                        .filter(reaction ->
+                                reaction.reaction() != null
+                                        && reaction.reaction().value() == PlaceReactionType.WANT)
+                        .count();
+        long activeMemberCount = reactions.size();
+
+        return new PlaceDetailResponse(
+                candidate.getId(),
+                candidate.getGooglePlaceId(),
+                candidate.getName(),
+                candidate.getPlaceType(),
+                candidate.getAddress(),
+                candidate.getGoogleMapsUrl(),
+                PlaceStage.of(candidate.isConfirmed(), agreeCount, activeMemberCount),
+                agreeCount,
+                activeMemberCount,
+                toMemberRef(candidate.getSuggestedBy()),
+                candidate.getCreatedAt(),
+                candidate.getConfirmedAt(),
+                reactions,
+                commentService.countOnPlace(placeId));
     }
 
     /** 장소 후보 코멘트 목록, 오래된 순. (P-08) */

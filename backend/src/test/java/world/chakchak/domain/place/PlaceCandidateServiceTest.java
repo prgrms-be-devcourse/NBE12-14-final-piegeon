@@ -18,11 +18,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import world.chakchak.IntegrationTest;
+import world.chakchak.domain.comment.dto.CommentRequest;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
+import world.chakchak.domain.place.dto.PlaceDetailResponse;
+import world.chakchak.domain.place.dto.PlaceDetailResponse.MemberReaction;
+import world.chakchak.domain.place.dto.PlaceDetailResponse.ReactionLabel;
 import world.chakchak.domain.place.dto.PlaceLimitExceededData;
 import world.chakchak.domain.place.dto.PlaceStage;
 import world.chakchak.domain.place.entity.PlaceCandidate;
@@ -431,6 +435,111 @@ class PlaceCandidateServiceTest {
                 assertThat(board.candidates()).isEmpty();
                 assertThat(board.activeMemberCount()).isEqualTo(1);
             }
+
+            @Test
+            @DisplayName("상세는 남아 있는 멤버 전원을 들어온 순서로 담고, 각자 가고 싶어요, 별로예요, 아직 안 고름(null)을 보여 준다")
+            void detailShowsEveryMembersReaction() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                RoomMember cheolsu = saveMember(room, "철수");
+                RoomMember younghee = saveMember(room, "영희");
+                long placeId = register(minsu, "place-1").placeId();
+                react(jiyoung, placeId, PlaceReactionType.WANT);
+                react(cheolsu, placeId, PlaceReactionType.NOPE);
+
+                PlaceDetailResponse detail = getDetail(minsu, placeId);
+
+                assertThat(detail.reactions())
+                        .containsExactly(
+                                new MemberReaction(
+                                        minsu.getId(),
+                                        "민수",
+                                        new ReactionLabel(PlaceReactionType.WANT, "가고 싶어요")),
+                                new MemberReaction(
+                                        jiyoung.getId(),
+                                        "지영",
+                                        new ReactionLabel(PlaceReactionType.WANT, "가고 싶어요")),
+                                new MemberReaction(
+                                        cheolsu.getId(),
+                                        "철수",
+                                        new ReactionLabel(PlaceReactionType.NOPE, "별로예요")),
+                                new MemberReaction(younghee.getId(), "영희", null));
+                assertThat(detail.agreeCount()).isEqualTo(2);
+                assertThat(detail.activeMemberCount()).isEqualTo(4);
+                assertThat(detail.stage()).isEqualTo(PlaceStage.PARTIAL);
+            }
+
+            @Test
+            @DisplayName("상세에 장소 정보, 올린 사람, 등록 시각이 채워지고 댓글이 없으면 댓글 수는 0이다")
+            void detailFillsPlaceInfo() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+
+                PlaceDetailResponse detail = getDetail(minsu, placeId);
+
+                assertThat(detail.placeId()).isEqualTo(placeId);
+                assertThat(detail.googlePlaceId()).isEqualTo("place-1");
+                assertThat(detail.name()).isEqualTo("광장시장");
+                assertThat(detail.placeType()).isEqualTo("market");
+                assertThat(detail.address()).isEqualTo("서울 종로구");
+                assertThat(detail.googleMapsUrl()).isEqualTo("https://maps.google.com/?cid=1");
+                assertThat(detail.suggestedBy()).isEqualTo(new MemberRef(minsu.getId(), "민수"));
+                assertThat(detail.registeredAt()).isNotNull();
+                assertThat(detail.confirmedAt()).isNull();
+                assertThat(detail.commentCount()).isZero();
+            }
+
+            @Test
+            @DisplayName("상세의 댓글 수는 그 후보에 달린 댓글만 센다")
+            void detailCountsComments() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+                long otherPlaceId = register(minsu, "place-2").placeId();
+                comment(minsu, placeId, "좋아요");
+                comment(minsu, placeId, "저도요");
+                comment(minsu, otherPlaceId, "여긴 별로");
+
+                assertThat(getDetail(minsu, placeId).commentCount()).isEqualTo(2);
+            }
+
+            @Test
+            @DisplayName("상세에서 나간 멤버는 목록과 동의 수에서 빠져서, 나간 사람의 가고 싶어요로 FULL이 되지 않는다")
+            void detailIgnoresLeftMembers() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember a = saveMember(room, "A");
+                RoomMember b = saveMember(room, "B");
+                RoomMember c = saveMember(room, "C");
+                long placeId = register(b, "place-1").placeId();
+                react(a, placeId, PlaceReactionType.WANT);
+                leave(a);
+
+                PlaceDetailResponse detail = getDetail(b, placeId);
+
+                assertThat(detail.reactions())
+                        .extracting(MemberReaction::memberId)
+                        .containsExactly(b.getId(), c.getId());
+                assertThat(detail.agreeCount()).isEqualTo(1);
+                assertThat(detail.activeMemberCount()).isEqualTo(2);
+                assertThat(detail.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+            }
+
+            @Test
+            @DisplayName("확정된 후보의 상세는 CONFIRMED이고 확정 시각이 있다")
+            void detailOfConfirmed() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+                confirm(placeId);
+
+                PlaceDetailResponse detail = getDetail(minsu, placeId);
+
+                assertThat(detail.stage()).isEqualTo(PlaceStage.CONFIRMED);
+                assertThat(detail.confirmedAt()).isNotNull();
+            }
         }
 
         @Nested
@@ -467,7 +576,70 @@ class PlaceCandidateServiceTest {
                                         assertThat(e.getErrorCode())
                                                 .isEqualTo(CommonErrorCode.FORBIDDEN));
             }
+
+            @Test
+            @DisplayName("다른 방의 후보 상세를 열면 PLACE_CANDIDATE_NOT_FOUND다")
+            void detailRejectsCandidateOfOtherRoom() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                long otherPlaceId = register(saveMember(otherRoom, "철수"), "place-1").placeId();
+
+                assertThatThrownBy(() -> getDetail(minsu, otherPlaceId))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(
+                                                        PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND));
+            }
+
+            @Test
+            @DisplayName("없는 후보 상세를 열면 PLACE_CANDIDATE_NOT_FOUND다")
+            void detailRejectsUnknownCandidate() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+
+                assertThatThrownBy(() -> getDetail(minsu, 999_999L))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(
+                                                        PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND));
+            }
+
+            @Test
+            @DisplayName("다른 방의 멤버가 상세를 열면 FORBIDDEN이다")
+            void detailRejectsNonMember() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                long placeId = register(saveMember(room, "민수"), "place-1").placeId();
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember outsider = saveMember(otherRoom, "철수");
+
+                assertThatThrownBy(() ->
+                                placeCandidateService.getDetail(
+                                        room.getId(), placeId, outsider.getUser().getId()))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.FORBIDDEN));
+            }
         }
+    }
+
+    private PlaceDetailResponse getDetail(RoomMember member, long placeId) {
+        return placeCandidateService.getDetail(
+                member.getRoom().getId(), placeId, member.getUser().getId());
+    }
+
+    private void comment(RoomMember member, long placeId, String body) {
+        placeCandidateService.addComment(
+                member.getRoom().getId(),
+                placeId,
+                member.getUser().getId(),
+                new CommentRequest(body));
     }
 
     private PlaceBoardResponse getBoard(RoomMember member) {

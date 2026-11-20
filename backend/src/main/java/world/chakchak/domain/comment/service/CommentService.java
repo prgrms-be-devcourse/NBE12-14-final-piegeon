@@ -44,6 +44,11 @@ public class CommentService {
                 .toList();
     }
 
+    /** 장소 후보의 코멘트 수. (P-10 commentCount) */
+    public long countOnPlace(Long placeCandidateId) {
+        return commentRepository.countByPlaceCandidateId(placeCandidateId);
+    }
+
     /** 장소 후보 코멘트를 남긴다. (P-09) */
     @Transactional
     public Comment addOnPlace(PlaceCandidate placeCandidate, RoomMember member, String body) {
