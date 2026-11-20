@@ -30,7 +30,7 @@ import world.chakchak.domain.place.service.PlaceSearchClient;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.repository.RoomRepository;
 
-/** P-02 장소 후보 등록 API를 HTTP로 호출한다. Google은 PlaceSearchClient를 가짜로 바꿔 부르지 않는다. */
+/** P-02 장소 후보 등록, P-03 칸반 보드 API를 HTTP로 호출한다. Google은 PlaceSearchClient를 가짜로 바꿔 부르지 않는다. */
 @IntegrationTest
 class PlaceCandidateApiIntegrationTest {
 
@@ -153,6 +153,65 @@ class PlaceCandidateApiIntegrationTest {
                         .contains("\"data\":{\"placeId\":" + placeId + "}");
             }
         }
+    }
+
+    @Nested
+    class Read {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("방 멤버가 보드를 열면 200과 PLACE_CANDIDATES_FETCHED, 인원·한도·카드가 반환된다")
+            void returnsBoard() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+
+                HttpResponse<String> response = getBoard(roomId, cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"success\":true")
+                        .contains("\"code\":\"PLACE_CANDIDATES_FETCHED\"")
+                        .contains("\"activeMemberCount\":1")
+                        .contains("\"limit\":30")
+                        .contains("\"placeId\":" + placeId)
+                        .contains("\"stage\":\"FULL\"");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("방 멤버가 아니면 403 FORBIDDEN이다")
+            void rejectsNonMember() throws java.lang.Exception {
+                long roomId = createRoom(login());
+
+                HttpResponse<String> response = getBoard(roomId, login());
+
+                assertThat(response.statusCode()).isEqualTo(403);
+                assertThat(response.body()).contains("\"code\":\"FORBIDDEN\"");
+            }
+        }
+    }
+
+    private HttpResponse<String> getBoard(long roomId, String cookie) throws java.lang.Exception {
+        HttpRequest request =
+                HttpRequest.newBuilder(
+                                URI.create(
+                                        "http://localhost:"
+                                                + port
+                                                + "/api/rooms/"
+                                                + roomId
+                                                + "/place-candidates"))
+                        .header("Cookie", cookie)
+                        .GET()
+                        .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private GooglePlace googlePlace(String googlePlaceId) {

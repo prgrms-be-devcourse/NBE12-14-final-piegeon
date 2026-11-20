@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.comment.dto.CommentListResponse;
 import world.chakchak.domain.comment.dto.CommentRequest;
 import world.chakchak.domain.comment.dto.CommentResponse;
+import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
 import world.chakchak.domain.place.dto.RegisterPlaceRequest;
 import world.chakchak.domain.place.service.PlaceCandidateService;
@@ -45,6 +46,19 @@ public class PlaceCandidateController {
                 placeCandidateService.register(roomId, loginUser.userId(), request.googlePlaceId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("PLACE_CANDIDATE_CREATED", "장소 후보를 올렸습니다.", response));
+    }
+
+    /** P-03 장소 칸반 보드 */
+    @Operation(
+            summary = "장소 칸반 보드 (P-03)",
+            description =
+                    "방의 장소 후보를 칸과 함께 돌려준다. "
+                            + "칸(확정 -> 전체 -> 부분 -> 여집합) 순서이고, 같은 칸은 가고 싶어요가 많은 순이다.")
+    @GetMapping
+    public ResponseEntity<ApiResponse<PlaceBoardResponse>> getBoard(
+            @PathVariable Long roomId, @AuthenticationPrincipal LoginUser loginUser) {
+        PlaceBoardResponse response = placeCandidateService.getBoard(roomId, loginUser.userId());
+        return ResponseEntity.ok(ApiResponse.success("PLACE_CANDIDATES_FETCHED", response));
     }
 
     /** P-08 장소 코멘트 목록 */
