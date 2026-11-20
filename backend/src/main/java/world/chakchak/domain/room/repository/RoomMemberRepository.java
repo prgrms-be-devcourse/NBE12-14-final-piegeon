@@ -3,8 +3,8 @@ package world.chakchak.domain.room.repository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import world.chakchak.domain.room.entity.RoomMember;
@@ -23,7 +23,7 @@ public interface RoomMemberRepository extends JpaRepository<RoomMember, Long> {
                 member.modifiedAt = :modifiedAt
             where member.id = :memberId
                 and member.leftAt is null
-                and member.lastSeenAt < :seenUntil
+                and (member.lastSeenAt is null or member.lastSeenAt < :seenUntil)
             """)
     int advanceLastSeenAt(
             @Param("memberId") Long memberId,

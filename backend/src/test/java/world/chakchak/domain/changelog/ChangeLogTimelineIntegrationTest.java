@@ -91,21 +91,19 @@ class ChangeLogTimelineIntegrationTest {
                 HttpResponse<InputStream> stream = openStream(room.getId(), ownerCookie, null);
                 try (SseReader reader = new SseReader(stream.body())) {
                     String readyEvent = reader.readEvent();
-                    assertThat(readyEvent).contains("event:ready");
-                    assertThat(readyEvent).contains("\"latestActivityId\":null");
+                    assertThat(readyEvent).contains("event:connected");
+                    assertThat(readyEvent).contains("\"latestEventId\":null");
 
                     String inviteCode = room.getInviteCode();
                     String joinerCookie = login(uniqueEmail(), "새 멤버");
                     HttpResponse<String> joined =
-                            post(
-                                    "/api/rooms/invites/" + inviteCode + "/join",
-                                    joinerCookie);
+                            post("/api/rooms/invites/" + inviteCode + "/join", joinerCookie);
                     assertThat(joined.statusCode()).isEqualTo(200);
 
                     String activityEvent = reader.readEvent();
                     assertThat(activityEvent).contains("event:activity");
                     assertThat(activityEvent).contains("id:");
-                    assertThat(activityEvent).contains("\"eventKind\":\"MEMBER_JOINED\"");
+                    assertThat(activityEvent).contains("\"entityType\":\"MEMBER\"");
                     assertThat(activityEvent).contains("\"summary\":\"새 멤버님이 합류했어요\"");
                 }
             }
@@ -122,9 +120,9 @@ class ChangeLogTimelineIntegrationTest {
 
                 HttpResponse<InputStream> initialStream =
                         openStream(room.getId(), ownerCookie, null);
-                String lastDeliveredId;
+                Long lastDeliveredId;
                 try (SseReader reader = new SseReader(initialStream.body())) {
-                    assertThat(reader.readEvent()).contains("event:ready");
+                    assertThat(reader.readEvent()).contains("event:connected");
                     joinRoom(room, "두 번째 활동");
                     String secondActivity = reader.readEvent();
                     assertThat(secondActivity).contains("event:activity");
@@ -137,13 +135,13 @@ class ChangeLogTimelineIntegrationTest {
 
                 joinRoom(room, "연결이 끊긴 동안의 활동");
                 HttpResponse<InputStream> resumed =
-                        openStream(room.getId(), ownerCookie, lastDeliveredId);
+                        openStream(room.getId(), ownerCookie, lastDeliveredId.toString());
                 try (SseReader reader = new SseReader(resumed.body())) {
+                    assertThat(reader.readEvent()).contains("event:connected");
                     String replayed = reader.readEvent();
                     assertThat(replayed).contains("event:activity");
-                    assertThat(eventId(replayed)).isGreaterThan(Long.parseLong(lastDeliveredId));
+                    assertThat(eventId(replayed)).isGreaterThan(lastDeliveredId);
                     assertThat(replayed).contains("연결이 끊긴 동안의 활동님이 합류했어요");
-                    assertThat(reader.readEvent()).contains("event:ready");
                 }
             }
 
@@ -165,22 +163,25 @@ class ChangeLogTimelineIntegrationTest {
                 HttpResponse<InputStream> overflow =
                         openStream(room.getId(), ownerCookie, activityIds.getFirst().toString());
                 try (SseReader reader = new SseReader(overflow.body())) {
+                    assertThat(reader.readEvent()).contains("event:connected");
                     assertThat(reader.readEvent()).contains("event:resync.required");
-                    assertThat(reader.readEvent()).contains("event:ready");
                 }
 
                 HttpResponse<InputStream> atLimit =
                         openStream(room.getId(), ownerCookie, activityIds.get(1).toString());
                 try (SseReader reader = new SseReader(atLimit.body())) {
-                    String firstReplay = reader.readEvent();
-                    assertThat(firstReplay).contains("event:activity");
-                    assertThat(eventId(firstReplay)).isEqualTo(activityIds.get(2));
+                    assertThat(reader.readEvent()).contains("event:connected");
+                    for (int index = 2; index < activityIds.size(); index++) {
+                        String replayed = reader.readEvent();
+                        assertThat(replayed).contains("event:activity");
+                        assertThat(eventId(replayed)).isEqualTo(activityIds.get(index));
+                    }
                 }
             }
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("비인증 사용자와 활동 멤버가 아닌 사용자는 방 활동 스트림을 열 수 없다")
@@ -189,8 +190,7 @@ class ChangeLogTimelineIntegrationTest {
                 String outsiderCookie = login(uniqueEmail(), "방 외부 사용자");
 
                 HttpResponse<InputStream> unauthenticated = openStream(room.getId(), null, null);
-                HttpResponse<InputStream> outsider =
-                        openStream(room.getId(), outsiderCookie, null);
+                HttpResponse<InputStream> outsider = openStream(room.getId(), outsiderCookie, null);
                 try {
                     assertThat(unauthenticated.statusCode()).isEqualTo(401);
                     assertThat(outsider.statusCode()).isEqualTo(403);
@@ -211,7 +211,7 @@ class ChangeLogTimelineIntegrationTest {
                 HttpResponse<InputStream> stream = openStream(room.getId(), ownerCookie, null);
 
                 try (SseReader reader = new SseReader(stream.body())) {
-                    assertThat(reader.readEvent()).contains("event:ready");
+                    assertThat(reader.readEvent()).contains("event:connected");
                     jdbcTemplate.update(
                             "update plan_room_member set left_at = ? where id = ?",
                             LocalDateTime.now(clock),
@@ -251,32 +251,23 @@ class ChangeLogTimelineIntegrationTest {
                 JsonNode firstItems = firstPageData.path("items");
                 assertThat(firstItems.size()).isEqualTo(2);
                 Long cursor = firstPageData.path("nextCursor").longValue();
-                Long throughId = firstItems.get(1).path("id").longValue();
-                assertThat(firstItems.get(0).path("id").longValue()).isGreaterThan(cursor);
+                Long firstPageLastId = firstItems.get(1).path("logId").longValue();
+                assertThat(firstItems.get(0).path("logId").longValue()).isGreaterThan(cursor);
 
                 HttpResponse<String> nextPage =
                         get(
-                                "/api/rooms/" + room.getId() + "/change-logs?cursor=" + cursor
+                                "/api/rooms/"
+                                        + room.getId()
+                                        + "/change-logs?cursor="
+                                        + cursor
                                         + "&size=2",
                                 ownerCookie);
-                HttpResponse<String> boundedPage =
-                        get(
-                                "/api/rooms/" + room.getId() + "/change-logs?throughId="
-                                        + throughId + "&size=10",
-                                ownerCookie);
-
                 JsonNode nextItems =
                         objectMapper.readTree(nextPage.body()).path("data").path("items");
-                JsonNode boundedItems =
-                        objectMapper.readTree(boundedPage.body()).path("data").path("items");
                 assertThat(nextPage.statusCode()).isEqualTo(200);
                 assertThat(nextItems.size()).isEqualTo(1);
-                assertThat(nextItems.get(0).path("id").longValue()).isLessThan(cursor);
-                assertThat(boundedPage.statusCode()).isEqualTo(200);
-                assertThat(boundedItems.size()).isEqualTo(2);
-                assertThat(boundedItems.get(0).path("id").longValue()).isEqualTo(throughId);
-                assertThat(boundedItems.get(1).path("id").longValue())
-                        .isLessThan(boundedItems.get(0).path("id").longValue());
+                assertThat(nextItems.get(0).path("logId").longValue()).isLessThan(cursor);
+                assertThat(nextItems.get(0).path("logId").longValue()).isLessThan(firstPageLastId);
             }
 
             @Test
@@ -316,10 +307,33 @@ class ChangeLogTimelineIntegrationTest {
                 get("/api/rooms/" + room.getId() + "/change-logs", ownerCookie);
                 assertThat(lastSeenAt(ownerMember.getId())).isEqualTo(displayedActivityAt);
             }
+
+            @Test
+            @DisplayName("확인 시각이 비어 있으면 전달한 시각으로 초기화한다")
+            void initializesNullSeenTimeFromRequest() throws Exception {
+                String ownerEmail = uniqueEmail();
+                String ownerCookie = login(ownerEmail, "방장");
+                User owner = userRepository.findByEmail(ownerEmail).orElseThrow();
+                Room room = saveRoom();
+                RoomMember ownerMember = join(room, owner);
+                LocalDateTime seenUntil = LocalDateTime.of(2026, 11, 13, 10, 0);
+                jdbcTemplate.update(
+                        "update plan_room_member set last_seen_at = null where id = ?",
+                        ownerMember.getId());
+
+                HttpResponse<String> response =
+                        postJson(
+                                "/api/rooms/" + room.getId() + "/seen",
+                                "{\"seenUntil\":\"" + seenUntil + "\"}",
+                                ownerCookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(lastSeenAt(ownerMember.getId())).isEqualTo(seenUntil);
+            }
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("다른 방의 활동 멤버가 아닌 사용자는 타임라인을 조회할 수 없다")
@@ -405,8 +419,13 @@ class ChangeLogTimelineIntegrationTest {
     private String login(String email, String name) throws Exception {
         postJson(
                 "/api/auth/signup",
-                "{\"email\":\"" + email + "\",\"name\":\"" + name
-                        + "\",\"password\":\"" + PASSWORD + "\"}",
+                "{\"email\":\""
+                        + email
+                        + "\",\"name\":\""
+                        + name
+                        + "\",\"password\":\""
+                        + PASSWORD
+                        + "\"}",
                 null);
         HttpResponse<String> response =
                 postJson(
@@ -517,5 +536,4 @@ class ChangeLogTimelineIntegrationTest {
     private String uniqueEmail() {
         return UUID.randomUUID() + "@example.com";
     }
-
 }

@@ -10,7 +10,7 @@ import world.chakchak.domain.changelog.entity.ActionStatus;
 import world.chakchak.domain.changelog.entity.ChangeLog;
 import world.chakchak.domain.changelog.entity.EntityType;
 import world.chakchak.domain.changelog.entity.EventKind;
-import world.chakchak.domain.changelog.event.ChangeLogRecordedEvent;
+import world.chakchak.domain.changelog.event.RoomEvent;
 import world.chakchak.domain.changelog.repository.ChangeLogRepository;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
@@ -45,14 +45,9 @@ public class ChangeLogService {
             String summary) {
         ChangeLog changeLog =
                 ChangeLog.create(
-                        room,
-                        actor,
-                        entityType,
-                        entityId,
-                        eventKind,
-                        actionStatus,
-                        summary);
+                        room, actor, entityType, entityId, eventKind, actionStatus, summary);
         ChangeLog saved = changeLogRepository.save(changeLog);
-        eventPublisher.publishEvent(new ChangeLogRecordedEvent(ChangeLogItemResponse.from(saved)));
+        ChangeLogItemResponse item = ChangeLogItemResponse.from(saved);
+        eventPublisher.publishEvent(new RoomEvent(room.getId(), saved.getId(), "activity", item));
     }
 }
