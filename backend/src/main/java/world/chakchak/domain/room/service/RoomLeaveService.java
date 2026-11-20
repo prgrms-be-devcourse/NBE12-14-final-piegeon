@@ -39,13 +39,17 @@ public class RoomLeaveService {
 
         surveyResponseService.deleteForMember(member.getId());
         member.leave(now);
-        if (room.getStatus() == RoomStatus.SURVEYING) {
-            room.closeSurveyIfReady(
-                    roomMemberService.countActiveMembers(roomId),
-                    surveyResponseService.countActiveResponses(roomId),
-                    now);
-        }
+        boolean surveyClosed =
+                room.getStatus() == RoomStatus.SURVEYING
+                        && room.closeSurveyIfReady(
+                                roomMemberService.countActiveMembers(roomId),
+                                surveyResponseService.countActiveResponses(roomId),
+                                now);
         agendaService.memberLeft(room, member, now);
+        // 설문이 이번 퇴장으로 마감됐으면 1회차 안건을 연다 (5-1). memberLeft보다 먼저 열면 나간 멤버만큼 total_voter가 한 번 더 줄어든다
+        if (surveyClosed) {
+            agendaService.openSurveyAgendas(room, now);
+        }
         placeCandidateService.deleteReactionsByMember(member.getId());
         changeLogService.recordMemberLeft(room, member);
     }
