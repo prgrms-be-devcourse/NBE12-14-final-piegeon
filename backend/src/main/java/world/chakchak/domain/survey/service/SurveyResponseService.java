@@ -16,7 +16,7 @@ import world.chakchak.domain.survey.repository.SurveyResponseRepository;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class SurveyService {
+public class SurveyResponseService {
 
     private final SurveyResponseRepository surveyResponseRepository;
 

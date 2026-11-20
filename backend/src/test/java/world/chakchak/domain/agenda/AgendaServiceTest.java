@@ -66,7 +66,7 @@ import world.chakchak.domain.survey.entity.ActivityCode;
 import world.chakchak.domain.survey.entity.Pace;
 import world.chakchak.domain.survey.entity.StayType;
 import world.chakchak.domain.survey.entity.SurveyResponse;
-import world.chakchak.domain.survey.service.SurveyService;
+import world.chakchak.domain.survey.service.SurveyResponseService;
 import world.chakchak.domain.user.entity.User;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
@@ -87,7 +87,7 @@ class AgendaServiceTest {
     @Mock private AgendaItemRepository agendaItemRepository;
     @Mock private AgendaOptionRepository agendaOptionRepository;
     @Mock private VoteRepository voteRepository;
-    @Mock private SurveyService surveyService;
+    @Mock private SurveyResponseService surveyResponseService;
 
     @InjectMocks private AgendaService agendaService;
 
@@ -1394,7 +1394,7 @@ class AgendaServiceTest {
                 givenSavedNextRound();
                 given(agendaOptionRepository.findAllProposedByActiveMembers(previous.getId()))
                         .willReturn(List.of(proposed));
-                given(surveyService.getActiveMemberResponses(ROOM_ID))
+                given(surveyResponseService.getActiveMemberResponses(ROOM_ID))
                         .willReturn(List.of(answer(me, 600_000L), answer(jieun, 1_000_000L)));
                 List<AgendaOption> saved = captureSavedOptions();
 
@@ -1421,7 +1421,8 @@ class AgendaServiceTest {
                 givenAgenda(previous);
                 givenLatestRound(previous);
                 givenSavedNextRound();
-                given(surveyService.getActiveMemberResponses(ROOM_ID)).willReturn(List.of());
+                given(surveyResponseService.getActiveMemberResponses(ROOM_ID))
+                        .willReturn(List.of());
                 given(
                                 agendaOptionRepository.findAllByAgendaItemIdOrderByDisplayIndexAsc(
                                         previous.getId()))
@@ -1520,7 +1521,7 @@ class AgendaServiceTest {
                         .willThrow(new DataIntegrityViolationException("uk_agenda_item_round"));
 
                 assertError(() -> open(previous), AgendaErrorCode.AGENDA_ALREADY_REOPENED);
-                verifyNoInteractions(surveyService);
+                verifyNoInteractions(surveyResponseService);
                 verify(agendaOptionRepository, never()).saveAll(any());
             }
         }

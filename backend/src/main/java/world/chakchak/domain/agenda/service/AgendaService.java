@@ -40,7 +40,7 @@ import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.domain.survey.entity.SurveyResponse;
-import world.chakchak.domain.survey.service.SurveyService;
+import world.chakchak.domain.survey.service.SurveyResponseService;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
@@ -65,7 +65,7 @@ public class AgendaService {
     private final AgendaItemRepository agendaItemRepository;
     private final AgendaOptionRepository agendaOptionRepository;
     private final VoteRepository voteRepository;
-    private final SurveyService surveyService;
+    private final SurveyResponseService surveyResponseService;
     private final Clock clock;
 
     /** 방의 안건 전체 목록 (V-01). 필터 없이 모두 돌려주고 걸러 보기는 프론트가 한다. */
@@ -478,7 +478,7 @@ public class AgendaService {
                         ? agendaOptionRepository.findAllProposedByActiveMembers(previous.getId())
                         : List.of();
         // 설문 응답에서 이 주제의 값만 꺼내 넘긴다. 선지 규칙은 AgendaOption이 설문 엔티티를 모른 채 값으로만 정한다
-        List<SurveyResponse> answers = surveyService.getActiveMemberResponses(roomId);
+        List<SurveyResponse> answers = surveyResponseService.getActiveMemberResponses(roomId);
         List<AgendaOption> built =
                 switch (next.getSubject()) {
                     case BUDGET ->
