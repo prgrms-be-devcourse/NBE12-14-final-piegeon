@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -1104,6 +1106,191 @@ class AgendaServiceTest {
                         .willThrow(new DataIntegrityViolationException("uk_agenda_option"));
 
                 assertError(() -> add(budget, 1_000_000L), AgendaErrorCode.OPTION_ALREADY_EXISTS);
+            }
+        }
+    }
+
+    @Nested
+    class DeleteOption {
+
+        @BeforeEach
+        void giveRoomId() {
+            ReflectionTestUtils.setField(room, "id", ROOM_ID);
+        }
+
+        // NOW - 1시간에 열린 투표 중 예산 안건
+        private AgendaItem openBudget() {
+            return agenda(AgendaSubject.BUDGET, NOW.minusHours(1), NOW.plusDays(3));
+        }
+
+        private void givenLockedRoomAndMember(RoomMember member) {
+            given(clock.instant()).willReturn(NOW.atZone(SEOUL).toInstant());
+            given(clock.getZone()).willReturn(SEOUL);
+            given(roomService.getForUpdate(ROOM_ID)).willReturn(room);
+            given(roomMemberService.getActiveMember(ROOM_ID, USER_ID)).willReturn(member);
+        }
+
+        private void givenAgenda(AgendaItem agenda) {
+            given(agendaItemRepository.findByIdAndRoomId(agenda.getId(), ROOM_ID))
+                    .willReturn(Optional.of(agenda));
+        }
+
+        private void givenOption(AgendaItem agenda, AgendaOption option) {
+            given(agendaOptionRepository.findByIdAndAgendaItemId(option.getId(), agenda.getId()))
+                    .willReturn(Optional.of(option));
+        }
+
+        private void givenOthersVoteCount(AgendaOption option, long count) {
+            given(voteRepository.countByAgendaOptionIdAndMemberIdNot(option.getId(), me.getId()))
+                    .willReturn(count);
+        }
+
+        private AgendaDetailResponse delete(AgendaItem agenda, AgendaOption option) {
+            return agendaService.deleteBudgetOption(
+                    ROOM_ID, agenda.getId(), option.getId(), USER_ID);
+        }
+
+        private void assertError(Runnable action, ErrorCode errorCode) {
+            assertThatThrownBy(action::run)
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(errorCode);
+        }
+
+        // 아무것도 지우지 않았는지
+        private void verifyNothingDeleted() {
+            verify(voteRepository, never()).deleteByAgendaOptionIdAndMemberId(any(), any());
+            verify(agendaOptionRepository, never()).delete(any());
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("내가 올린 선지에 다른 사람의 표가 없으면 내 표를 먼저 지운 뒤 선지를 지우고 안건은 투표 중으로 남는다")
+            void deletesMyVoteThenOption() {
+                AgendaItem budget = openBudget();
+                AgendaOption mine = budget(budget, 1_200_000L, 1, me);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, mine);
+                givenOthersVoteCount(mine, 0);
+
+                AgendaDetailResponse response = delete(budget, mine);
+
+                InOrder order = inOrder(voteRepository, agendaOptionRepository);
+                order.verify(voteRepository)
+                        .deleteByAgendaOptionIdAndMemberId(mine.getId(), me.getId());
+                order.verify(agendaOptionRepository).delete(mine);
+                assertThat(response.status()).isEqualTo(AgendaStatus.VOTING);
+                verify(agendaItemRepository, never())
+                        .findTopByRoomIdAndSubjectOrderByRoundDesc(any(), any());
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("방이 SURVEYING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
+            void rejectsInvalidRoomStatus() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.PLANNING);
+                givenLockedRoomAndMember(me);
+
+                assertError(
+                        () -> agendaService.deleteBudgetOption(ROOM_ID, 5L, 9L, USER_ID),
+                        CommonErrorCode.INVALID_STATUS);
+                verifyNoInteractions(agendaItemRepository, agendaOptionRepository, voteRepository);
+            }
+
+            @Test
+            @DisplayName("없거나 다른 방의 안건이면 AGENDA_NOT_FOUND를 던진다")
+            void rejectsAgendaOfOtherRoom() {
+                givenLockedRoomAndMember(me);
+                given(agendaItemRepository.findByIdAndRoomId(5L, ROOM_ID))
+                        .willReturn(Optional.empty());
+
+                assertError(
+                        () -> agendaService.deleteBudgetOption(ROOM_ID, 5L, 9L, USER_ID),
+                        AgendaErrorCode.AGENDA_NOT_FOUND);
+                verifyNoInteractions(agendaOptionRepository, voteRepository);
+            }
+
+            @Test
+            @DisplayName("마감 시각이 지난 안건이면 AGENDA_CLOSED를 던진다")
+            void rejectsClosedAgenda() {
+                AgendaItem closed =
+                        agenda(AgendaSubject.BUDGET, NOW.minusDays(2), NOW.minusMinutes(1));
+                AgendaOption mine = budget(closed, 1_200_000L, 1, me);
+                givenLockedRoomAndMember(me);
+                givenAgenda(closed);
+
+                assertError(() -> delete(closed, mine), AgendaErrorCode.AGENDA_CLOSED);
+                verifyNoInteractions(agendaOptionRepository, voteRepository);
+            }
+
+            @Test
+            @DisplayName("없거나 다른 안건의 선지면 OPTION_NOT_FOUND를 던진다")
+            void rejectsOptionOfOtherAgenda() {
+                AgendaItem budget = openBudget();
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                given(agendaOptionRepository.findByIdAndAgendaItemId(99L, budget.getId()))
+                        .willReturn(Optional.empty());
+
+                assertError(
+                        () ->
+                                agendaService.deleteBudgetOption(
+                                        ROOM_ID, budget.getId(), 99L, USER_ID),
+                        AgendaErrorCode.OPTION_NOT_FOUND);
+                verifyNothingDeleted();
+            }
+
+            @Test
+            @DisplayName("다른 멤버가 올린 선지면 NOT_OPTION_OWNER를 던지고 지우지 않는다")
+            void rejectsOptionOfOtherMember() {
+                AgendaItem budget = openBudget();
+                AgendaOption jieuns = budget(budget, 1_200_000L, 1, jieun);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, jieuns);
+
+                assertError(() -> delete(budget, jieuns), AgendaErrorCode.NOT_OPTION_OWNER);
+                verifyNothingDeleted();
+            }
+
+            @Test
+            @DisplayName("설문 응답에서 나온 선지면 올린 사람이 없어 NOT_OPTION_OWNER를 던진다")
+            void rejectsSurveyOption() {
+                AgendaItem budget = openBudget();
+                AgendaOption fromSurvey = budget(budget, 600_000L, 0, null);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, fromSurvey);
+
+                assertError(() -> delete(budget, fromSurvey), AgendaErrorCode.NOT_OPTION_OWNER);
+                verifyNothingDeleted();
+            }
+
+            @Test
+            @DisplayName("다른 멤버의 표가 있으면 OPTION_HAS_VOTES를 던지고 data에 그 표 수를 담는다")
+            void rejectsOptionWithOthersVotes() {
+                AgendaItem budget = openBudget();
+                AgendaOption mine = budget(budget, 1_200_000L, 1, me);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, mine);
+                givenOthersVoteCount(mine, 2);
+
+                assertThatThrownBy(() -> delete(budget, mine))
+                        .isInstanceOf(BusinessException.class)
+                        .satisfies(e -> {
+                            BusinessException be = (BusinessException) e;
+                            assertThat(be.getErrorCode())
+                                    .isEqualTo(AgendaErrorCode.OPTION_HAS_VOTES);
+                            assertThat(be.getData()).isEqualTo(Map.of("voteCount", 2L));
+                        });
+                verifyNothingDeleted();
             }
         }
     }
