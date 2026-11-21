@@ -1,5 +1,6 @@
 package world.chakchak.domain.place.service;
 
+import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
@@ -12,16 +13,22 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import world.chakchak.domain.changelog.entity.ActionStatus;
+import world.chakchak.domain.changelog.entity.EntityType;
+import world.chakchak.domain.changelog.entity.EventKind;
+import world.chakchak.domain.changelog.service.ChangeLogService;
 import world.chakchak.domain.comment.dto.CommentListResponse;
 import world.chakchak.domain.comment.dto.CommentRequest;
 import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
+import world.chakchak.domain.place.dto.NotFullyAgreedData;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
 import world.chakchak.domain.place.dto.PlaceCategory;
+import world.chakchak.domain.place.dto.PlaceConfirmResponse;
 import world.chakchak.domain.place.dto.PlaceDetailResponse;
 import world.chakchak.domain.place.dto.PlaceLimitExceededData;
 import world.chakchak.domain.place.dto.PlaceStage;
@@ -39,7 +46,7 @@ import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
-/** 장소 후보 기능. (P-02 등록, P-03 칸반 보드, P-08, P-09 장소 코멘트) */
+/** 장소 후보 기능. (P-02 등록, P-03 칸반 보드, P-04, P-05 반응, P-08, P-09 장소 코멘트, P-10 상세) */
 @Service
 @RequiredArgsConstructor
 public class PlaceCandidateService {
@@ -60,6 +67,8 @@ public class PlaceCandidateService {
     private final PlaceCandidateRepository placeCandidateRepository;
     private final PlaceReactionRepository placeReactionRepository;
     private final CommentService commentService;
+    private final ChangeLogService changeLogService;
+    private final Clock clock;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void deleteReactionsByMember(Long memberId) {
@@ -193,8 +202,139 @@ public class PlaceCandidateService {
     @Transactional(readOnly = true)
     public PlaceDetailResponse getDetail(Long roomId, Long placeId, Long userId) {
         roomMemberService.getActiveMember(roomId, userId);
+        return toDetail(roomId, getCandidateInRoom(roomId, placeId));
+    }
+
+    /**
+     * 상세 화면의 "나는 여기" 버튼. 가고 싶어요나 별로예요를 누른다. 이미 누른 게 있으면 바꾼다. (P-04)
+     *
+     * <p>같은 버튼을 다시 보내면 아무것도 바뀌지 않는다. 응답은 상세와 같은 모양이라 화면을 바로 갱신할 수 있다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 없거나 다른 방의 후보면
+     *     PLACE_CANDIDATE_NOT_FOUND, 방이 PLANNING이 아니면 INVALID_STATUS, 확정된 후보면
+     *     PLACE_ALREADY_CONFIRMED
+     */
+    @Transactional
+    public PlaceDetailResponse react(
+            Long roomId, Long placeId, Long userId, PlaceReactionType reaction) {
+        // 반드시 첫 쿼리. 두 사람이 동시에 눌러도 칸 계산과 이력이 한 사람씩 차례로 처리된다
+        Room room = roomService.getForUpdate(roomId);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        PlaceCandidate candidate = getReactableCandidate(room, placeId);
+        PlaceStage before = currentStage(candidate, roomId);
+
+        placeReactionRepository
+                .findByPlaceCandidateAndMember(candidate, me)
+                .ifPresentOrElse(
+                        mine -> mine.change(reaction),
+                        () ->
+                                placeReactionRepository.save(
+                                        PlaceReaction.create(candidate, me, reaction)));
+
+        return detailAfterChange(room, me, candidate, before);
+    }
+
+    /**
+     * 누른 버튼을 다시 눌러 반응을 지운다. 누른 게 없어도 성공한다. (P-05)
+     *
+     * @throws BusinessException react와 같다
+     */
+    @Transactional
+    public PlaceDetailResponse cancelReaction(Long roomId, Long placeId, Long userId) {
+        Room room = roomService.getForUpdate(roomId);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        PlaceCandidate candidate = getReactableCandidate(room, placeId);
+        PlaceStage before = currentStage(candidate, roomId);
+
+        placeReactionRepository
+                .findByPlaceCandidateAndMember(candidate, me)
+                .ifPresent(placeReactionRepository::delete);
+
+        return detailAfterChange(room, me, candidate, before);
+    }
+
+    /**
+     * 다 같이 가고 싶어요 칸의 "확정하기" 버튼. 방에 남아 있는 사람 전원이 가고 싶어요를 누른 장소만 확정된다. (P-06)
+     *
+     * <p>이미 확정된 장소면 아무것도 바꾸지 않고 같은 응답을 돌려준다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
+     *     INVALID_STATUS, 없거나 다른 방의 후보면 PLACE_CANDIDATE_NOT_FOUND, 아직 전원이 누르지 않았으면 NOT_FULLY_AGREED
+     */
+    @Transactional
+    public PlaceConfirmResponse confirm(Long roomId, Long placeId, Long userId) {
+        // 반드시 첫 쿼리. 화면에선 전원이 누른 걸로 보였어도 그 사이 누가 들어오거나 취소했을 수 있어서, 잠근 뒤 다시 센다
+        Room room = roomService.getForUpdate(roomId);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        if (room.getStatus() != RoomStatus.PLANNING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
         PlaceCandidate candidate = getCandidateInRoom(roomId, placeId);
 
+        // 이미 확정했으면 그대로 성공. 두 사람이 거의 동시에 눌러도 이력은 한 번만 남는다
+        if (candidate.isConfirmed()) {
+            return new PlaceConfirmResponse(candidate.getId(), candidate.getConfirmedAt());
+        }
+
+        // 나간 사람은 누른 수에도 인원에도 들어가지 않는다
+        long agreeCount =
+                placeReactionRepository.countByPlaceCandidateAndReactionAndMember_LeftAtIsNull(
+                        candidate, PlaceReactionType.WANT);
+        long activeMemberCount = roomMemberService.countActiveMembers(roomId);
+        if (agreeCount < activeMemberCount) {
+            throw new BusinessException(
+                    PlaceErrorCode.NOT_FULLY_AGREED,
+                    new NotFullyAgreedData(agreeCount, activeMemberCount));
+        }
+
+        // save를 부르지 않아도 트랜잭션이 끝날 때 바뀐 confirmed_at이 저장된다
+        candidate.confirm(clock);
+        // 예: "광장시장: 확정됐어요". '이'와 '가' 중 뭘 붙일지 몰라서 이름 뒤에 콜론(:)을 붙였다
+        changeLogService.record(
+                room,
+                me,
+                EntityType.PLACE_CANDIDATE,
+                candidate.getId(),
+                EventKind.PLACE_CONFIRMED,
+                ActionStatus.CONFIRM,
+                candidate.getName() + ": 확정됐어요");
+        // TODO 커밋 후 SSE place.confirmed (data는 PlaceConfirmedEvent(placeId, confirmedAt))
+        return new PlaceConfirmResponse(candidate.getId(), candidate.getConfirmedAt());
+    }
+
+    /** 장소 후보 코멘트 목록, 오래된 순. (P-08) */
+    @Transactional(readOnly = true)
+    public CommentListResponse getComments(Long roomId, Long placeId, Long userId) {
+        roomMemberService.getActiveMember(roomId, userId);
+        getCandidateInRoom(roomId, placeId);
+        return new CommentListResponse(commentService.getOnPlace(placeId));
+    }
+
+    /**
+     * 장소 후보에 코멘트를 남긴다. 확정된 장소에도 남길 수 있다. (P-09)
+     *
+     * <p>코멘트는 장소·방 상태를 바꾸지 않으므로 방 잠금을 잡지 않는다 (명세 V-06과 같음).
+     */
+    @Transactional
+    public CommentResponse addComment(
+            Long roomId, Long placeId, Long userId, CommentRequest request) {
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        // 명세 2-1: 코멘트는 확정 전 단계(SURVEYING·PLANNING·REVIEWING)에서만 받는다
+        RoomStatus status = me.getRoom().getStatus();
+        if (status != RoomStatus.SURVEYING
+                && status != RoomStatus.PLANNING
+                && status != RoomStatus.REVIEWING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+        PlaceCandidate candidate = getCandidateInRoom(roomId, placeId);
+        CommentResponse response =
+                CommentResponse.from(commentService.addOnPlace(candidate, me, request.body()));
+        // TODO SSE (커밋 후): comment.created
+        return response;
+    }
+
+    // 상세 응답을 만든다. 멤버, 후보 확인은 부르는 쪽에서 이미 끝낸 상태다 (상세 조회, 반응 누르기, 취소가 함께 씀)
+    private PlaceDetailResponse toDetail(Long roomId, PlaceCandidate candidate) {
         // 멤버 id -> 그 멤버의 반응. 반응 안 한 멤버는 맵에 없다
         Map<Long, PlaceReactionType> reactionByMember =
                 placeReactionRepository.findAllByPlaceCandidate(candidate).stream()
@@ -241,38 +381,53 @@ public class PlaceCandidateService {
                 candidate.getCreatedAt(),
                 candidate.getConfirmedAt(),
                 reactions,
-                commentService.countOnPlace(placeId));
+                commentService.countOnPlace(candidate.getId()));
     }
 
-    /** 장소 후보 코멘트 목록, 오래된 순. (P-08) */
-    @Transactional(readOnly = true)
-    public CommentListResponse getComments(Long roomId, Long placeId, Long userId) {
-        roomMemberService.getActiveMember(roomId, userId);
-        getCandidateInRoom(roomId, placeId);
-        return new CommentListResponse(commentService.getOnPlace(placeId));
-    }
-
-    /**
-     * 장소 후보에 코멘트를 남긴다. 확정된 장소에도 남길 수 있다. (P-09)
-     *
-     * <p>코멘트는 장소·방 상태를 바꾸지 않으므로 방 잠금을 잡지 않는다 (명세 V-06과 같음).
-     */
-    @Transactional
-    public CommentResponse addComment(
-            Long roomId, Long placeId, Long userId, CommentRequest request) {
-        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
-        // 명세 2-1: 코멘트는 확정 전 단계(SURVEYING·PLANNING·REVIEWING)에서만 받는다
-        RoomStatus status = me.getRoom().getStatus();
-        if (status != RoomStatus.SURVEYING
-                && status != RoomStatus.PLANNING
-                && status != RoomStatus.REVIEWING) {
+    // 반응은 일정 조율(PLANNING) 중에, 아직 확정 안 된 후보에만 남길 수 있다. 잠금 안에서 확인한다.
+    // 순서는 팀 API와 같게 방 상태 -> 후보 조회다
+    private PlaceCandidate getReactableCandidate(Room room, Long placeId) {
+        if (room.getStatus() != RoomStatus.PLANNING) {
             throw new BusinessException(CommonErrorCode.INVALID_STATUS);
         }
-        PlaceCandidate candidate = getCandidateInRoom(roomId, placeId);
-        CommentResponse response =
-                CommentResponse.from(commentService.addOnPlace(candidate, me, request.body()));
-        // TODO SSE (커밋 후): comment.created
-        return response;
+        PlaceCandidate candidate = getCandidateInRoom(room.getId(), placeId);
+        if (candidate.isConfirmed()) {
+            throw new BusinessException(PlaceErrorCode.PLACE_ALREADY_CONFIRMED);
+        }
+        return candidate;
+    }
+
+    // 버튼을 누르기 전 칸. 누른 뒤 칸과 비교해서, 바뀌었으면 변경 이력을 남긴다. 나간 사람은 세지 않는다
+    private PlaceStage currentStage(PlaceCandidate candidate, Long roomId) {
+        long wantCount =
+                placeReactionRepository.countByPlaceCandidateAndReactionAndMember_LeftAtIsNull(
+                        candidate, PlaceReactionType.WANT);
+        return PlaceStage.of(
+                candidate.isConfirmed(), wantCount, roomMemberService.countActiveMembers(roomId));
+    }
+
+    // 바뀐 반응으로 상세를 다시 만들고, 칸이 바뀌었으면 변경 이력을 남긴다.
+    // 같은 트랜잭션 안이라 방금 바꾼 반응이 상세에 그대로 보인다
+    private PlaceDetailResponse detailAfterChange(
+            Room room, RoomMember me, PlaceCandidate candidate, PlaceStage before) {
+        PlaceDetailResponse detail = toDetail(room.getId(), candidate);
+        if (detail.stage() != before) {
+            // 예: "해동용궁사: 몇 명이 좋아해요 → 다 같이 가고 싶어요"
+            changeLogService.record(
+                    room,
+                    me,
+                    EntityType.PLACE_CANDIDATE,
+                    candidate.getId(),
+                    EventKind.PLACE_STAGE_CHANGED,
+                    ActionStatus.UPDATE,
+                    candidate.getName()
+                            + ": "
+                            + before.getLabel()
+                            + " → "
+                            + detail.stage().getLabel());
+        }
+        // TODO 커밋 후 SSE place.reaction_changed (보드 카드 갱신용. 명세에 data 모양이 정해지면 추가)
+        return detail;
     }
 
     private PlaceCandidate getCandidateInRoom(Long roomId, Long placeId) {

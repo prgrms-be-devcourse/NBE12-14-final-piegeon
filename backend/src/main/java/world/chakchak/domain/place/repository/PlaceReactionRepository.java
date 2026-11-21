@@ -1,6 +1,7 @@
 package world.chakchak.domain.place.repository;
 
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -10,6 +11,7 @@ import world.chakchak.domain.place.entity.PlaceCandidate;
 import world.chakchak.domain.place.entity.PlaceReaction;
 import world.chakchak.domain.place.entity.PlaceReactionType;
 import world.chakchak.domain.room.entity.Room;
+import world.chakchak.domain.room.entity.RoomMember;
 
 public interface PlaceReactionRepository extends JpaRepository<PlaceReaction, Long> {
 
@@ -31,6 +33,18 @@ public interface PlaceReactionRepository extends JpaRepository<PlaceReaction, Lo
 
     /** 이 장소에 눌린 반응을 모두 가져온다. 상세 화면에서 멤버마다 무엇을 눌렀는지 붙일 때 쓴다 (P-10) */
     List<PlaceReaction> findAllByPlaceCandidate(PlaceCandidate placeCandidate);
-    // TODO 후보 + 멤버로 반응 조회 - 반응 바꾸기·취소용 (P-04, P-05)
+
+    /** 이 장소에 내가 누른 반응. 아직 안 눌렀으면 비어 있다 (P-04, P-05) */
+    Optional<PlaceReaction> findByPlaceCandidateAndMember(
+            PlaceCandidate placeCandidate, RoomMember member);
+
+    /**
+     * 이 장소에 가고 싶어요(또는 별로예요)를 누른 사람 수. 방을 나간 사람은 빼고 센다. (P-04, P-05)
+     *
+     * <p>버튼을 누르기 전에 미리 세 둔다. 누른 뒤 칸이 바뀌었는지 비교하려고.
+     */
+    long countByPlaceCandidateAndReactionAndMember_LeftAtIsNull(
+            PlaceCandidate placeCandidate, PlaceReactionType reaction);
+
     // TODO 후보의 반응 전부 삭제 - 후보 삭제 전에 먼저 지운다 (P-07)
 }
