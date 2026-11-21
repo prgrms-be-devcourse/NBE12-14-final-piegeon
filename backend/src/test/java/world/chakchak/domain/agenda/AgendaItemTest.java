@@ -161,10 +161,40 @@ class AgendaItemTest {
                 assertThat(agenda.getDeadlineAt()).isEqualTo(NOW);
                 assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
             }
+
+            @Test
+            @DisplayName("최종 확정 안건은 정해진 제목으로 열리고 마감은 지금부터 7일 뒤다")
+            void opensFinalReview() {
+                AgendaItem agenda = AgendaItem.openFinalReview(room(), 2, 4, NOW);
+
+                assertThat(agenda.getSubject()).isEqualTo(AgendaSubject.FINAL_PLAN);
+                assertThat(agenda.getRound()).isEqualTo(2);
+                assertThat(agenda.getTitle()).isEqualTo("이 계획으로 확정할까요?");
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.VOTING);
+                assertThat(agenda.getTotalVoter()).isEqualTo(4);
+                assertThat(agenda.getDeadlineAt()).isEqualTo(NOW.plusDays(7));
+            }
+
+            @Test
+            @DisplayName("출발까지 7일이 안 남았으면 최종 확정 마감을 출발 전날 00시로 줄인다")
+            void capsFinalReviewDeadline() {
+                AgendaItem agenda =
+                        AgendaItem.openFinalReview(room(), 1, 4, D_MINUS_1.minusDays(3));
+
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
+            }
         }
 
         @Nested
-        class Exception {
+        class Failure {
+
+            @Test
+            @DisplayName("출발 전날 00시가 되면 최종 확정 투표를 열 수 없다")
+            void rejectsFinalReviewAtDayBeforeDeparture() {
+                assertErrorCode(
+                        () -> AgendaItem.openFinalReview(room(), 1, 4, D_MINUS_1),
+                        AgendaErrorCode.AGENDA_DEADLINE_PASSED);
+            }
 
             // 출발 4일 전에 만든 방은 설문 마감이 정확히 D-1이라, 이때 만든 안건은 만들자마자 투표할 수 없게 된다
             @Test
@@ -286,7 +316,7 @@ class AgendaItemTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("안건이 열린 뒤에 합류한 멤버는 투표 자격이 없다")
@@ -325,7 +355,7 @@ class AgendaItemTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("다른 안건의 선택지로는 결정할 수 없다")
@@ -439,7 +469,7 @@ class AgendaItemTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("표 수가 자격자 수보다 적으면 모두 같은 선지여도 결정하지 않는다")
@@ -510,7 +540,7 @@ class AgendaItemTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("이미 결정된 안건은 미결로 마감할 수 없다")
@@ -553,7 +583,7 @@ class AgendaItemTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("투표 중이 아닌 안건에서는 투표자를 뺄 수 없다")
@@ -601,7 +631,7 @@ class AgendaItemTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("최종 확정 안건은 다음 회차로 열 수 없다")

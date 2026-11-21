@@ -74,6 +74,16 @@ class RoomTest {
             }
 
             @Test
+            @DisplayName("최종 확정 투표를 열면 PLANNING에서 REVIEWING으로 넘어간다")
+            void startsReview() {
+                Room room = roomIn(RoomStatus.PLANNING);
+
+                room.startReview();
+
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.REVIEWING);
+            }
+
+            @Test
             @DisplayName("최종 확정에 동의로 결정되면 FINALIZED가 되고 확정 시각이 기록된다")
             void finalizesPlan() {
                 Room room = roomIn(RoomStatus.REVIEWING);
@@ -97,7 +107,7 @@ class RoomTest {
         }
 
         @Nested
-        class Exception {
+        class Failure {
 
             @Test
             @DisplayName("SURVEYING이 아닌 방은 PLANNING으로 넘길 수 없다")
@@ -105,6 +115,14 @@ class RoomTest {
                 Room room = roomIn(RoomStatus.PLANNING);
 
                 assertThatThrownBy(room::startPlanning).isInstanceOf(IllegalStateException.class);
+            }
+
+            @Test
+            @DisplayName("PLANNING이 아닌 방은 최종 확정 투표를 열 수 없다")
+            void rejectsStartReviewOutsidePlanning() {
+                Room room = roomIn(RoomStatus.REVIEWING);
+
+                assertThatThrownBy(room::startReview).isInstanceOf(IllegalStateException.class);
             }
 
             @Test
