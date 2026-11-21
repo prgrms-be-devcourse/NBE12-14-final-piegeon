@@ -20,6 +20,7 @@ import world.chakchak.domain.comment.dto.CommentRequest;
 import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
+import world.chakchak.domain.place.dto.PlaceConfirmResponse;
 import world.chakchak.domain.place.dto.PlaceDetailResponse;
 import world.chakchak.domain.place.dto.PlaceReactionRequest;
 import world.chakchak.domain.place.dto.RegisterPlaceRequest;
@@ -109,6 +110,20 @@ public class PlaceCandidateController {
         PlaceDetailResponse response =
                 placeCandidateService.cancelReaction(roomId, placeId, loginUser.userId());
         return ResponseEntity.ok(ApiResponse.success("PLACE_REACTION_DELETED", response));
+    }
+
+    /** P-06 확정하기 */
+    @Operation(
+            summary = "확정하기 (P-06)",
+            description = "방에 남아 있는 사람 전원이 가고 싶어요를 누른 장소를 확정한다. " + "이미 확정된 장소면 같은 응답을 돌려준다.")
+    @PostMapping("/{placeId}/confirm")
+    public ResponseEntity<ApiResponse<PlaceConfirmResponse>> confirm(
+            @PathVariable Long roomId,
+            @PathVariable Long placeId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        PlaceConfirmResponse response =
+                placeCandidateService.confirm(roomId, placeId, loginUser.userId());
+        return ResponseEntity.ok(ApiResponse.success("PLACE_CONFIRMED", response));
     }
 
     /** P-08 장소 코멘트 목록 */
