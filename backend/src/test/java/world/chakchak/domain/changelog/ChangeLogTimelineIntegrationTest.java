@@ -101,6 +101,9 @@ class ChangeLogTimelineIntegrationTest {
                 surveyResponseRepository.saveAndFlush(surveyResponse(listenerMember));
 
                 LocalDateTime now = LocalDateTime.now(clock);
+                // 설문 안건은 설문이 마감된 뒤에만 있다(5-1). 전원 제출로 먼저 마감해 두어야 퇴장 때 1회차를 다시 열지 않는다
+                room.closeSurveyIfReady(2, 2, now);
+                room = roomRepository.saveAndFlush(room);
                 AgendaItem toResolve =
                         agendaItemRepository.saveAndFlush(
                                 AgendaItem.create(

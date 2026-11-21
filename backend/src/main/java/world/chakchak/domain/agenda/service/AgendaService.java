@@ -233,6 +233,87 @@ public class AgendaService {
         }
     }
 
+    /**
+     * 설문이 마감되면 예산·숙소 타입·이동 강도의 1회차 안건을 연다 (5-1). 설문 마감을 판정한 쪽(S-02 마지막 제출, R-06 퇴장, 13-1 의견 마감
+     * 스케줄러)이 방 잠금을 잡은 채 {@code Room.closeSurveyIfReady}가 true일 때 부른다.
+     *
+     * <ul>
+     *   <li>선지는 마감 전에 낸 설문 답으로 만든다 (명세 6-1). 선지가 하나뿐이면 만장일치라 투표 없이 바로 결정한다.
+     *   <li>세 항목이 모두 만장일치면 방을 바로 PLANNING으로 넘긴다 (5-2).
+     *   <li>출발 전날 00:00(D-1)이 지났으면 안건을 열지 않는다. 퇴장·설문 제출 요청까지 실패시키지 않으려는 것이고, 그 방은 D-1 최종 집계(13-3)가
+     *       처리한다.
+     * </ul>
+     *
+     * <p>퇴장(R-06)에서는 {@link #memberLeft} 다음에 불러야 한다. 먼저 부르면 방금 연 안건에서 나간 멤버를 자격자로 보고 total_voter를 한
+     * 번 더 줄인다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void openSurveyAgendas(Room lockedRoom, LocalDateTime now) {
+        LocalDateTime closedAt = lockedRoom.getSurveyClosedAt();
+        if (lockedRoom.getStatus() != RoomStatus.SURVEYING || closedAt == null) {
+            throw new IllegalStateException("설문이 마감되지 않은 방입니다: roomId=" + lockedRoom.getId());
+        }
+        if (agendaItemRepository
+                .findTopByRoomIdAndSubjectOrderByRoundDesc(lockedRoom.getId(), AgendaSubject.BUDGET)
+                .isPresent()) {
+            throw new IllegalStateException("이미 설문 안건이 열린 방입니다: roomId=" + lockedRoom.getId());
+        }
+        if (!AgendaItem.canOpenAt(lockedRoom, now)) {
+            return;
+        }
+
+        // 명세 6-1: 판정은 마감 전에 낸 응답만으로 한다
+        List<SurveyResponse> answers =
+                surveyResponseService.getActiveMemberResponses(lockedRoom.getId()).stream()
+                        .filter(answer -> !answer.getSubmittedAt().isAfter(closedAt))
+                        .toList();
+        int totalVoter = Math.toIntExact(roomMemberService.countActiveMembers(lockedRoom.getId()));
+
+        boolean allResolved = true;
+        for (AgendaSubject subject : SURVEY_SUBJECTS) {
+            AgendaItem agenda =
+                    agendaItemRepository.save(
+                            AgendaItem.openFirstRound(lockedRoom, subject, totalVoter, now));
+            List<AgendaOption> options = surveyOptions(agenda, answers);
+            if (options.isEmpty()) {
+                // 마감 조건이 "제출 1건 이상"이라 여기까지 오면 호출 버그다
+                throw new IllegalStateException(
+                        "설문 답이 없어 선지를 만들 수 없습니다: roomId=" + lockedRoom.getId());
+            }
+            agendaOptionRepository.saveAll(options);
+            if (options.size() == 1) {
+                agenda.resolveWithoutVote(options.getFirst(), now);
+            } else {
+                allResolved = false;
+            }
+        }
+        if (allResolved) {
+            lockedRoom.startPlanning();
+        }
+        // TODO change_log: SURVEY_CLOSED 한 줄 (만장일치 안건은 따로 남기지 않는다)
+        // TODO SSE (커밋 후): survey.closed, 투표가 열린 안건마다 agenda.opened, PLANNING이 되면
+        // room.status_changed
+    }
+
+    /** 설문 답에서 이 안건 주제의 값만 꺼내 선지를 만든다. 1회차라 직전 회차에서 옮길 선지는 없다. */
+    private static List<AgendaOption> surveyOptions(
+            AgendaItem agenda, List<SurveyResponse> answers) {
+        return switch (agenda.getSubject()) {
+            case BUDGET ->
+                    AgendaOption.budgetOptions(
+                            agenda,
+                            answers.stream().map(SurveyResponse::getBudget).toList(),
+                            List.of());
+            case STAY ->
+                    AgendaOption.stayOptions(
+                            agenda, answers.stream().map(SurveyResponse::getStayType).toList());
+            case PACE ->
+                    AgendaOption.paceOptions(
+                            agenda, answers.stream().map(SurveyResponse::getPace).toList());
+            case FINAL_PLAN -> throw new IllegalStateException("최종 확정은 설문 안건이 아닙니다.");
+        };
+    }
+
     /** 활성 멤버가 퇴장한 후 진행 중인 안건의 참여 자격을 조정합니다. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void memberLeft(Room lockedRoom, RoomMember member, LocalDateTime now) {
