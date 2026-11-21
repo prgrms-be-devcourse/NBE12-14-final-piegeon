@@ -1,5 +1,6 @@
 package world.chakchak.domain.place.service;
 
+import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
@@ -22,10 +23,12 @@ import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
+import world.chakchak.domain.place.dto.NotFullyAgreedData;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
 import world.chakchak.domain.place.dto.PlaceCategory;
+import world.chakchak.domain.place.dto.PlaceConfirmResponse;
 import world.chakchak.domain.place.dto.PlaceDetailResponse;
 import world.chakchak.domain.place.dto.PlaceLimitExceededData;
 import world.chakchak.domain.place.dto.PlaceStage;
@@ -65,6 +68,7 @@ public class PlaceCandidateService {
     private final PlaceReactionRepository placeReactionRepository;
     private final CommentService commentService;
     private final ChangeLogService changeLogService;
+    private final Clock clock;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void deleteReactionsByMember(Long memberId) {
@@ -247,6 +251,55 @@ public class PlaceCandidateService {
                 .ifPresent(placeReactionRepository::delete);
 
         return detailAfterChange(room, me, candidate, before);
+    }
+
+    /**
+     * 다 같이 가고 싶어요 칸의 "확정하기" 버튼. 방에 남아 있는 사람 전원이 가고 싶어요를 누른 장소만 확정된다. (P-06)
+     *
+     * <p>이미 확정된 장소면 아무것도 바꾸지 않고 같은 응답을 돌려준다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
+     *     INVALID_STATUS, 없거나 다른 방의 후보면 PLACE_CANDIDATE_NOT_FOUND, 아직 전원이 누르지 않았으면 NOT_FULLY_AGREED
+     */
+    @Transactional
+    public PlaceConfirmResponse confirm(Long roomId, Long placeId, Long userId) {
+        // 반드시 첫 쿼리. 화면에선 전원이 누른 걸로 보였어도 그 사이 누가 들어오거나 취소했을 수 있어서, 잠근 뒤 다시 센다
+        Room room = roomService.getForUpdate(roomId);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        if (room.getStatus() != RoomStatus.PLANNING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+        PlaceCandidate candidate = getCandidateInRoom(roomId, placeId);
+
+        // 이미 확정했으면 그대로 성공. 두 사람이 거의 동시에 눌러도 이력은 한 번만 남는다
+        if (candidate.isConfirmed()) {
+            return new PlaceConfirmResponse(candidate.getId(), candidate.getConfirmedAt());
+        }
+
+        // 나간 사람은 누른 수에도 인원에도 들어가지 않는다
+        long agreeCount =
+                placeReactionRepository.countByPlaceCandidateAndReactionAndMember_LeftAtIsNull(
+                        candidate, PlaceReactionType.WANT);
+        long activeMemberCount = roomMemberService.countActiveMembers(roomId);
+        if (agreeCount < activeMemberCount) {
+            throw new BusinessException(
+                    PlaceErrorCode.NOT_FULLY_AGREED,
+                    new NotFullyAgreedData(agreeCount, activeMemberCount));
+        }
+
+        // save를 부르지 않아도 트랜잭션이 끝날 때 바뀐 confirmed_at이 저장된다
+        candidate.confirm(clock);
+        // 예: "광장시장: 확정됐어요". '이'와 '가' 중 뭘 붙일지 몰라서 이름 뒤에 콜론(:)을 붙였다
+        changeLogService.record(
+                room,
+                me,
+                EntityType.PLACE_CANDIDATE,
+                candidate.getId(),
+                EventKind.PLACE_CONFIRMED,
+                ActionStatus.CONFIRM,
+                candidate.getName() + ": 확정됐어요");
+        // TODO 커밋 후 SSE place.confirmed (data는 PlaceConfirmedEvent(placeId, confirmedAt))
+        return new PlaceConfirmResponse(candidate.getId(), candidate.getConfirmedAt());
     }
 
     /** 장소 후보 코멘트 목록, 오래된 순. (P-08) */

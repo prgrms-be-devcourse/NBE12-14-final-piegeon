@@ -10,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Optional;
@@ -28,7 +29,11 @@ import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.repository.PlaceCandidateRepository;
 import world.chakchak.domain.place.service.PlaceSearchClient;
 import world.chakchak.domain.room.entity.Room;
+import world.chakchak.domain.room.entity.RoomMember;
+import world.chakchak.domain.room.repository.RoomMemberRepository;
 import world.chakchak.domain.room.repository.RoomRepository;
+import world.chakchak.domain.user.entity.User;
+import world.chakchak.domain.user.repository.UserRepository;
 
 /** P-02 장소 후보 등록, P-03 칸반 보드 API를 HTTP로 호출한다. Google은 PlaceSearchClient를 가짜로 바꿔 부르지 않는다. */
 @IntegrationTest
@@ -41,6 +46,9 @@ class PlaceCandidateApiIntegrationTest {
     @Autowired private RoomRepository roomRepository;
     @Autowired private PlaceCandidateRepository placeCandidateRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private RoomMemberRepository roomMemberRepository;
+    @Autowired private UserRepository userRepository;
+    @Autowired private Clock clock;
 
     @MockitoBean private PlaceSearchClient placeSearchClient;
 
@@ -298,6 +306,69 @@ class PlaceCandidateApiIntegrationTest {
                 assertThat(unknown.body()).contains("\"code\":\"INVALID_INPUT\"");
             }
         }
+    }
+
+    @Nested
+    class Confirm {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("전원이 가고 싶어요면 200과 PLACE_CONFIRMED, 확정된 장소 id와 시각이 반환된다")
+            void confirmsPlace() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+
+                HttpResponse<String> response = confirm(roomId, placeId, cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"PLACE_CONFIRMED\"")
+                        .contains("\"placeId\":" + placeId)
+                        .containsPattern("\"confirmedAt\":\"\\d{4}-\\d{2}-\\d{2}T");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("아직 안 누른 사람이 있으면 409 NOT_FULLY_AGREED와 누른 수·인원이 반환된다")
+            void rejectsNotFullyAgreed() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+                joinOther(roomId);
+
+                HttpResponse<String> response = confirm(roomId, placeId, cookie);
+
+                assertThat(response.statusCode()).isEqualTo(409);
+                assertThat(response.body())
+                        .contains("\"code\":\"NOT_FULLY_AGREED\"")
+                        .contains("\"agreeCount\":1")
+                        .contains("\"activeMemberCount\":2");
+            }
+        }
+    }
+
+    private HttpResponse<String> confirm(long roomId, long placeId, String cookie)
+            throws java.lang.Exception {
+        return post(
+                "/api/rooms/" + roomId + "/place-candidates/" + placeId + "/confirm", "", cookie);
+    }
+
+    // 아직 아무것도 안 누른 멤버를 한 명 더 넣는다
+    private void joinOther(long roomId) {
+        User user =
+                userRepository.saveAndFlush(
+                        User.create(UUID.randomUUID() + "@example.com", "지영", "hashed-password"));
+        roomMemberRepository.saveAndFlush(RoomMember.create(room(roomId), user, clock));
     }
 
     // 반응 API 호출. body가 null이면 본문 없이 보낸다
