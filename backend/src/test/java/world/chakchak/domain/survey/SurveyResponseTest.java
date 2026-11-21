@@ -137,6 +137,17 @@ class SurveyResponseTest {
                                     StayType.HOTEL,
                                     Pace.NORMAL,
                                     List.of(ActivityCode.FOOD),
+                                    null,
+                                    clock),
+                    SurveyErrorCode.AVOID_NOTE_REQUIRED);
+            assertBusinessError(
+                    () ->
+                            SurveyResponse.createForSurveying(
+                                    null,
+                                    1L,
+                                    StayType.HOTEL,
+                                    Pace.NORMAL,
+                                    List.of(ActivityCode.FOOD),
                                     " ",
                                     clock),
                     SurveyErrorCode.AVOID_NOTE_REQUIRED);
@@ -151,6 +162,18 @@ class SurveyResponseTest {
                                     "가".repeat(101),
                                     clock),
                     SurveyErrorCode.AVOID_NOTE_TOO_LONG);
+
+            assertThat(
+                            SurveyResponse.createForSurveying(
+                                            null,
+                                            1L,
+                                            StayType.HOTEL,
+                                            Pace.NORMAL,
+                                            List.of(ActivityCode.FOOD),
+                                            "가".repeat(100),
+                                            clock)
+                                    .getAvoidNote())
+                    .hasSize(100);
         }
     }
 
