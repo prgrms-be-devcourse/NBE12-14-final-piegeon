@@ -18,6 +18,7 @@ import world.chakchak.domain.comment.dto.CommentRequest;
 import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
+import world.chakchak.domain.place.dto.PlaceDetailResponse;
 import world.chakchak.domain.place.dto.RegisterPlaceRequest;
 import world.chakchak.domain.place.service.PlaceCandidateService;
 import world.chakchak.global.response.ApiResponse;
@@ -59,6 +60,22 @@ public class PlaceCandidateController {
             @PathVariable Long roomId, @AuthenticationPrincipal LoginUser loginUser) {
         PlaceBoardResponse response = placeCandidateService.getBoard(roomId, loginUser.userId());
         return ResponseEntity.ok(ApiResponse.success("PLACE_CANDIDATES_FETCHED", response));
+    }
+
+    /** P-10 장소 상세 */
+    @Operation(
+            summary = "장소 상세 (P-10)",
+            description =
+                    "카드를 눌렀을 때 펼쳐지는 장소 정보다. 방에 남아 있는 멤버 전원의 반응(가고 싶어요, 별로예요, 아직 안 고름)과 "
+                            + "댓글 수를 함께 준다.")
+    @GetMapping("/{placeId}")
+    public ResponseEntity<ApiResponse<PlaceDetailResponse>> getDetail(
+            @PathVariable Long roomId,
+            @PathVariable Long placeId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        PlaceDetailResponse response =
+                placeCandidateService.getDetail(roomId, placeId, loginUser.userId());
+        return ResponseEntity.ok(ApiResponse.success("PLACE_CANDIDATE_FETCHED", response));
     }
 
     /** P-08 장소 코멘트 목록 */

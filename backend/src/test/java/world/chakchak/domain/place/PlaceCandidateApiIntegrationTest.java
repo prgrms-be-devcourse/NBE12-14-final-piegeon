@@ -183,6 +183,26 @@ class PlaceCandidateApiIntegrationTest {
                         .contains("\"placeId\":" + placeId)
                         .contains("\"stage\":\"FULL\"");
             }
+
+            @Test
+            @DisplayName("방 멤버가 카드 상세를 열면 200과 PLACE_CANDIDATE_FETCHED, 멤버별 반응이 반환된다")
+            void returnsDetail() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+
+                HttpResponse<String> response = get(roomId, "/" + placeId, cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"PLACE_CANDIDATE_FETCHED\"")
+                        .contains("\"placeId\":" + placeId)
+                        .contains("\"category\":{\"value\":\"SHOPPING\",\"label\":\"쇼핑·투어\"}")
+                        .contains("\"reaction\":{\"value\":\"WANT\",\"label\":\"가고 싶어요\"}")
+                        .contains("\"commentCount\":0");
+            }
         }
 
         @Nested
@@ -198,7 +218,36 @@ class PlaceCandidateApiIntegrationTest {
                 assertThat(response.statusCode()).isEqualTo(403);
                 assertThat(response.body()).contains("\"code\":\"FORBIDDEN\"");
             }
+
+            @Test
+            @DisplayName("없는 후보 상세를 열면 404 PLACE_CANDIDATE_NOT_FOUND다")
+            void detailRejectsUnknownCandidate() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+
+                HttpResponse<String> response = get(roomId, "/999999", cookie);
+
+                assertThat(response.statusCode()).isEqualTo(404);
+                assertThat(response.body()).contains("\"code\":\"PLACE_CANDIDATE_NOT_FOUND\"");
+            }
         }
+    }
+
+    private HttpResponse<String> get(long roomId, String suffix, String cookie)
+            throws java.lang.Exception {
+        HttpRequest request =
+                HttpRequest.newBuilder(
+                                URI.create(
+                                        "http://localhost:"
+                                                + port
+                                                + "/api/rooms/"
+                                                + roomId
+                                                + "/place-candidates"
+                                                + suffix))
+                        .header("Cookie", cookie)
+                        .GET()
+                        .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private HttpResponse<String> getBoard(long roomId, String cookie) throws java.lang.Exception {
