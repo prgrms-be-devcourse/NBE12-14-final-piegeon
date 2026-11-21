@@ -7,9 +7,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,6 +21,7 @@ import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
 import world.chakchak.domain.place.dto.PlaceDetailResponse;
+import world.chakchak.domain.place.dto.PlaceReactionRequest;
 import world.chakchak.domain.place.dto.RegisterPlaceRequest;
 import world.chakchak.domain.place.service.PlaceCandidateService;
 import world.chakchak.global.response.ApiResponse;
@@ -76,6 +79,36 @@ public class PlaceCandidateController {
         PlaceDetailResponse response =
                 placeCandidateService.getDetail(roomId, placeId, loginUser.userId());
         return ResponseEntity.ok(ApiResponse.success("PLACE_CANDIDATE_FETCHED", response));
+    }
+
+    /** P-04 내 반응 정하기 */
+    @Operation(
+            summary = "내 반응 정하기 (P-04)",
+            description = "가고 싶어요(WANT)나 별로예요(NOPE)를 누른다. 이미 누른 게 있으면 바꾼다. " + "응답은 장소 상세와 같다.")
+    @PutMapping("/{placeId}/reaction")
+    public ResponseEntity<ApiResponse<PlaceDetailResponse>> react(
+            @PathVariable Long roomId,
+            @PathVariable Long placeId,
+            @AuthenticationPrincipal LoginUser loginUser,
+            @Valid @RequestBody PlaceReactionRequest request) {
+        PlaceDetailResponse response =
+                placeCandidateService.react(
+                        roomId, placeId, loginUser.userId(), request.reaction());
+        return ResponseEntity.ok(ApiResponse.success("PLACE_REACTION_SAVED", response));
+    }
+
+    /** P-05 내 반응 지우기 */
+    @Operation(
+            summary = "내 반응 지우기 (P-05)",
+            description = "누른 버튼을 다시 눌러 반응을 지운다. 누른 게 없어도 성공한다. 응답은 장소 상세와 같다.")
+    @DeleteMapping("/{placeId}/reaction")
+    public ResponseEntity<ApiResponse<PlaceDetailResponse>> cancelReaction(
+            @PathVariable Long roomId,
+            @PathVariable Long placeId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        PlaceDetailResponse response =
+                placeCandidateService.cancelReaction(roomId, placeId, loginUser.userId());
+        return ResponseEntity.ok(ApiResponse.success("PLACE_REACTION_DELETED", response));
     }
 
     /** P-08 장소 코멘트 목록 */

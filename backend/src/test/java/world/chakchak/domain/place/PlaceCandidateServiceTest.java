@@ -49,7 +49,7 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * P-02 장소 후보 등록, P-03 칸반 보드. 실제 MySQL에서 방 잠금과 저장, 조회를 확인한다.
+ * P-02 장소 후보 등록, P-03 칸반 보드, P-04·P-05 반응, P-10 상세. 실제 MySQL에서 방 잠금과 저장, 조회를 확인한다.
  *
  * <p>Google 조회만 가짜로 바꾸고 register를 그대로 부른다. 그래야 트랜잭션이 실제로 열리는지, 멤버의 user를 트랜잭션 안에서 읽는지까지 함께 확인된다.
  */
@@ -631,6 +631,266 @@ class PlaceCandidateServiceTest {
                                                 .isEqualTo(CommonErrorCode.FORBIDDEN));
             }
         }
+    }
+
+    @Nested
+    class React {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("처음 누르면 내 반응이 저장되고, 응답 상세에 내 반응이 보인다")
+            void savesFirstReaction() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+
+                PlaceDetailResponse detail = press(jiyoung, placeId, PlaceReactionType.NOPE);
+
+                assertThat(detail.reactions())
+                        .containsExactly(
+                                new MemberReaction(
+                                        minsu.getId(),
+                                        "민수",
+                                        ReactionLabel.of(PlaceReactionType.WANT)),
+                                new MemberReaction(
+                                        jiyoung.getId(),
+                                        "지영",
+                                        ReactionLabel.of(PlaceReactionType.NOPE)));
+                assertThat(reactionsOf(placeId)).hasSize(2);
+            }
+
+            @Test
+            @DisplayName("다른 버튼을 누르면 새로 쌓이지 않고 내 반응이 바뀐다")
+            void changesReaction() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+                press(jiyoung, placeId, PlaceReactionType.WANT);
+
+                PlaceDetailResponse detail = press(jiyoung, placeId, PlaceReactionType.NOPE);
+
+                assertThat(detail.agreeCount()).isEqualTo(1);
+                assertThat(detail.reactions().get(1).reaction())
+                        .isEqualTo(ReactionLabel.of(PlaceReactionType.NOPE));
+                assertThat(reactionsOf(placeId)).hasSize(2);
+            }
+
+            @Test
+            @DisplayName("같은 버튼을 두 번 누르면 반응도 변경 이력도 그대로다")
+            void sameReactionTwiceChangesNothing() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+                press(jiyoung, placeId, PlaceReactionType.WANT);
+
+                PlaceDetailResponse detail = press(jiyoung, placeId, PlaceReactionType.WANT);
+
+                assertThat(detail.stage()).isEqualTo(PlaceStage.FULL);
+                assertThat(reactionsOf(placeId)).hasSize(2);
+                assertThat(stageLogs(room)).hasSize(1);
+            }
+
+            @Test
+            @DisplayName("취소하면 내 반응이 지워지고 상세에서 아직 안 고름(null)이 된다")
+            void cancelRemovesReaction() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+                press(jiyoung, placeId, PlaceReactionType.NOPE);
+
+                PlaceDetailResponse detail = cancel(jiyoung, placeId);
+
+                assertThat(detail.reactions().get(1))
+                        .isEqualTo(new MemberReaction(jiyoung.getId(), "지영", null));
+                assertThat(reactionsOf(placeId)).hasSize(1);
+            }
+
+            @Test
+            @DisplayName("누른 게 없을 때 취소해도 성공하고 아무것도 바뀌지 않는다")
+            void cancelWithoutReactionSucceeds() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+
+                PlaceDetailResponse detail = cancel(jiyoung, placeId);
+
+                assertThat(detail.reactions().get(1).reaction()).isNull();
+                assertThat(reactionsOf(placeId)).hasSize(1);
+                assertThat(stageLogs(room)).isEmpty();
+            }
+
+            @Test
+            @DisplayName("칸이 바뀌면 변경 이력에 '장소: 전 칸 → 새 칸'이 남는다")
+            void logsStageChange() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+
+                assertThat(press(jiyoung, placeId, PlaceReactionType.WANT).stage())
+                        .isEqualTo(PlaceStage.FULL);
+                assertThat(cancel(jiyoung, placeId).stage()).isEqualTo(PlaceStage.COMPLEMENT);
+
+                assertThat(stageLogs(room))
+                        .containsExactly(
+                                "광장시장: 한 명만 원해요 → 다 같이 가고 싶어요", "광장시장: 다 같이 가고 싶어요 → 한 명만 원해요");
+            }
+
+            @Test
+            @DisplayName("칸이 그대로면 변경 이력을 남기지 않는다")
+            void noLogWhenStageStays() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                saveMember(room, "철수");
+                long placeId = register(minsu, "place-1").placeId();
+
+                PlaceDetailResponse detail = press(jiyoung, placeId, PlaceReactionType.NOPE);
+
+                assertThat(detail.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+                assertThat(stageLogs(room)).isEmpty();
+            }
+
+            @Test
+            @DisplayName("나간 사람의 가고 싶어요는 바뀌기 전 칸 계산에도 들어가지 않는다")
+            void leftMemberNotCountedBeforeChange() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                RoomMember chulsu = saveMember(room, "철수");
+                long placeId = register(minsu, "place-1").placeId();
+                react(chulsu, placeId, PlaceReactionType.WANT);
+                leave(chulsu);
+
+                press(jiyoung, placeId, PlaceReactionType.WANT);
+
+                // 철수를 세면 바뀌기 전이 "몇 명이 좋아해요"가 된다
+                assertThat(stageLogs(room)).containsExactly("광장시장: 한 명만 원해요 → 다 같이 가고 싶어요");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("확정된 장소에는 누를 수도 취소할 수도 없다 (PLACE_ALREADY_CONFIRMED)")
+            void rejectsConfirmedPlace() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+                confirm(placeId);
+
+                assertThatThrownBy(() -> press(minsu, placeId, PlaceReactionType.NOPE))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(PlaceErrorCode.PLACE_ALREADY_CONFIRMED));
+                assertThatThrownBy(() -> cancel(minsu, placeId))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(PlaceErrorCode.PLACE_ALREADY_CONFIRMED));
+            }
+
+            @Test
+            @DisplayName("방이 PLANNING이 아니면 INVALID_STATUS다")
+            void rejectsWhenNotPlanning() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+                jdbcTemplate.update(
+                        "UPDATE plan_room SET status = 'REVIEWING' WHERE id = ?", room.getId());
+
+                assertThatThrownBy(() -> press(minsu, placeId, PlaceReactionType.NOPE))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.INVALID_STATUS));
+            }
+
+            @Test
+            @DisplayName("PLANNING이 아닌 방에서는 없는 후보를 눌러도 방 상태부터 막혀 INVALID_STATUS다")
+            void checksStatusBeforeCandidate() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                jdbcTemplate.update(
+                        "UPDATE plan_room SET status = 'REVIEWING' WHERE id = ?", room.getId());
+
+                assertThatThrownBy(() -> press(minsu, 999_999L, PlaceReactionType.WANT))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.INVALID_STATUS));
+            }
+
+            @Test
+            @DisplayName("다른 방의 후보에 누르면 PLACE_CANDIDATE_NOT_FOUND다")
+            void rejectsCandidateOfOtherRoom() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                long otherPlaceId = register(saveMember(otherRoom, "철수"), "place-1").placeId();
+
+                assertThatThrownBy(() -> press(minsu, otherPlaceId, PlaceReactionType.WANT))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(
+                                                        PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND));
+            }
+
+            @Test
+            @DisplayName("다른 방의 멤버가 누르면 FORBIDDEN이다")
+            void rejectsNonMember() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                long placeId = register(saveMember(room, "민수"), "place-1").placeId();
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember outsider = saveMember(otherRoom, "철수");
+
+                assertThatThrownBy(() ->
+                                placeCandidateService.react(
+                                        room.getId(),
+                                        placeId,
+                                        outsider.getUser().getId(),
+                                        PlaceReactionType.WANT))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.FORBIDDEN));
+            }
+        }
+    }
+
+    private PlaceDetailResponse press(RoomMember member, long placeId, PlaceReactionType type) {
+        return placeCandidateService.react(
+                member.getRoom().getId(), placeId, member.getUser().getId(), type);
+    }
+
+    private PlaceDetailResponse cancel(RoomMember member, long placeId) {
+        return placeCandidateService.cancelReaction(
+                member.getRoom().getId(), placeId, member.getUser().getId());
+    }
+
+    // 이 방의 칸 변경 이력 문구, 남긴 순서대로
+    private List<String> stageLogs(Room room) {
+        return jdbcTemplate.queryForList(
+                "SELECT summary FROM change_log WHERE plan_room_id = ?"
+                        + " AND event_kind = 'PLACE_STAGE_CHANGED' ORDER BY id",
+                String.class,
+                room.getId());
     }
 
     private PlaceDetailResponse getDetail(RoomMember member, long placeId) {
