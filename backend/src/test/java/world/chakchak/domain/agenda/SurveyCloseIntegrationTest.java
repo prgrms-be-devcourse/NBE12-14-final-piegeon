@@ -8,6 +8,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -60,6 +61,7 @@ class SurveyCloseIntegrationTest {
     private final HttpClient client = HttpClient.newHttpClient();
     private final List<Long> roomIds = new ArrayList<>();
 
+    private String minsuCookie;
     private String jieunCookie;
     private User minsu;
     private User jieun;
@@ -67,7 +69,7 @@ class SurveyCloseIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         String minsuEmail = UUID.randomUUID() + "@example.com";
-        login(minsuEmail);
+        minsuCookie = login(minsuEmail);
         minsu = userRepository.findByEmail(minsuEmail).orElseThrow();
         String jieunEmail = UUID.randomUUID() + "@example.com";
         jieunCookie = login(jieunEmail);
@@ -161,6 +163,32 @@ class SurveyCloseIntegrationTest {
                     assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
                     assertThat(agenda.getTotalVoter()).isEqualTo(1);
                 }
+            }
+
+            @Test
+            @DisplayName("의견 마감 시각이 지난 방에서 유일한 제출자가 나가면 퇴장은 성공하고 방이 EXPIRED가 된다")
+            void expiresRoomWhenOnlyRespondentLeavesAfterDeadline() throws Exception {
+                Room room = surveyingRoomOnlyMinsuAnswered();
+                jdbcTemplate.update(
+                        "update plan_room set opinion_deadline_at = ? where id = ?",
+                        LocalDateTime.now(clock).minusMinutes(1),
+                        room.getId());
+
+                HttpResponse<String> response =
+                        send(
+                                HttpRequest.newBuilder(
+                                                uri("/api/rooms/" + room.getId() + "/members/me"))
+                                        .header("Cookie", minsuCookie)
+                                        .DELETE());
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                Room reloaded = roomRepository.findById(room.getId()).orElseThrow();
+                assertThat(reloaded.getStatus()).isEqualTo(RoomStatus.EXPIRED);
+                assertThat(reloaded.getSurveyClosedAt()).isNull();
+                assertThat(
+                                agendaItemRepository.findTopByRoomIdAndSubjectOrderByRoundDesc(
+                                        room.getId(), AgendaSubject.BUDGET))
+                        .isEmpty();
             }
         }
     }
