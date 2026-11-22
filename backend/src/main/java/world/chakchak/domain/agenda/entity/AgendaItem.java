@@ -35,8 +35,10 @@ public class AgendaItem extends BaseEntity {
     /** 설문 마감 때 여는 1회차 안건의 투표 기간 (명세 5-1) */
     static final int FIRST_ROUND_VOTING_DAYS = 4;
 
-    /** 다음 회차 안건의 투표 기간 */
-    static final int NEXT_ROUND_VOTING_DAYS = 7;
+    /** 다음 회차(V-04)와 최종 확정(C-01) 안건의 투표 기간. 마감은 D-1을 넘지 않게 줄인다. */
+    static final int VOTING_DAYS = 7;
+
+    static final String FINAL_REVIEW_TITLE = "이 계획으로 확정할까요?";
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "plan_room_id", nullable = false)
@@ -248,6 +250,24 @@ public class AgendaItem extends BaseEntity {
     }
 
     /**
+     * 최종 확정(FINAL_PLAN) 안건을 연다. (C-01)
+     *
+     * <p>마감은 지금 + 7일이고 D-1보다 늦으면 D-1로 줄인다. D-1이 지났으면 AGENDA_DEADLINE_PASSED를 던진다. 회차는 반대·미결로 끝난 뒤
+     * 다시 열 때마다 1씩 오르며, 이전 회차를 읽어야 하므로 service가 정한다.
+     */
+    public static AgendaItem openFinalReview(
+            Room room, int round, int totalVoter, LocalDateTime now) {
+        return create(
+                room,
+                AgendaSubject.FINAL_PLAN,
+                round,
+                FINAL_REVIEW_TITLE,
+                totalVoter,
+                now,
+                now.plusDays(VOTING_DAYS));
+    }
+
+    /**
      * 투표 자격자가 방을 나갔을 때 부른다. 자격자가 0명이 되면 EXPIRED가 된다. (R-06)
      *
      * <p>VOTING 안건에만 부른다. 결정·마감된 안건에 부르는 것은 코드 버그라서 조용히 넘기지 않고 AGENDA_CLOSED를 던진다. R-06 service는
@@ -275,14 +295,7 @@ public class AgendaItem extends BaseEntity {
         }
         // 다음 회차도 create로 만들어 D-1 이후 생성 금지와 D-1 상한을 같은 규칙으로 적용한다.
         // 제목은 직전 회차를 그대로 물려받는다
-        return create(
-                room,
-                subject,
-                round + 1,
-                title,
-                totalVoter,
-                now,
-                now.plusDays(NEXT_ROUND_VOTING_DAYS));
+        return create(room, subject, round + 1, title, totalVoter, now, now.plusDays(VOTING_DAYS));
     }
 
     private void requireVoting() {

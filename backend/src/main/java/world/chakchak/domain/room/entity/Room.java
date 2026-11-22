@@ -106,6 +106,12 @@ public class Room extends BaseEntity {
         return true;
     }
 
+    /** 최종 확정 투표를 열어 보드·장소 편집을 잠근다. (C-01) */
+    public void startReview() {
+        requireStatus(RoomStatus.PLANNING);
+        this.status = RoomStatus.REVIEWING;
+    }
+
     /** 최종 확정 투표가 동의로 결정됐다. 이후 모든 수정이 막힌다. (7-1, 10-1) */
     public void finalizePlan(LocalDateTime now) {
         requireStatus(RoomStatus.REVIEWING);
