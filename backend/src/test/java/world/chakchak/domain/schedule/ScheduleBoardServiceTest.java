@@ -35,6 +35,8 @@ import world.chakchak.domain.schedule.dto.DaySnapshot.ItemResponse;
 import world.chakchak.domain.schedule.dto.MoveItemRequest;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
 import world.chakchak.domain.schedule.dto.ScheduleVersionConflictData;
+import world.chakchak.domain.schedule.dto.ScheduleWarning;
+import world.chakchak.domain.schedule.dto.UpdateItemRequest;
 import world.chakchak.domain.schedule.entity.ScheduleDay;
 import world.chakchak.domain.schedule.entity.ScheduleItem;
 import world.chakchak.domain.schedule.errorcode.ScheduleErrorCode;
@@ -47,7 +49,7 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 import world.chakchak.global.error.ErrorCode;
 
-/** B-01 일정 보드 조회, B-02 블록 추가, B-03 블록 이동. */
+/** B-01 일정 보드 조회, B-02 블록 추가, B-03 블록 이동, B-04 블록 수정. */
 @IntegrationTest
 class ScheduleBoardServiceTest {
 
@@ -703,6 +705,307 @@ class ScheduleBoardServiceTest {
                         CommonErrorCode.FORBIDDEN);
             }
         }
+    }
+
+    @Nested
+    class Update {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("시간과 메모가 바뀌고 버전이 1 오르며, 순서는 그대로다")
+            void updatesTimeAndMemo() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem a = saveItem(day, market, 1000, LocalTime.of(11, 0), "구경");
+                ScheduleItem b = saveItem(day, market, 2000, null, null);
+
+                DayChangeResponse response =
+                        updateItem(minsu, a, new UpdateItemRequest(LocalTime.of(10, 0), "점심", 0L));
+
+                assertThat(response.day().version()).isEqualTo(1);
+                assertThat(response.day().items())
+                        .extracting(
+                                ItemResponse::itemId, ItemResponse::startTime, ItemResponse::memo)
+                        .containsExactly(
+                                tuple(a.getId(), LocalTime.of(10, 0), "점심"),
+                                tuple(b.getId(), null, null));
+                ScheduleItem saved = scheduleItemRepository.findById(a.getId()).orElseThrow();
+                assertThat(saved.getStartTime()).isEqualTo(LocalTime.of(10, 0));
+                assertThat(saved.getMemo()).isEqualTo("점심");
+                assertThat(sortOrdersOf(day)).containsExactly(1000, 2000);
+            }
+
+            @Test
+            @DisplayName("null을 보내면 시간과 메모가 비워진다")
+            void clearsWithNull() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                ScheduleItem item =
+                        saveItem(
+                                day,
+                                saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구"),
+                                1000,
+                                LocalTime.of(11, 0),
+                                "구경");
+
+                updateItem(minsu, item, new UpdateItemRequest(null, null, 0L));
+
+                ScheduleItem saved = scheduleItemRepository.findById(item.getId()).orElseThrow();
+                assertThat(saved.getStartTime()).isNull();
+                assertThat(saved.getMemo()).isNull();
+            }
+
+            @Test
+            @DisplayName(
+                    "변경 이력은 시간이면 \"11:00 → 15:00\", 메모만이면 \"메모가 바뀌었어요\", 둘 다면 쉼표로 잇고, 시간이 없으면 \"시간 미정\"이다")
+            void recordsSummary() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                ScheduleItem item =
+                        saveItem(
+                                day,
+                                saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구"),
+                                1000,
+                                LocalTime.of(11, 0),
+                                null);
+
+                updateItem(minsu, item, new UpdateItemRequest(LocalTime.of(15, 0), null, 0L));
+                assertThat(lastSummary(room)).isEqualTo("1일차 광장시장: 11:00 → 15:00");
+                updateItem(minsu, item, new UpdateItemRequest(LocalTime.of(15, 0), "예약", 1L));
+                assertThat(lastSummary(room)).isEqualTo("1일차 광장시장: 메모가 바뀌었어요");
+                updateItem(minsu, item, new UpdateItemRequest(null, "취소", 2L));
+                assertThat(lastSummary(room)).isEqualTo("1일차 광장시장: 15:00 → 시간 미정, 메모가 바뀌었어요");
+                ChangeLog log =
+                        changeLogRepository
+                                .findTopByRoom_IdOrderByIdDesc(room.getId())
+                                .orElseThrow();
+                assertThat(log.getEventKind()).isEqualTo(EventKind.SCHEDULE_CHANGED);
+                assertThat(log.getActionStatus()).isEqualTo(ActionStatus.UPDATE);
+                assertThat(log.getEntityId()).isEqualTo(item.getId());
+            }
+
+            @Test
+            @DisplayName("시간도 메모도 그대로면 버전이 오르지 않고 이력도 남지 않는다")
+            void skipsWhenUnchanged() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                ScheduleItem item =
+                        saveItem(
+                                day,
+                                saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구"),
+                                1000,
+                                LocalTime.of(11, 0),
+                                "구경");
+
+                DayChangeResponse response =
+                        updateItem(
+                                minsu, item, new UpdateItemRequest(LocalTime.of(11, 0), "구경", 0L));
+
+                assertThat(response.day().version()).isZero();
+                assertThat(scheduleDayRepository.findById(day.getId()).orElseThrow().getVersion())
+                        .isZero();
+                assertThat(changeLogRepository.findTopByRoom_IdOrderByIdDesc(room.getId()))
+                        .isEmpty();
+            }
+
+            @Test
+            @DisplayName("바로 앞 블록보다 이르거나 바로 뒤 블록보다 늦으면 TIME_ORDER_MISMATCH 경고가 붙는다")
+            void warnsOnTimeOrderMismatch() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                saveItem(day, market, 1000, LocalTime.of(10, 0), null);
+                ScheduleItem middle = saveItem(day, market, 2000, null, null);
+                saveItem(day, market, 3000, LocalTime.of(14, 0), null);
+
+                assertThat(
+                                updateItem(
+                                                minsu,
+                                                middle,
+                                                new UpdateItemRequest(LocalTime.of(9, 0), null, 0L))
+                                        .warnings())
+                        .containsExactly(ScheduleWarning.TIME_ORDER_MISMATCH);
+                assertThat(
+                                updateItem(
+                                                minsu,
+                                                middle,
+                                                new UpdateItemRequest(
+                                                        LocalTime.of(15, 0), null, 1L))
+                                        .warnings())
+                        .containsExactly(ScheduleWarning.TIME_ORDER_MISMATCH);
+                // 경고가 있어도 막지 않고 저장된다
+                assertThat(
+                                scheduleItemRepository
+                                        .findById(middle.getId())
+                                        .orElseThrow()
+                                        .getStartTime())
+                        .isEqualTo(LocalTime.of(15, 0));
+            }
+
+            @Test
+            @DisplayName("앞뒤 시간 사이이거나 같은 시각, 시간이 없는 블록이면 경고가 없다")
+            void noWarningWhenInOrder() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                saveItem(day, market, 1000, LocalTime.of(10, 0), null);
+                ScheduleItem middle = saveItem(day, market, 2000, null, null);
+                saveItem(day, market, 3000, null, null);
+
+                assertThat(
+                                updateItem(
+                                                minsu,
+                                                middle,
+                                                new UpdateItemRequest(
+                                                        LocalTime.of(12, 0), null, 0L))
+                                        .warnings())
+                        .isEmpty();
+                assertThat(
+                                updateItem(
+                                                minsu,
+                                                middle,
+                                                new UpdateItemRequest(
+                                                        LocalTime.of(10, 0), null, 1L))
+                                        .warnings())
+                        .isEmpty();
+                assertThat(
+                                updateItem(minsu, middle, new UpdateItemRequest(null, "메모", 2L))
+                                        .warnings())
+                        .isEmpty();
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("방이 PLANNING이 아니면 BOARD_LOCKED이고 블록은 그대로다")
+            void rejectsLockedBoard() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                ScheduleItem item =
+                        saveItem(
+                                day,
+                                saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구"),
+                                1000,
+                                LocalTime.of(11, 0),
+                                null);
+                jdbcTemplate.update(
+                        "UPDATE plan_room SET status = 'FINALIZED' WHERE id = ?", room.getId());
+
+                assertFails(
+                        () ->
+                                updateItem(
+                                        minsu,
+                                        item,
+                                        new UpdateItemRequest(LocalTime.of(15, 0), null, 0L)),
+                        ScheduleErrorCode.BOARD_LOCKED);
+                assertThat(
+                                scheduleItemRepository
+                                        .findById(item.getId())
+                                        .orElseThrow()
+                                        .getStartTime())
+                        .isEqualTo(LocalTime.of(11, 0));
+            }
+
+            @Test
+            @DisplayName("내가 본 버전이 낡았으면 SCHEDULE_VERSION_CONFLICT와 지금 버전을 알려 주고, 블록은 그대로다")
+            void rejectsStaleVersion() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                ScheduleItem item =
+                        saveItem(
+                                day,
+                                saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구"),
+                                1000,
+                                null,
+                                null);
+                updateItem(minsu, item, new UpdateItemRequest(null, "먼저", 0L));
+
+                assertThatThrownBy(() ->
+                                updateItem(minsu, item, new UpdateItemRequest(null, "나중", 0L)))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e -> {
+                                    assertThat(e.getErrorCode())
+                                            .isEqualTo(ScheduleErrorCode.SCHEDULE_VERSION_CONFLICT);
+                                    assertThat(e.getData())
+                                            .isEqualTo(
+                                                    new ScheduleVersionConflictData(
+                                                            day.getId(), 1L));
+                                });
+                assertThat(scheduleItemRepository.findById(item.getId()).orElseThrow().getMemo())
+                        .isEqualTo("먼저");
+            }
+
+            @Test
+            @DisplayName("다른 방의 블록이면 SCHEDULE_ITEM_NOT_FOUND이다")
+            void rejectsOtherRoomItem() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                Room otherRoom = saveRoom();
+                ScheduleItem otherItem =
+                        saveItem(
+                                saveDay(otherRoom, 1),
+                                saveConfirmedPlace(
+                                        otherRoom, saveMember(otherRoom, "철수"), "해운대", "부산"),
+                                1000,
+                                null,
+                                null);
+
+                assertFails(
+                        () -> updateItem(minsu, otherItem, new UpdateItemRequest(null, "메모", 0L)),
+                        ScheduleErrorCode.SCHEDULE_ITEM_NOT_FOUND);
+            }
+
+            @Test
+            @DisplayName("다른 방의 멤버가 고치면 FORBIDDEN이다")
+            void rejectsNonMember() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleItem item =
+                        saveItem(
+                                saveDay(room, 1),
+                                saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구"),
+                                1000,
+                                null,
+                                null);
+                RoomMember outsider = saveMember(saveRoom(), "철수");
+
+                assertFails(
+                        () ->
+                                scheduleBoardService.updateItem(
+                                        room.getId(),
+                                        item.getId(),
+                                        outsider.getUser().getId(),
+                                        new UpdateItemRequest(null, "메모", 0L)),
+                        CommonErrorCode.FORBIDDEN);
+            }
+        }
+    }
+
+    private DayChangeResponse updateItem(
+            RoomMember member, ScheduleItem item, UpdateItemRequest request) {
+        return scheduleBoardService.updateItem(
+                member.getRoom().getId(), item.getId(), member.getUser().getId(), request);
+    }
+
+    private String lastSummary(Room room) {
+        return changeLogRepository
+                .findTopByRoom_IdOrderByIdDesc(room.getId())
+                .orElseThrow()
+                .getSummary();
     }
 
     private DayChangeResponse moveItem(

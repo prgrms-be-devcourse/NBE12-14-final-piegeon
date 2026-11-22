@@ -19,6 +19,7 @@ import world.chakchak.domain.schedule.dto.AddItemResponse;
 import world.chakchak.domain.schedule.dto.DayChangeResponse;
 import world.chakchak.domain.schedule.dto.MoveItemRequest;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
+import world.chakchak.domain.schedule.dto.UpdateItemRequest;
 import world.chakchak.domain.schedule.service.ScheduleBoardService;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
@@ -69,5 +70,20 @@ public class ScheduleController {
         DayChangeResponse response =
                 scheduleBoardService.moveItem(roomId, itemId, loginUser.userId(), request);
         return ResponseEntity.ok(ApiResponse.success("SCHEDULE_ITEM_MOVED", response));
+    }
+
+    /** B-04 블록 수정 */
+    @Operation(
+            summary = "블록 수정 (B-04)",
+            description = "블록의 시간과 메모를 고친다. 시간이 앞뒤 블록과 어긋나면 warnings로 알려 준다.")
+    @PatchMapping("/schedule-items/{itemId}")
+    public ResponseEntity<ApiResponse<DayChangeResponse>> updateItem(
+            @PathVariable Long roomId,
+            @PathVariable Long itemId,
+            @AuthenticationPrincipal LoginUser loginUser,
+            @Valid @RequestBody UpdateItemRequest request) {
+        DayChangeResponse response =
+                scheduleBoardService.updateItem(roomId, itemId, loginUser.userId(), request);
+        return ResponseEntity.ok(ApiResponse.success("SCHEDULE_ITEM_UPDATED", response));
     }
 }
