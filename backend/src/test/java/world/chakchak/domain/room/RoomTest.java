@@ -104,6 +104,31 @@ class RoomTest {
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
                 assertThat(room.getFinalizedAt()).isNull();
             }
+
+            @Test
+            @DisplayName("의견 마감 시각이 지났는데 제출이 0건이면 설문을 마감하지 않고 방이 EXPIRED가 된다")
+            void expiresWhenDeadlinePassedWithoutResponses() {
+                Room room = roomIn(RoomStatus.SURVEYING);
+
+                boolean closed = room.closeSurveyIfReady(1, 0, room.getOpinionDeadlineAt());
+
+                assertThat(closed).isFalse();
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.EXPIRED);
+                assertThat(room.getSurveyClosedAt()).isNull();
+            }
+
+            @Test
+            @DisplayName("의견 마감 시각이 지났고 제출이 1건 이상이면 미제출자가 있어도 설문이 마감된다")
+            void closesWhenDeadlinePassedWithResponses() {
+                Room room = roomIn(RoomStatus.SURVEYING);
+                LocalDateTime deadline = room.getOpinionDeadlineAt();
+
+                boolean closed = room.closeSurveyIfReady(2, 1, deadline);
+
+                assertThat(closed).isTrue();
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.SURVEYING);
+                assertThat(room.getSurveyClosedAt()).isEqualTo(deadline);
+            }
         }
 
         @Nested

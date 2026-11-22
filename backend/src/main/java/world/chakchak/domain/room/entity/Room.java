@@ -81,13 +81,25 @@ public class Room extends BaseEntity {
         this.status = RoomStatus.PLANNING;
     }
 
+    /**
+     * 설문 마감 조건을 확인하고, 만족하면 설문을 마감한다. (5-1)
+     *
+     * <p>활동 멤버 전원이 냈거나, 의견 마감 시각이 지났고 제출이 1건 이상이면 마감한다. 의견 마감 시각이 지났는데 제출이 0건이면 마감하지 않고 방을 EXPIRED로
+     * 만든다.
+     *
+     * @return 이번에 설문을 마감했으면 true. 마감 조건이 아니거나 방이 만료됐으면 false
+     */
     public boolean closeSurveyIfReady(
             long activeMemberCount, long responseCount, LocalDateTime now) {
         if (status != RoomStatus.SURVEYING || surveyClosedAt != null) {
             return false;
         }
-        if (now.isBefore(opinionDeadlineAt)
-                && (activeMemberCount == 0 || responseCount < activeMemberCount)) {
+        boolean deadlinePassed = !now.isBefore(opinionDeadlineAt);
+        if (deadlinePassed && responseCount == 0) {
+            this.status = RoomStatus.EXPIRED;
+            return false;
+        }
+        if (!deadlinePassed && (activeMemberCount == 0 || responseCount < activeMemberCount)) {
             return false;
         }
         this.surveyClosedAt = now;
