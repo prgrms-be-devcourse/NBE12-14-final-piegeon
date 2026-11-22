@@ -2,6 +2,7 @@ package world.chakchak.domain.room.service;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -65,5 +66,11 @@ public class RoomMemberService {
     /** 방에 남아 있는 멤버 수 (나간 멤버 제외). 장소 칸 계산(PlaceStage)처럼 인원 기준이 필요한 곳에서 쓴다. */
     public long countActiveMembers(Long roomId) {
         return roomMemberRepository.countByRoom_IdAndLeftAtIsNull(roomId);
+    }
+
+    /** 방에 남아 있는 멤버의 id와 이름, 들어온 순서대로. 한 쿼리로 이름까지 가져온다. (장소 상세 P-10) */
+    public List<RoomMemberRepository.ActiveRoomMemberSummary> getActiveMemberSummaries(
+            Long roomId) {
+        return roomMemberRepository.findAllActiveMemberSummariesByRoomId(roomId);
     }
 }
