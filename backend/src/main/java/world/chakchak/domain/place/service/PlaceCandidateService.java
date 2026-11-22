@@ -46,7 +46,7 @@ import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
-/** 장소 후보 기능. (P-02 등록, P-03 칸반 보드, P-04, P-05 반응, P-08, P-09 장소 코멘트, P-10 상세) */
+/** 장소 후보 기능. (P-02 등록, P-03 칸반 보드, P-04, P-05 반응, P-06 확정, P-07 삭제, P-08, P-09 장소 코멘트, P-10 상세) */
 @Service
 @RequiredArgsConstructor
 public class PlaceCandidateService {
@@ -302,6 +302,39 @@ public class PlaceCandidateService {
         return new PlaceConfirmResponse(candidate.getId(), candidate.getConfirmedAt());
     }
 
+    /**
+     * 장소 후보를 지운다. 방 멤버 누구나 지울 수 있고, 확정 전인 장소만 지울 수 있다. (P-07)
+     *
+     * <p>완전히 지우므로 같은 장소를 다시 올릴 수 있다. 반응과 코멘트가 후보를 가리키고 있어서 그것부터 지운다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
+     *     INVALID_STATUS, 없거나 다른 방의 후보면 PLACE_CANDIDATE_NOT_FOUND, 확정된 후보면 PLACE_ALREADY_CONFIRMED
+     */
+    @Transactional
+    public void delete(Long roomId, Long placeId, Long userId) {
+        // 반드시 첫 쿼리. 지우는 동안 다른 사람이 반응을 누르거나 확정하지 못하게 한 사람씩 처리한다
+        Room room = roomService.getForUpdate(roomId);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        // 확정된 장소는 일정 블록이 가리킬 수 있어서 지우지 않는다. 그래서 확정 전 후보는 일정에서 쓰이지 않는다
+        PlaceCandidate candidate = getReactableCandidate(room, placeId);
+
+        // 후보를 가리키는 줄부터 지워야 외래 키에 걸리지 않는다
+        placeReactionRepository.deleteAllByPlaceCandidate(candidate);
+        commentService.deleteOnPlace(candidate.getId());
+        placeCandidateRepository.delete(candidate);
+
+        // 예: "광장시장: 삭제됐어요". 확정("광장시장: 확정됐어요")과 같은 모양
+        changeLogService.record(
+                room,
+                me,
+                EntityType.PLACE_CANDIDATE,
+                candidate.getId(),
+                EventKind.PLACE_DELETED,
+                ActionStatus.DELETE,
+                candidate.getName() + ": 삭제됐어요");
+        // TODO 커밋 후 SSE place.deleted (data는 placeId)
+    }
+
     /** 장소 후보 코멘트 목록, 오래된 순. (P-08) */
     @Transactional(readOnly = true)
     public CommentListResponse getComments(Long roomId, Long placeId, Long userId) {
@@ -384,7 +417,7 @@ public class PlaceCandidateService {
                 commentService.countOnPlace(candidate.getId()));
     }
 
-    // 반응은 일정 조율(PLANNING) 중에, 아직 확정 안 된 후보에만 남길 수 있다. 잠금 안에서 확인한다.
+    // 반응과 삭제는 일정 조율(PLANNING) 중에, 아직 확정 안 된 후보에만 할 수 있다. 잠금 안에서 확인한다.
     // 순서는 팀 API와 같게 방 상태 -> 후보 조회다
     private PlaceCandidate getReactableCandidate(Room room, Long placeId) {
         if (room.getStatus() != RoomStatus.PLANNING) {

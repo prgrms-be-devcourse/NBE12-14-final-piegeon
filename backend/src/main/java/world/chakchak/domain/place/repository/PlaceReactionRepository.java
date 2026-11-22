@@ -46,5 +46,12 @@ public interface PlaceReactionRepository extends JpaRepository<PlaceReaction, Lo
     long countByPlaceCandidateAndReactionAndMember_LeftAtIsNull(
             PlaceCandidate placeCandidate, PlaceReactionType reaction);
 
-    // TODO 후보의 반응 전부 삭제 - 후보 삭제 전에 먼저 지운다 (P-07)
+    /**
+     * 이 장소에 눌린 반응을 모두 지운다. 후보를 지우기 전에 먼저 부른다 (P-07)
+     *
+     * <p>반응을 하나씩 읽어 지우지 않고 DELETE 한 번으로 지운다.
+     */
+    @Modifying
+    @Query("delete from PlaceReaction reaction where reaction.placeCandidate = :placeCandidate")
+    int deleteAllByPlaceCandidate(@Param("placeCandidate") PlaceCandidate placeCandidate);
 }

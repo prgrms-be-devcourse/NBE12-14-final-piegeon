@@ -126,6 +126,20 @@ public class PlaceCandidateController {
         return ResponseEntity.ok(ApiResponse.success("PLACE_CONFIRMED", response));
     }
 
+    /** P-07 후보 삭제 */
+    @Operation(
+            summary = "장소 후보 삭제 (P-07)",
+            description = "방 멤버 누구나 확정 전인 후보를 지울 수 있다. 반응과 코멘트도 함께 지워지고, 같은 장소를 다시 올릴 수 있다.")
+    @DeleteMapping("/{placeId}")
+    public ResponseEntity<ApiResponse<Void>> delete(
+            @PathVariable Long roomId,
+            @PathVariable Long placeId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        placeCandidateService.delete(roomId, placeId, loginUser.userId());
+        return ResponseEntity.ok(
+                ApiResponse.successWithoutData("PLACE_CANDIDATE_DELETED", "장소 후보를 삭제했습니다."));
+    }
+
     /** P-08 장소 코멘트 목록 */
     @Operation(summary = "장소 코멘트 목록 (P-08)", description = "장소 후보에 달린 코멘트를 오래된 순으로 돌려준다.")
     @GetMapping("/{placeId}/comments")

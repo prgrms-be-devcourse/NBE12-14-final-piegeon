@@ -357,6 +357,66 @@ class PlaceCandidateApiIntegrationTest {
         }
     }
 
+    @Nested
+    class Delete {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("후보를 지우면 200과 PLACE_CANDIDATE_DELETED가 반환되고, 그 후보를 다시 조회하면 404다")
+            void deletesCandidate() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+
+                HttpResponse<String> response = delete(roomId, String.valueOf(placeId), cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"PLACE_CANDIDATE_DELETED\"")
+                        .contains("\"message\":\"장소 후보를 삭제했습니다.\"")
+                        .doesNotContain("\"placeId\"");
+                assertThat(get(roomId, "/" + placeId, cookie).statusCode()).isEqualTo(404);
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("placeId가 숫자가 아니면 400 INVALID_INPUT이다")
+            void rejectsNonNumericId() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+
+                HttpResponse<String> response = delete(roomId, "abc", cookie);
+
+                assertThat(response.statusCode()).isEqualTo(400);
+                assertThat(response.body()).contains("\"code\":\"INVALID_INPUT\"");
+            }
+        }
+    }
+
+    private HttpResponse<String> delete(long roomId, String placeId, String cookie)
+            throws java.lang.Exception {
+        HttpRequest request =
+                HttpRequest.newBuilder(
+                                URI.create(
+                                        "http://localhost:"
+                                                + port
+                                                + "/api/rooms/"
+                                                + roomId
+                                                + "/place-candidates/"
+                                                + placeId))
+                        .header("Cookie", cookie)
+                        .DELETE()
+                        .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     private HttpResponse<String> confirm(long roomId, long placeId, String cookie)
             throws java.lang.Exception {
         return post(

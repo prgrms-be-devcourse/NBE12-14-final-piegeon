@@ -52,7 +52,8 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * P-02 장소 후보 등록, P-03 칸반 보드, P-04·P-05 반응, P-10 상세. 실제 MySQL에서 방 잠금과 저장, 조회를 확인한다.
+ * P-02 장소 후보 등록, P-03 칸반 보드, P-04·P-05 반응, P-06 확정, P-07 삭제, P-10 상세. 실제 MySQL에서 방 잠금과 저장, 조회를
+ * 확인한다.
  *
  * <p>Google 조회만 가짜로 바꾸고 register를 그대로 부른다. 그래야 트랜잭션이 실제로 열리는지, 멤버의 user를 트랜잭션 안에서 읽는지까지 함께 확인된다.
  */
@@ -1031,6 +1032,171 @@ class PlaceCandidateServiceTest {
                                                 .isEqualTo(CommonErrorCode.FORBIDDEN));
             }
         }
+    }
+
+    @Nested
+    class Delete {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("후보를 지우면 그 후보의 반응과 코멘트도 함께 지워진다")
+            void deletesCandidateWithReactionsAndComments() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+                react(jiyoung, placeId, PlaceReactionType.NOPE);
+                comment(jiyoung, placeId, "너무 멀어요");
+                long otherPlaceId = register(minsu, "place-2").placeId();
+                comment(jiyoung, otherPlaceId, "좋아요");
+
+                pressDelete(minsu, placeId);
+
+                assertThat(placeCandidateRepository.findById(placeId)).isEmpty();
+                assertThat(reactionsOf(placeId)).isEmpty();
+                assertThat(commentCountOf(placeId)).isZero();
+                // 다른 후보는 그대로
+                assertThat(reactionsOf(otherPlaceId)).hasSize(1);
+                assertThat(commentCountOf(otherPlaceId)).isEqualTo(1);
+            }
+
+            @Test
+            @DisplayName("올린 사람이 아니어도 방 멤버면 지울 수 있다")
+            void anyMemberCanDelete() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+
+                pressDelete(jiyoung, placeId);
+
+                assertThat(placeCandidateRepository.findById(placeId)).isEmpty();
+            }
+
+            @Test
+            @DisplayName("지운 장소는 같은 방에 다시 올릴 수 있다")
+            void canRegisterAgainAfterDelete() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+
+                pressDelete(minsu, placeId);
+                PlaceCandidateItem again = register(minsu, "place-1");
+
+                assertThat(again.placeId()).isNotEqualTo(placeId);
+                assertThat(placeCandidateRepository.countByRoom(room)).isEqualTo(1);
+            }
+
+            @Test
+            @DisplayName("지우면 '광장시장: 삭제됐어요' 변경 이력이 남는다")
+            void recordsChangeLog() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+
+                pressDelete(minsu, placeId);
+
+                assertThat(deleteLogs(room)).containsExactly("광장시장: 삭제됐어요");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("방이 PLANNING이 아니면 INVALID_STATUS이고 후보는 그대로다")
+            void rejectsWhenNotPlanning() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+                jdbcTemplate.update(
+                        "UPDATE plan_room SET status = 'REVIEWING' WHERE id = ?", room.getId());
+
+                assertThatThrownBy(() -> pressDelete(minsu, placeId))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.INVALID_STATUS));
+                assertThat(placeCandidateRepository.findById(placeId)).isPresent();
+            }
+
+            @Test
+            @DisplayName("확정된 장소는 PLACE_ALREADY_CONFIRMED로 막고 반응도 그대로 둔다")
+            void rejectsConfirmedPlace() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+                confirm(placeId);
+
+                assertThatThrownBy(() -> pressDelete(minsu, placeId))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(PlaceErrorCode.PLACE_ALREADY_CONFIRMED));
+                assertThat(placeCandidateRepository.findById(placeId)).isPresent();
+                assertThat(reactionsOf(placeId)).hasSize(1);
+                assertThat(deleteLogs(room)).isEmpty();
+            }
+
+            @Test
+            @DisplayName("다른 방의 후보를 지우면 PLACE_CANDIDATE_NOT_FOUND이고 그 후보는 그대로다")
+            void rejectsCandidateOfOtherRoom() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                long otherPlaceId = register(saveMember(otherRoom, "철수"), "place-1").placeId();
+
+                assertThatThrownBy(() -> pressDelete(minsu, otherPlaceId))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(
+                                                        PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND));
+                assertThat(placeCandidateRepository.findById(otherPlaceId)).isPresent();
+            }
+
+            @Test
+            @DisplayName("다른 방의 멤버가 지우면 FORBIDDEN이고 후보는 그대로다")
+            void rejectsNonMember() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                long placeId = register(saveMember(room, "민수"), "place-1").placeId();
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember outsider = saveMember(otherRoom, "철수");
+
+                assertThatThrownBy(() ->
+                                placeCandidateService.delete(
+                                        room.getId(), placeId, outsider.getUser().getId()))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.FORBIDDEN));
+                assertThat(placeCandidateRepository.findById(placeId)).isPresent();
+            }
+        }
+    }
+
+    private void pressDelete(RoomMember member, long placeId) {
+        placeCandidateService.delete(member.getRoom().getId(), placeId, member.getUser().getId());
+    }
+
+    // 이 방의 삭제 이력 문구, 남긴 순서대로
+    private List<String> deleteLogs(Room room) {
+        return jdbcTemplate.queryForList(
+                "SELECT summary FROM change_log WHERE plan_room_id = ?"
+                        + " AND event_kind = 'PLACE_DELETED' ORDER BY id",
+                String.class,
+                room.getId());
+    }
+
+    private long commentCountOf(long placeId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM comment WHERE place_candidate_id = ?", Long.class, placeId);
     }
 
     private PlaceConfirmResponse pressConfirm(RoomMember member, long placeId) {
