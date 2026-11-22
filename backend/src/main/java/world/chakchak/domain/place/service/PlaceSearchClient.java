@@ -26,4 +26,14 @@ public interface PlaceSearchClient {
      * @return Google에 없는 장소면 Optional.empty(). PLACE_NOT_FOUND로 바꾸는 일은 service가 한다.
      */
     Optional<GooglePlace> findById(String googlePlaceId);
+
+    /**
+     * 등록 때 저장한 사진 이름으로 Google에서 사진 주소를 받는다. (P-11)
+     *
+     * <p>받은 주소는 잠깐만 쓸 수 있어서 저장하지 않는다.
+     *
+     * @param photoName "places/{장소 ID}/photos/{사진 ID}"
+     * @return Google에서 사진이 사라졌으면 Optional.empty(). PLACE_PHOTO_NOT_FOUND로 바꾸는 일은 service가 한다.
+     */
+    Optional<String> findPhotoUri(String photoName);
 }

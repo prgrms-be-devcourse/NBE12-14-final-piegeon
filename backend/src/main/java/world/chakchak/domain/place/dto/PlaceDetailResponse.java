@@ -7,7 +7,7 @@ import world.chakchak.domain.place.entity.PlaceReactionType;
 /** 카드를 눌렀을 때 펼쳐지는 장소 상세. 멤버 전원의 반응과 댓글 수를 함께 준다. (P-10) */
 public record PlaceDetailResponse(
         Long placeId,
-        // 프론트가 이 값으로 Google 사진(UI Kit)과 지도(Maps Embed)를 그린다
+        // 프론트가 이 값으로 지도(Maps Embed)를 그린다
         String googlePlaceId,
         String name,
         // 장소 종류. 분류할 수 없는 종류면 null
@@ -15,6 +15,8 @@ public record PlaceDetailResponse(
         String address,
         // "지도에서 열기" 버튼. 없으면 null
         String googleMapsUrl,
+        // 사진 주소 (P-11). <img src>에 그대로 넣는다. 저장된 사진이 없으면 null
+        String photoUrl,
         PlaceStage stage,
         // 가고 싶어요 수 (남아 있는 멤버만)
         long agreeCount,

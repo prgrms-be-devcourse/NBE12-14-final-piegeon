@@ -308,4 +308,72 @@ class GooglePlacesClientTest {
                 .extracting("errorCode")
                 .isEqualTo(PlaceErrorCode.PLACES_API_ERROR);
     }
+
+    private static final String PHOTO_URL =
+            BASE_URL + "/v1/places/place-1/photos/p1/media?maxWidthPx=800&skipHttpRedirect=true";
+
+    @Test
+    @DisplayName("사진 조회는 사진 이름의 '/'를 그대로 경로에 담고, 너비와 리다이렉트 생략, API 키를 함께 보낸다")
+    void findPhotoUriSendsRequest() {
+        server.expect(requestTo(PHOTO_URL))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header(GooglePlacesClient.API_KEY_HEADER, "test-key"))
+                .andRespond(
+                        withSuccess(
+                                "{\"photoUri\": \"https://lh3.googleusercontent.com/a\"}",
+                                MediaType.APPLICATION_JSON));
+
+        client.findPhotoUri("places/place-1/photos/p1");
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("사진 조회는 Google 응답의 photoUri를 돌려준다")
+    void findPhotoUriReturnsUri() {
+        server.expect(requestTo(PHOTO_URL))
+                .andRespond(
+                        withSuccess(
+                                "{\"name\": \"places/place-1/photos/p1/media\","
+                                        + " \"photoUri\": \"https://lh3.googleusercontent.com/a\"}",
+                                MediaType.APPLICATION_JSON));
+
+        assertThat(client.findPhotoUri("places/place-1/photos/p1"))
+                .contains("https://lh3.googleusercontent.com/a");
+    }
+
+    @Test
+    @DisplayName("Google이 사진을 못 찾아 404나 400을 주면 사진 조회는 빈 값을 돌려준다")
+    void findPhotoUriReturnsEmptyWhenNotFound() {
+        server.expect(requestTo(PHOTO_URL)).andRespond(withResourceNotFound());
+        server.expect(requestTo(PHOTO_URL)).andRespond(withBadRequest());
+
+        assertThat(client.findPhotoUri("places/place-1/photos/p1")).isEmpty();
+        assertThat(client.findPhotoUri("places/place-1/photos/p1")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("사진 조회 응답에 photoUri가 없으면 빈 값을 돌려준다")
+    void findPhotoUriReturnsEmptyWhenNoUri() {
+        server.expect(requestTo(PHOTO_URL))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.findPhotoUri("places/place-1/photos/p1")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("사진 조회 중 Google이 403이나 서버 오류를 주면 PLACES_API_ERROR를 던진다")
+    void findPhotoUriThrowsPlacesApiError() {
+        server.expect(requestTo(PHOTO_URL)).andRespond(withStatus(HttpStatus.FORBIDDEN));
+        server.expect(requestTo(PHOTO_URL)).andRespond(withServerError());
+
+        assertThatThrownBy(() -> client.findPhotoUri("places/place-1/photos/p1"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(PlaceErrorCode.PLACES_API_ERROR);
+        assertThatThrownBy(() -> client.findPhotoUri("places/place-1/photos/p1"))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(PlaceErrorCode.PLACES_API_ERROR);
+    }
 }

@@ -45,6 +45,12 @@ public class GooglePlacesClient implements PlaceSearchClient {
     static final String DETAILS_FIELD_MASK =
             "id,displayName,formattedAddress,primaryType,googleMapsUri,photos";
 
+    /** 사진 조회 주소. 사진 이름 자체가 "places/…/photos/…" 경로라 /v1/ 뒤에 그대로 붙는다. */
+    static final String PHOTO_MEDIA_SUFFIX = "/media?maxWidthPx={maxWidthPx}&skipHttpRedirect=true";
+
+    /** 카드와 사이드바에 쓰기 충분한 너비. Google은 이 너비에 맞춰 줄인 사진을 준다. */
+    static final int PHOTO_MAX_WIDTH_PX = 800;
+
     private final RestClient googlePlacesRestClient;
 
     private final GooglePlacesProperties properties;
@@ -127,6 +133,38 @@ public class GooglePlacesClient implements PlaceSearchClient {
         return Optional.of(place);
     }
 
+    @Override
+    public Optional<String> findPhotoUri(String photoName) {
+        PhotoMediaResponse response;
+        try {
+            // photoName을 URI 변수({photoName})로 넣으면 안의 '/'가 %2F로 바뀌어 Google이 못 찾는다.
+            // 그래서 경로에 그대로 이어 붙인다. 이 값은 사용자가 아니라 Google이 준 값을 저장한 것이다.
+            response =
+                    googlePlacesRestClient
+                            .get()
+                            .uri("/v1/" + photoName + PHOTO_MEDIA_SUFFIX, PHOTO_MAX_WIDTH_PX)
+                            .header(API_KEY_HEADER, properties.apiKey())
+                            .retrieve()
+                            .body(PhotoMediaResponse.class);
+        } catch (RestClientResponseException e) {
+            // 404: 사진이 없어짐, 400: 사진 이름이 낡음. 둘 다 "사진 없음"으로 본다.
+            HttpStatusCode status = e.getStatusCode();
+            if (status.isSameCodeAs(HttpStatus.NOT_FOUND)
+                    || status.isSameCodeAs(HttpStatus.BAD_REQUEST)) {
+                log.info("Google Places 사진 없음: name={} status={}", photoName, status.value());
+                return Optional.empty();
+            }
+            throw toPlacesApiError(e);
+        } catch (RestClientException e) {
+            log.warn("Google Places 호출 실패: {}", e.getMessage());
+            throw new BusinessException(PlaceErrorCode.PLACES_API_ERROR);
+        }
+        if (response == null || response.photoUri() == null || response.photoUri().isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(response.photoUri());
+    }
+
     /** 응답을 받았지만 실패한 경우의 공통 처리. 로그를 남기고 PLACES_API_ERROR로 바꾼다. */
     private BusinessException toPlacesApiError(RestClientResponseException e) {
         HttpStatusCode status = e.getStatusCode();
@@ -169,4 +207,7 @@ public class GooglePlacesClient implements PlaceSearchClient {
 
     /** Google 사진 정보. 사진 프록시(P-11)에서 쓸 name("places/{id}/photos/{photoId}")만 받는다. */
     private record Photo(String name) {}
+
+    /** skipHttpRedirect=true일 때 Google이 주는 사진 응답. 사진 주소만 쓴다. */
+    private record PhotoMediaResponse(String photoUri) {}
 }

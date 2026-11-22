@@ -400,6 +400,75 @@ class PlaceCandidateApiIntegrationTest {
         }
     }
 
+    @Nested
+    class Photo {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("사진이 있으면 302로 Google 사진 주소에 보내고, 브라우저가 1시간 동안 다시 묻지 않게 한다")
+            void redirectsToGooglePhoto() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlaceWithPhoto("place-1")));
+                given(placeSearchClient.findPhotoUri("places/place-1/photos/p1"))
+                        .willReturn(Optional.of("https://lh3.googleusercontent.com/a"));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+
+                HttpResponse<String> response = get(roomId, "/" + placeId + "/photo", cookie);
+
+                assertThat(response.statusCode()).isEqualTo(302);
+                assertThat(response.headers().firstValue("Location"))
+                        .contains("https://lh3.googleusercontent.com/a");
+                assertThat(response.headers().firstValue("Cache-Control"))
+                        .hasValueSatisfying(
+                                value -> assertThat(value).contains("max-age=3600", "private"));
+                // 상세에는 이 API 주소가 들어간다
+                assertThat(get(roomId, "/" + placeId, cookie).body())
+                        .contains(
+                                "\"photoUrl\":\"/api/rooms/"
+                                        + roomId
+                                        + "/place-candidates/"
+                                        + placeId
+                                        + "/photo\"");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("저장된 사진이 없으면 404 PLACE_PHOTO_NOT_FOUND를 공통 형식으로 준다")
+            void rejectsNoPhoto() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createRoom(cookie);
+                given(placeSearchClient.findById("place-1"))
+                        .willReturn(Optional.of(googlePlace("place-1")));
+                long placeId = placeIdFrom(register(roomId, "place-1", cookie).body());
+
+                HttpResponse<String> response = get(roomId, "/" + placeId + "/photo", cookie);
+
+                assertThat(response.statusCode()).isEqualTo(404);
+                assertThat(response.body())
+                        .contains("\"success\":false")
+                        .contains("\"code\":\"PLACE_PHOTO_NOT_FOUND\"");
+                assertThat(get(roomId, "/" + placeId, cookie).body()).contains("\"photoUrl\":null");
+            }
+        }
+    }
+
+    private GooglePlace googlePlaceWithPhoto(String googlePlaceId) {
+        return new GooglePlace(
+                googlePlaceId,
+                "광장시장",
+                "서울 종로구",
+                "market",
+                "https://maps.google.com/?cid=1",
+                "places/" + googlePlaceId + "/photos/p1");
+    }
+
     private HttpResponse<String> delete(long roomId, String placeId, String cookie)
             throws java.lang.Exception {
         HttpRequest request =
