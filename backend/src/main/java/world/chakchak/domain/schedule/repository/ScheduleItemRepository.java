@@ -11,5 +11,7 @@ public interface ScheduleItemRepository extends JpaRepository<ScheduleItem, Long
     @EntityGraph(attributePaths = "placeCandidate")
     List<ScheduleItem> findAllByScheduleDay_Room_IdOrderBySortOrderAsc(Long roomId);
 
-    // TODO 날의 블록 개수 - 하루 10개 제한 (B-02)
+    // 그날의 블록 전부, 순서값 순 (B-02). 개수 확인, 순서값 계산, 응답에 같이 쓴다
+    @EntityGraph(attributePaths = "placeCandidate")
+    List<ScheduleItem> findAllByScheduleDay_IdOrderBySortOrderAsc(Long scheduleDayId);
 }

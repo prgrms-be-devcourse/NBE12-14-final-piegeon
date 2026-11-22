@@ -377,7 +377,12 @@ public class PlaceCandidateService {
         return detail;
     }
 
-    private PlaceCandidate getCandidateInRoom(Long roomId, Long placeId) {
+    /**
+     * 이 방의 장소 후보 하나. 일정 블록을 넣을 때도 쓴다.
+     *
+     * @throws BusinessException 없거나 다른 방의 후보면 PLACE_CANDIDATE_NOT_FOUND
+     */
+    public PlaceCandidate getCandidateInRoom(Long roomId, Long placeId) {
         return placeCandidateRepository
                 .findByIdAndRoom_Id(placeId, roomId)
                 .orElseThrow(() -> new BusinessException(PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND));

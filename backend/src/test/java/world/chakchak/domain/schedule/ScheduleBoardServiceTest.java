@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.tuple;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -14,18 +15,27 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import world.chakchak.IntegrationTest;
+import world.chakchak.domain.changelog.entity.ActionStatus;
+import world.chakchak.domain.changelog.entity.ChangeLog;
+import world.chakchak.domain.changelog.entity.EventKind;
+import world.chakchak.domain.changelog.repository.ChangeLogRepository;
 import world.chakchak.domain.place.entity.PlaceCandidate;
+import world.chakchak.domain.place.errorcode.PlaceErrorCode;
 import world.chakchak.domain.place.repository.PlaceCandidateRepository;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.repository.RoomMemberRepository;
 import world.chakchak.domain.room.repository.RoomRepository;
+import world.chakchak.domain.schedule.dto.AddItemRequest;
+import world.chakchak.domain.schedule.dto.AddItemResponse;
 import world.chakchak.domain.schedule.dto.DaySnapshot;
 import world.chakchak.domain.schedule.dto.DaySnapshot.ItemResponse;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
+import world.chakchak.domain.schedule.dto.ScheduleVersionConflictData;
 import world.chakchak.domain.schedule.entity.ScheduleDay;
 import world.chakchak.domain.schedule.entity.ScheduleItem;
+import world.chakchak.domain.schedule.errorcode.ScheduleErrorCode;
 import world.chakchak.domain.schedule.repository.ScheduleDayRepository;
 import world.chakchak.domain.schedule.repository.ScheduleItemRepository;
 import world.chakchak.domain.schedule.service.ScheduleBoardService;
@@ -33,8 +43,9 @@ import world.chakchak.domain.user.entity.User;
 import world.chakchak.domain.user.repository.UserRepository;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
+import world.chakchak.global.error.ErrorCode;
 
-/** B-01 일정 보드 조회. */
+/** B-01 일정 보드 조회, B-02 블록 추가. */
 @IntegrationTest
 class ScheduleBoardServiceTest {
 
@@ -45,6 +56,7 @@ class ScheduleBoardServiceTest {
     @Autowired private RoomRepository roomRepository;
     @Autowired private RoomMemberRepository roomMemberRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private ChangeLogRepository changeLogRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
 
@@ -206,6 +218,301 @@ class ScheduleBoardServiceTest {
                                                 .isEqualTo(CommonErrorCode.FORBIDDEN));
             }
         }
+    }
+
+    @Nested
+    class Create {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("빈 날에 넣으면 순서값 1000으로 들어가고, 버전이 1 오르고, 그날 모습이 돌아온다")
+            void addsToEmptyDay() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+
+                AddItemResponse response =
+                        addItem(
+                                minsu,
+                                day,
+                                new AddItemRequest(
+                                        market.getId(), null, LocalTime.of(14, 0), "예약 필요", 0L));
+
+                assertThat(response.day().version()).isEqualTo(1);
+                assertThat(response.day().items())
+                        .containsExactly(
+                                new ItemResponse(
+                                        response.itemId(),
+                                        market.getId(),
+                                        "광장시장",
+                                        "서울 종로구",
+                                        LocalTime.of(14, 0),
+                                        "예약 필요"));
+                assertThat(sortOrdersOf(day)).containsExactly(1000);
+                assertThat(scheduleDayRepository.findById(day.getId()).orElseThrow().getVersion())
+                        .isEqualTo(1);
+            }
+
+            @Test
+            @DisplayName("afterItemId가 없으면 맨 앞, 있으면 그 블록 바로 뒤에 들어간다")
+            void addsAtPosition() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem first = saveItem(day, market, 1000, null, null);
+                ScheduleItem second = saveItem(day, market, 2000, null, null);
+
+                Long front = addItem(minsu, day, request(market, null, 0L)).itemId();
+                Long middle = addItem(minsu, day, request(market, first.getId(), 1L)).itemId();
+                Long back = addItem(minsu, day, request(market, second.getId(), 2L)).itemId();
+
+                assertThat(itemIdsOf(day))
+                        .containsExactly(front, first.getId(), middle, second.getId(), back);
+                // 맨 앞은 0과 1000의 가운데, 사이는 앞뒤의 가운데, 맨 뒤는 앞 + 1000
+                assertThat(sortOrdersOf(day)).containsExactly(500, 1000, 1500, 2000, 3000);
+            }
+
+            @Test
+            @DisplayName("사이에 넣을 순서값이 없으면 그날을 1000 간격으로 다시 매기고 순서는 그대로다")
+            void renumbersWhenNoGap() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem first = saveItem(day, market, 1, null, null);
+                ScheduleItem second = saveItem(day, market, 2, null, null);
+
+                AddItemResponse response = addItem(minsu, day, request(market, first.getId(), 0L));
+
+                assertThat(itemIdsOf(day))
+                        .containsExactly(first.getId(), response.itemId(), second.getId());
+                assertThat(sortOrdersOf(day)).containsExactly(1000, 1500, 2000);
+                assertThat(response.day().items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactly(first.getId(), response.itemId(), second.getId());
+            }
+
+            @Test
+            @DisplayName("같은 장소를 같은 날에 두 번 넣어도 된다")
+            void allowsSamePlaceTwice() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate hotel = saveConfirmedPlace(room, minsu, "숙소", "서울 중구");
+
+                addItem(minsu, day, request(hotel, null, 0L));
+                AddItemResponse response = addItem(minsu, day, request(hotel, null, 1L));
+
+                assertThat(response.day().items())
+                        .extracting(ItemResponse::placeId)
+                        .containsExactly(hotel.getId(), hotel.getId());
+            }
+
+            @Test
+            @DisplayName("넣으면 변경 이력에 \"1일차 광장시장: 추가됐어요\"가 남는다")
+            void recordsChangeLog() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+
+                AddItemResponse response = addItem(minsu, day, request(market, null, 0L));
+
+                ChangeLog log =
+                        changeLogRepository
+                                .findTopByRoom_IdOrderByIdDesc(room.getId())
+                                .orElseThrow();
+                assertThat(log.getEventKind()).isEqualTo(EventKind.SCHEDULE_CHANGED);
+                assertThat(log.getActionStatus()).isEqualTo(ActionStatus.CREATE);
+                assertThat(log.getEntityId()).isEqualTo(response.itemId());
+                assertThat(log.getSummary()).isEqualTo("1일차 광장시장: 추가됐어요");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("방이 PLANNING이 아니면 BOARD_LOCKED이고 블록은 안 생긴다")
+            void rejectsLockedBoard() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                jdbcTemplate.update(
+                        "UPDATE plan_room SET status = 'REVIEWING' WHERE id = ?", room.getId());
+
+                assertFails(
+                        () -> addItem(minsu, day, request(market, null, 0L)),
+                        ScheduleErrorCode.BOARD_LOCKED);
+                assertThat(sortOrdersOf(day)).isEmpty();
+            }
+
+            @Test
+            @DisplayName("내가 본 버전이 낡았으면 SCHEDULE_VERSION_CONFLICT와 지금 버전을 알려 주고, 아무것도 안 바뀐다")
+            void rejectsStaleVersion() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                addItem(minsu, day, request(market, null, 0L));
+
+                assertThatThrownBy(() -> addItem(minsu, day, request(market, null, 0L)))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e -> {
+                                    assertThat(e.getErrorCode())
+                                            .isEqualTo(ScheduleErrorCode.SCHEDULE_VERSION_CONFLICT);
+                                    assertThat(e.getData())
+                                            .isEqualTo(
+                                                    new ScheduleVersionConflictData(
+                                                            day.getId(), 1L));
+                                });
+                assertThat(sortOrdersOf(day)).hasSize(1);
+                assertThat(scheduleDayRepository.findById(day.getId()).orElseThrow().getVersion())
+                        .isEqualTo(1);
+            }
+
+            @Test
+            @DisplayName("다른 방의 날이면 SCHEDULE_DAY_NOT_FOUND이다")
+            void rejectsOtherRoomDay() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleDay otherDay = saveDay(saveRoom(), 1);
+
+                assertFails(
+                        () -> addItem(minsu, otherDay, request(market, null, 0L)),
+                        ScheduleErrorCode.SCHEDULE_DAY_NOT_FOUND);
+            }
+
+            @Test
+            @DisplayName("다른 방의 장소면 PLACE_CANDIDATE_NOT_FOUND이다")
+            void rejectsOtherRoomPlace() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                Room otherRoom = saveRoom();
+                PlaceCandidate otherPlace =
+                        saveConfirmedPlace(otherRoom, saveMember(otherRoom, "철수"), "해운대", "부산");
+
+                assertFails(
+                        () -> addItem(minsu, day, request(otherPlace, null, 0L)),
+                        PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND);
+            }
+
+            @Test
+            @DisplayName("확정 안 된 장소면 PLACE_NOT_CONFIRMED이고 버전은 그대로다")
+            void rejectsUnconfirmedPlace() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate place =
+                        placeCandidateRepository.saveAndFlush(
+                                PlaceCandidate.create(
+                                        room,
+                                        UUID.randomUUID().toString(),
+                                        "광장시장",
+                                        null,
+                                        "서울 종로구",
+                                        null,
+                                        null,
+                                        minsu));
+
+                assertFails(
+                        () -> addItem(minsu, day, request(place, null, 0L)),
+                        PlaceErrorCode.PLACE_NOT_CONFIRMED);
+                assertThat(scheduleDayRepository.findById(day.getId()).orElseThrow().getVersion())
+                        .isZero();
+            }
+
+            @Test
+            @DisplayName("그날 블록이 이미 10개면 DAY_ITEM_LIMIT_EXCEEDED이다")
+            void rejectsEleventhItem() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                for (int i = 1; i <= 10; i++) {
+                    saveItem(day, market, i * 1000, null, null);
+                }
+
+                assertFails(
+                        () -> addItem(minsu, day, request(market, null, 0L)),
+                        ScheduleErrorCode.DAY_ITEM_LIMIT_EXCEEDED);
+                assertThat(sortOrdersOf(day)).hasSize(10);
+            }
+
+            @Test
+            @DisplayName("afterItemId가 그날의 블록이 아니면 SCHEDULE_ITEM_NOT_FOUND이다")
+            void rejectsAfterItemOfOtherDay() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day1 = saveDay(room, 1);
+                ScheduleDay day2 = saveDay(room, 2);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem otherDayItem = saveItem(day2, market, 1000, null, null);
+
+                assertFails(
+                        () -> addItem(minsu, day1, request(market, otherDayItem.getId(), 0L)),
+                        ScheduleErrorCode.SCHEDULE_ITEM_NOT_FOUND);
+            }
+
+            @Test
+            @DisplayName("다른 방의 멤버가 넣으면 FORBIDDEN이다")
+            void rejectsNonMember() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                RoomMember outsider = saveMember(saveRoom(), "철수");
+
+                assertFails(
+                        () ->
+                                scheduleBoardService.addItem(
+                                        room.getId(),
+                                        day.getId(),
+                                        outsider.getUser().getId(),
+                                        request(market, null, 0L)),
+                        CommonErrorCode.FORBIDDEN);
+            }
+        }
+    }
+
+    private AddItemResponse addItem(RoomMember member, ScheduleDay day, AddItemRequest request) {
+        return scheduleBoardService.addItem(
+                member.getRoom().getId(), day.getId(), member.getUser().getId(), request);
+    }
+
+    private AddItemRequest request(PlaceCandidate place, Long afterItemId, long dayVersion) {
+        return new AddItemRequest(place.getId(), afterItemId, null, null, dayVersion);
+    }
+
+    private List<Long> itemIdsOf(ScheduleDay day) {
+        return scheduleItemRepository
+                .findAllByScheduleDay_IdOrderBySortOrderAsc(day.getId())
+                .stream()
+                .map(ScheduleItem::getId)
+                .toList();
+    }
+
+    private List<Integer> sortOrdersOf(ScheduleDay day) {
+        return scheduleItemRepository
+                .findAllByScheduleDay_IdOrderBySortOrderAsc(day.getId())
+                .stream()
+                .map(ScheduleItem::getSortOrder)
+                .toList();
+    }
+
+    private void assertFails(Runnable action, ErrorCode errorCode) {
+        assertThatThrownBy(action::run)
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(errorCode));
     }
 
     private ScheduleBoardResponse getBoard(RoomMember member) {
