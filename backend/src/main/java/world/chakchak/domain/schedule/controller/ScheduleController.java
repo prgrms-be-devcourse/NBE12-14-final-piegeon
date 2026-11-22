@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.schedule.dto.AddItemRequest;
 import world.chakchak.domain.schedule.dto.AddItemResponse;
+import world.chakchak.domain.schedule.dto.DayChangeResponse;
+import world.chakchak.domain.schedule.dto.MoveItemRequest;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
 import world.chakchak.domain.schedule.service.ScheduleBoardService;
 import world.chakchak.global.response.ApiResponse;
@@ -51,5 +54,20 @@ public class ScheduleController {
                 scheduleBoardService.addItem(roomId, dayId, loginUser.userId(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("SCHEDULE_ITEM_CREATED", response));
+    }
+
+    /** B-03 블록 이동 */
+    @Operation(
+            summary = "블록 이동 (B-03)",
+            description = "같은 날 안에서 블록을 afterItemId 블록 뒤(null이면 맨 앞)로 옮기고, 그날의 바뀐 모습을 돌려준다.")
+    @PatchMapping("/schedule-items/{itemId}/position")
+    public ResponseEntity<ApiResponse<DayChangeResponse>> moveItem(
+            @PathVariable Long roomId,
+            @PathVariable Long itemId,
+            @AuthenticationPrincipal LoginUser loginUser,
+            @Valid @RequestBody MoveItemRequest request) {
+        DayChangeResponse response =
+                scheduleBoardService.moveItem(roomId, itemId, loginUser.userId(), request);
+        return ResponseEntity.ok(ApiResponse.success("SCHEDULE_ITEM_MOVED", response));
     }
 }

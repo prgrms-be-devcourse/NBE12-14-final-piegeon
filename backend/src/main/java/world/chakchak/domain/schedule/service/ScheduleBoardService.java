@@ -20,7 +20,9 @@ import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.domain.schedule.dto.AddItemRequest;
 import world.chakchak.domain.schedule.dto.AddItemResponse;
+import world.chakchak.domain.schedule.dto.DayChangeResponse;
 import world.chakchak.domain.schedule.dto.DaySnapshot;
+import world.chakchak.domain.schedule.dto.MoveItemRequest;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
 import world.chakchak.domain.schedule.dto.ScheduleVersionConflictData;
 import world.chakchak.domain.schedule.entity.ScheduleDay;
@@ -30,7 +32,7 @@ import world.chakchak.domain.schedule.repository.ScheduleDayRepository;
 import world.chakchak.domain.schedule.repository.ScheduleItemRepository;
 import world.chakchak.global.error.BusinessException;
 
-/** 일정 보드 기능. (B-01 보드 조회, B-02 블록 추가) */
+/** 일정 보드 기능. (B-01 보드 조회, B-02 블록 추가, B-03 블록 이동) */
 @Service
 @RequiredArgsConstructor
 public class ScheduleBoardService {
@@ -89,11 +91,8 @@ public class ScheduleBoardService {
      */
     @Transactional
     public AddItemResponse addItem(Long roomId, Long dayId, Long userId, AddItemRequest request) {
-        Room room = roomService.getForUpdate(roomId);
-        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
-        if (room.getStatus() != RoomStatus.PLANNING) {
-            throw new BusinessException(ScheduleErrorCode.BOARD_LOCKED);
-        }
+        RoomMember me = lockBoard(roomId, userId);
+        Room room = me.getRoom();
         ScheduleDay day = getDayInRoom(roomId, dayId);
         checkVersion(day, request.dayVersion());
         PlaceCandidate place = placeCandidateService.getCandidateInRoom(roomId, request.placeId());
@@ -127,10 +126,69 @@ public class ScheduleBoardService {
         return new AddItemResponse(item.getId(), DaySnapshot.of(day, items));
     }
 
+    /**
+     * 같은 날 안에서 블록을 afterItemId 블록 바로 뒤로 옮긴다. null이면 맨 앞. (B-03)
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
+     *     BOARD_LOCKED, 없거나 다른 방의 블록이면 SCHEDULE_ITEM_NOT_FOUND, 버전이 다르면 SCHEDULE_VERSION_CONFLICT,
+     *     afterItemId가 그날의 다른 블록이 아니면 SCHEDULE_ITEM_NOT_FOUND
+     */
+    @Transactional
+    public DayChangeResponse moveItem(
+            Long roomId, Long itemId, Long userId, MoveItemRequest request) {
+        RoomMember me = lockBoard(roomId, userId);
+        ScheduleItem item = getItemInRoom(roomId, itemId);
+        ScheduleDay day = item.getScheduleDay();
+        checkVersion(day, request.dayVersion());
+
+        // 옮길 블록을 뺀 나머지에서 새 자리를 찾는다
+        List<ScheduleItem> others =
+                new ArrayList<>(
+                        scheduleItemRepository.findAllByScheduleDay_IdOrderBySortOrderAsc(
+                                day.getId()));
+        others.remove(item);
+        int position = positionAfter(others, request.afterItemId());
+
+        // 나머지를 다시 매기면 1000, 2000...이 되는데, 옮길 블록의 옛 값과 겹치지 않게 아무도 안 쓰는 0으로 먼저 비켜 둔다
+        item.changeSortOrder(0);
+        item.changeSortOrder(sortOrderAt(others, position));
+        day.increaseVersion();
+        others.add(position, item);
+
+        // 예: "1일차 광장시장: 순서가 바뀌었어요"
+        changeLogService.record(
+                me.getRoom(),
+                me,
+                EntityType.SCHEDULE_ITEM,
+                item.getId(),
+                EventKind.SCHEDULE_CHANGED,
+                ActionStatus.UPDATE,
+                day.getDayIndex() + "일차 " + item.getPlaceCandidate().getName() + ": 순서가 바뀌었어요");
+        // TODO SSE (커밋 후): board.updated (바뀐 날의 스냅샷)
+        return new DayChangeResponse(DaySnapshot.of(day, others), List.of());
+    }
+
+    // 보드 쓰기의 공통 시작. 방을 잠그고, 멤버인지, 보드를 고칠 수 있는 단계인지 본다
+    private RoomMember lockBoard(Long roomId, Long userId) {
+        Room room = roomService.getForUpdate(roomId);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        if (room.getStatus() != RoomStatus.PLANNING) {
+            throw new BusinessException(ScheduleErrorCode.BOARD_LOCKED);
+        }
+        return me;
+    }
+
     private ScheduleDay getDayInRoom(Long roomId, Long dayId) {
         return scheduleDayRepository
                 .findByIdAndRoom_Id(dayId, roomId)
                 .orElseThrow(() -> new BusinessException(ScheduleErrorCode.SCHEDULE_DAY_NOT_FOUND));
+    }
+
+    private ScheduleItem getItemInRoom(Long roomId, Long itemId) {
+        return scheduleItemRepository
+                .findByIdAndScheduleDay_Room_Id(itemId, roomId)
+                .orElseThrow(
+                        () -> new BusinessException(ScheduleErrorCode.SCHEDULE_ITEM_NOT_FOUND));
     }
 
     // 요청이 본 버전이 낡았으면, 프론트가 다시 불러올 수 있게 지금 버전을 같이 알려 준다
