@@ -104,7 +104,8 @@ class SurveySubmitApiIntegrationTest {
                 post(
                         surveyPath(fixture.roomId()),
                         "{\"budget\":10000,\"stayType\":\"HOTEL\",\"pace\":\"NORMAL\","
-                                + "\"actPrefs\":[\"FOOD\",\"NATURE\",\"ACTIVITY\",\"CULTURE\"]}",
+                                + "\"actPrefs\":[\"FOOD\",\"NATURE\",\"ACTIVITY\",\"CULTURE\"],"
+                                + "\"avoidNote\":\"메모\"}",
                         fixture.cookie());
         assertThat(tooManyActivities.statusCode()).isEqualTo(400);
         assertThat(tooManyActivities.body()).contains("INVALID_ACTIVITY_COUNT");
@@ -126,7 +127,7 @@ class SurveySubmitApiIntegrationTest {
                                 + "\"actPrefs\":[\"FOOD\"]}",
                         optionalNoteFixture.cookie());
         assertThat(missingAvoidNote.statusCode()).isEqualTo(400);
-        assertThat(missingAvoidNote.body()).contains("AVOID_NOTE_REQUIRED");
+        assertThat(missingAvoidNote.body()).contains("INVALID_INPUT");
     }
 
     private Fixture fixture() throws Exception {

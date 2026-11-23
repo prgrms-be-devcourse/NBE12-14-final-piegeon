@@ -127,42 +127,19 @@ class SurveyResponseTest {
         }
 
         @Test
-        @DisplayName("기피 요소는 필수이며 100자를 초과할 수 없다")
+        @DisplayName("기피 요소는 선택이며 100자를 초과할 수 없다")
         void validatesAvoidNote() {
-            assertBusinessError(
-                    () ->
+            assertThat(
                             SurveyResponse.createForSurveying(
-                                    null,
-                                    1L,
-                                    StayType.HOTEL,
-                                    Pace.NORMAL,
-                                    List.of(ActivityCode.FOOD),
-                                    null,
-                                    clock),
-                    SurveyErrorCode.AVOID_NOTE_REQUIRED);
-            assertBusinessError(
-                    () ->
-                            SurveyResponse.createForSurveying(
-                                    null,
-                                    1L,
-                                    StayType.HOTEL,
-                                    Pace.NORMAL,
-                                    List.of(ActivityCode.FOOD),
-                                    " ",
-                                    clock),
-                    SurveyErrorCode.AVOID_NOTE_REQUIRED);
-            assertBusinessError(
-                    () ->
-                            SurveyResponse.createForSurveying(
-                                    null,
-                                    1L,
-                                    StayType.HOTEL,
-                                    Pace.NORMAL,
-                                    List.of(ActivityCode.FOOD),
-                                    "가".repeat(101),
-                                    clock),
-                    SurveyErrorCode.AVOID_NOTE_TOO_LONG);
-
+                                            null,
+                                            1L,
+                                            StayType.HOTEL,
+                                            Pace.NORMAL,
+                                            List.of(ActivityCode.FOOD),
+                                            null,
+                                            clock)
+                                    .getAvoidNote())
+                    .isNull();
             assertThat(
                             SurveyResponse.createForSurveying(
                                             null,

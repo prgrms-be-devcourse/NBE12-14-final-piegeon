@@ -37,6 +37,7 @@ public class RoomMemberService {
                 RoomMember.create(room, userService.getEntityById(userId), clock));
     }
 
+    @Transactional(noRollbackFor = BusinessException.class)
     public RoomMember getActiveMember(Long roomId, Long userId) {
         RoomRepository.RoomMemberAccessProjection access =
                 roomRepository
