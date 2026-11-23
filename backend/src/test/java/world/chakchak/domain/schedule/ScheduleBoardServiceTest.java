@@ -29,8 +29,10 @@ import world.chakchak.domain.room.repository.RoomMemberRepository;
 import world.chakchak.domain.room.repository.RoomRepository;
 import world.chakchak.domain.schedule.dto.AddItemRequest;
 import world.chakchak.domain.schedule.dto.AddItemResponse;
+import world.chakchak.domain.schedule.dto.DayChangeResponse;
 import world.chakchak.domain.schedule.dto.DaySnapshot;
 import world.chakchak.domain.schedule.dto.DaySnapshot.ItemResponse;
+import world.chakchak.domain.schedule.dto.MoveItemRequest;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
 import world.chakchak.domain.schedule.dto.ScheduleVersionConflictData;
 import world.chakchak.domain.schedule.entity.ScheduleDay;
@@ -45,7 +47,7 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 import world.chakchak.global.error.ErrorCode;
 
-/** B-01 일정 보드 조회, B-02 블록 추가. */
+/** B-01 일정 보드 조회, B-02 블록 추가, B-03 블록 이동. */
 @IntegrationTest
 class ScheduleBoardServiceTest {
 
@@ -481,6 +483,232 @@ class ScheduleBoardServiceTest {
                         CommonErrorCode.FORBIDDEN);
             }
         }
+    }
+
+    @Nested
+    class Move {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("맨 앞, 다른 블록 뒤, 맨 뒤로 옮기면 그 자리로 가고 순서값은 앞뒤의 가운데가 된다")
+            void movesToPosition() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem a = saveItem(day, market, 1000, null, null);
+                ScheduleItem b = saveItem(day, market, 2000, null, null);
+                ScheduleItem c = saveItem(day, market, 3000, null, null);
+
+                // c를 맨 앞으로: c a b
+                moveItem(minsu, c, new MoveItemRequest(null, 0L));
+                assertThat(itemIdsOf(day)).containsExactly(c.getId(), a.getId(), b.getId());
+                // c를 a 뒤로: a c b
+                moveItem(minsu, c, new MoveItemRequest(a.getId(), 1L));
+                assertThat(itemIdsOf(day)).containsExactly(a.getId(), c.getId(), b.getId());
+                // a를 b 뒤로(맨 뒤): c b a
+                moveItem(minsu, a, new MoveItemRequest(b.getId(), 2L));
+                assertThat(itemIdsOf(day)).containsExactly(c.getId(), b.getId(), a.getId());
+                assertThat(sortOrdersOf(day)).containsExactly(1500, 2000, 3000);
+            }
+
+            @Test
+            @DisplayName("옮기면 버전이 1 오르고, 새 순서의 그날 모습과 변경 이력이 남는다")
+            void returnsSnapshotAndRecordsLog() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                PlaceCandidate palace = saveConfirmedPlace(room, minsu, "경복궁", "서울 종로구 사직로");
+                ScheduleItem first = saveItem(day, palace, 1000, null, null);
+                ScheduleItem second = saveItem(day, market, 2000, null, null);
+
+                DayChangeResponse response = moveItem(minsu, second, new MoveItemRequest(null, 0L));
+
+                assertThat(response.day().version()).isEqualTo(1);
+                assertThat(response.warnings()).isEmpty();
+                assertThat(response.day().items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactly(second.getId(), first.getId());
+                assertThat(scheduleDayRepository.findById(day.getId()).orElseThrow().getVersion())
+                        .isEqualTo(1);
+                ChangeLog log =
+                        changeLogRepository
+                                .findTopByRoom_IdOrderByIdDesc(room.getId())
+                                .orElseThrow();
+                assertThat(log.getEventKind()).isEqualTo(EventKind.SCHEDULE_CHANGED);
+                assertThat(log.getActionStatus()).isEqualTo(ActionStatus.UPDATE);
+                assertThat(log.getEntityId()).isEqualTo(second.getId());
+                assertThat(log.getSummary()).isEqualTo("1일차 광장시장: 순서가 바뀌었어요");
+            }
+
+            @Test
+            @DisplayName("지금 자리 그대로 옮기면 순서값, 버전, 변경 이력이 모두 그대로다")
+            void skipsWhenSamePosition() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem a = saveItem(day, market, 1000, null, null);
+                ScheduleItem b = saveItem(day, market, 2000, null, null);
+
+                // 맨 앞 블록을 맨 앞으로, 둘째 블록을 바로 앞 블록 뒤로
+                DayChangeResponse first = moveItem(minsu, a, new MoveItemRequest(null, 0L));
+                DayChangeResponse second = moveItem(minsu, b, new MoveItemRequest(a.getId(), 0L));
+
+                assertThat(first.day().version()).isZero();
+                assertThat(second.day().version()).isZero();
+                assertThat(second.day().items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactly(a.getId(), b.getId());
+                assertThat(sortOrdersOf(day)).containsExactly(1000, 2000);
+                assertThat(scheduleDayRepository.findById(day.getId()).orElseThrow().getVersion())
+                        .isZero();
+                assertThat(changeLogRepository.findTopByRoom_IdOrderByIdDesc(room.getId()))
+                        .isEmpty();
+            }
+
+            @Test
+            @DisplayName("틈이 없어 다시 매길 때도 옮길 블록의 옛 순서값과 겹치지 않는다")
+            void renumbersWithoutClash() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem a = saveItem(day, market, 1, null, null);
+                ScheduleItem b = saveItem(day, market, 2, null, null);
+                // 나머지를 다시 매기면 b가 2000이 되는데, c의 옛 값도 2000이다
+                ScheduleItem c = saveItem(day, market, 2000, null, null);
+
+                moveItem(minsu, c, new MoveItemRequest(a.getId(), 0L));
+
+                assertThat(itemIdsOf(day)).containsExactly(a.getId(), c.getId(), b.getId());
+                assertThat(sortOrdersOf(day)).containsExactly(1000, 1500, 2000);
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("방이 PLANNING이 아니면 BOARD_LOCKED이고 순서는 그대로다")
+            void rejectsLockedBoard() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem a = saveItem(day, market, 1000, null, null);
+                ScheduleItem b = saveItem(day, market, 2000, null, null);
+                jdbcTemplate.update(
+                        "UPDATE plan_room SET status = 'REVIEWING' WHERE id = ?", room.getId());
+
+                assertFails(
+                        () -> moveItem(minsu, b, new MoveItemRequest(null, 0L)),
+                        ScheduleErrorCode.BOARD_LOCKED);
+                assertThat(itemIdsOf(day)).containsExactly(a.getId(), b.getId());
+            }
+
+            @Test
+            @DisplayName("내가 본 버전이 낡았으면 SCHEDULE_VERSION_CONFLICT와 지금 버전을 알려 주고, 순서·버전은 그대로다")
+            void rejectsStaleVersion() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem a = saveItem(day, market, 1000, null, null);
+                ScheduleItem b = saveItem(day, market, 2000, null, null);
+                moveItem(minsu, b, new MoveItemRequest(null, 0L));
+
+                assertThatThrownBy(() -> moveItem(minsu, a, new MoveItemRequest(null, 0L)))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e -> {
+                                    assertThat(e.getErrorCode())
+                                            .isEqualTo(ScheduleErrorCode.SCHEDULE_VERSION_CONFLICT);
+                                    assertThat(e.getData())
+                                            .isEqualTo(
+                                                    new ScheduleVersionConflictData(
+                                                            day.getId(), 1L));
+                                });
+                assertThat(itemIdsOf(day)).containsExactly(b.getId(), a.getId());
+                assertThat(scheduleDayRepository.findById(day.getId()).orElseThrow().getVersion())
+                        .isEqualTo(1);
+            }
+
+            @Test
+            @DisplayName("다른 방의 블록이면 SCHEDULE_ITEM_NOT_FOUND이다")
+            void rejectsOtherRoomItem() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                saveDay(room, 1);
+                Room otherRoom = saveRoom();
+                ScheduleItem otherItem =
+                        saveItem(
+                                saveDay(otherRoom, 1),
+                                saveConfirmedPlace(
+                                        otherRoom, saveMember(otherRoom, "철수"), "해운대", "부산"),
+                                1000,
+                                null,
+                                null);
+
+                assertFails(
+                        () -> moveItem(minsu, otherItem, new MoveItemRequest(null, 0L)),
+                        ScheduleErrorCode.SCHEDULE_ITEM_NOT_FOUND);
+            }
+
+            @Test
+            @DisplayName("afterItemId가 다른 날의 블록이거나 옮길 블록 자신이면 SCHEDULE_ITEM_NOT_FOUND이다")
+            void rejectsInvalidAfterItem() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day1 = saveDay(room, 1);
+                ScheduleDay day2 = saveDay(room, 2);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem item = saveItem(day1, market, 1000, null, null);
+                ScheduleItem otherDayItem = saveItem(day2, market, 1000, null, null);
+
+                assertFails(
+                        () -> moveItem(minsu, item, new MoveItemRequest(otherDayItem.getId(), 0L)),
+                        ScheduleErrorCode.SCHEDULE_ITEM_NOT_FOUND);
+                assertFails(
+                        () -> moveItem(minsu, item, new MoveItemRequest(item.getId(), 0L)),
+                        ScheduleErrorCode.SCHEDULE_ITEM_NOT_FOUND);
+                assertThat(sortOrdersOf(day1)).containsExactly(1000);
+            }
+
+            @Test
+            @DisplayName("다른 방의 멤버가 옮기면 FORBIDDEN이다")
+            void rejectsNonMember() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                ScheduleItem item =
+                        saveItem(
+                                day,
+                                saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구"),
+                                1000,
+                                null,
+                                null);
+                RoomMember outsider = saveMember(saveRoom(), "철수");
+
+                assertFails(
+                        () ->
+                                scheduleBoardService.moveItem(
+                                        room.getId(),
+                                        item.getId(),
+                                        outsider.getUser().getId(),
+                                        new MoveItemRequest(null, 0L)),
+                        CommonErrorCode.FORBIDDEN);
+            }
+        }
+    }
+
+    private DayChangeResponse moveItem(
+            RoomMember member, ScheduleItem item, MoveItemRequest request) {
+        return scheduleBoardService.moveItem(
+                member.getRoom().getId(), item.getId(), member.getUser().getId(), request);
     }
 
     private AddItemResponse addItem(RoomMember member, ScheduleDay day, AddItemRequest request) {

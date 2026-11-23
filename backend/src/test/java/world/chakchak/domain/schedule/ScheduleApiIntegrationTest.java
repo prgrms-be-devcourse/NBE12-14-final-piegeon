@@ -32,7 +32,7 @@ import world.chakchak.domain.schedule.entity.ScheduleItem;
 import world.chakchak.domain.schedule.repository.ScheduleDayRepository;
 import world.chakchak.domain.schedule.repository.ScheduleItemRepository;
 
-/** B-01 일정 보드 조회, B-02 블록 추가 API를 HTTP로 호출한다. */
+/** B-01 일정 보드 조회, B-02 블록 추가, B-03 블록 이동 API를 HTTP로 호출한다. */
 @IntegrationTest
 class ScheduleApiIntegrationTest {
 
@@ -161,6 +161,88 @@ class ScheduleApiIntegrationTest {
                 assertThat(longMemo.body()).contains("\"code\":\"INVALID_INPUT\"");
             }
         }
+    }
+
+    @Nested
+    class Move {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("블록을 옮기면 200과 SCHEDULE_ITEM_MOVED, 그날의 새 버전이 반환되고 warnings 칸은 없다")
+            void movesItem() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                ScheduleDay day =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId).get(0);
+                PlaceCandidate place = saveConfirmedPlace(roomId);
+                scheduleItemRepository.saveAndFlush(
+                        ScheduleItem.create(day, place, 1000, null, null));
+                ScheduleItem second =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(day, place, 2000, null, null));
+
+                HttpResponse<String> response =
+                        patch(
+                                "/api/rooms/"
+                                        + roomId
+                                        + "/schedule-items/"
+                                        + second.getId()
+                                        + "/position",
+                                "{\"afterItemId\":null,\"dayVersion\":0}",
+                                cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"SCHEDULE_ITEM_MOVED\"")
+                        .contains("\"version\":1")
+                        .contains("\"itemId\":" + second.getId())
+                        .doesNotContain("warnings")
+                        .doesNotContain("sortOrder");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("dayVersion이 없으면 400 INVALID_INPUT이다")
+            void rejectsMissingVersion() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                ScheduleDay day =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId).get(0);
+                ScheduleItem item =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(
+                                        day, saveConfirmedPlace(roomId), 1000, null, null));
+
+                HttpResponse<String> response =
+                        patch(
+                                "/api/rooms/"
+                                        + roomId
+                                        + "/schedule-items/"
+                                        + item.getId()
+                                        + "/position",
+                                "{\"afterItemId\":null}",
+                                cookie);
+
+                assertThat(response.statusCode()).isEqualTo(400);
+                assertThat(response.body()).contains("\"code\":\"INVALID_INPUT\"");
+            }
+        }
+    }
+
+    private HttpResponse<String> patch(String path, String body, String cookie)
+            throws java.lang.Exception {
+        HttpRequest request =
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                        .header("Content-Type", "application/json")
+                        .header("Cookie", cookie)
+                        .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
+                        .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private String itemsPath(long roomId, ScheduleDay day) {
