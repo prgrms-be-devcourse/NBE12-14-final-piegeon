@@ -54,4 +54,10 @@ public class CommentService {
     public Comment addOnPlace(PlaceCandidate placeCandidate, RoomMember member, String body) {
         return commentRepository.save(Comment.onPlace(placeCandidate, member, body));
     }
+
+    /** 장소 후보의 코멘트를 모두 지운다. 후보를 지우기 전에 먼저 부른다. (P-07) */
+    @Transactional
+    public void deleteOnPlace(Long placeCandidateId) {
+        commentRepository.deleteByPlaceCandidateId(placeCandidateId);
+    }
 }
