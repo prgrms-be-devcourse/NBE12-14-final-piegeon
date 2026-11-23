@@ -129,6 +129,8 @@ public class ScheduleBoardService {
     /**
      * 같은 날 안에서 블록을 afterItemId 블록 바로 뒤로 옮긴다. null이면 맨 앞. (B-03)
      *
+     * <p>지금 자리 그대로면 아무것도 저장하지 않고 버전도 올리지 않는다.
+     *
      * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
      *     BOARD_LOCKED, 없거나 다른 방의 블록이면 SCHEDULE_ITEM_NOT_FOUND, 버전이 다르면 SCHEDULE_VERSION_CONFLICT,
      *     afterItemId가 그날의 다른 블록이 아니면 SCHEDULE_ITEM_NOT_FOUND
@@ -146,8 +148,15 @@ public class ScheduleBoardService {
                 new ArrayList<>(
                         scheduleItemRepository.findAllByScheduleDay_IdOrderBySortOrderAsc(
                                 day.getId()));
+        int oldPosition = others.indexOf(item);
         others.remove(item);
         int position = positionAfter(others, request.afterItemId());
+
+        // 제자리면 아무것도 바꾸지 않는다. 버전을 올리면 같은 날을 보던 다른 사람이, 실제로는 바뀐 게 없는데 버전 충돌을 맞는다
+        if (position == oldPosition) {
+            others.add(position, item);
+            return new DayChangeResponse(DaySnapshot.of(day, others), List.of());
+        }
 
         // 나머지를 다시 매기면 1000, 2000...이 되는데, 옮길 블록의 옛 값과 겹치지 않게 아무도 안 쓰는 0으로 먼저 비켜 둔다
         item.changeSortOrder(0);

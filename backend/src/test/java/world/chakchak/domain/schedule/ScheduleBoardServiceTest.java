@@ -545,6 +545,32 @@ class ScheduleBoardServiceTest {
             }
 
             @Test
+            @DisplayName("지금 자리 그대로 옮기면 순서값, 버전, 변경 이력이 모두 그대로다")
+            void skipsWhenSamePosition() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day = saveDay(room, 1);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                ScheduleItem a = saveItem(day, market, 1000, null, null);
+                ScheduleItem b = saveItem(day, market, 2000, null, null);
+
+                // 맨 앞 블록을 맨 앞으로, 둘째 블록을 바로 앞 블록 뒤로
+                DayChangeResponse first = moveItem(minsu, a, new MoveItemRequest(null, 0L));
+                DayChangeResponse second = moveItem(minsu, b, new MoveItemRequest(a.getId(), 0L));
+
+                assertThat(first.day().version()).isZero();
+                assertThat(second.day().version()).isZero();
+                assertThat(second.day().items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactly(a.getId(), b.getId());
+                assertThat(sortOrdersOf(day)).containsExactly(1000, 2000);
+                assertThat(scheduleDayRepository.findById(day.getId()).orElseThrow().getVersion())
+                        .isZero();
+                assertThat(changeLogRepository.findTopByRoom_IdOrderByIdDesc(room.getId()))
+                        .isEmpty();
+            }
+
+            @Test
             @DisplayName("틈이 없어 다시 매길 때도 옮길 블록의 옛 순서값과 겹치지 않는다")
             void renumbersWithoutClash() {
                 Room room = saveRoom();
