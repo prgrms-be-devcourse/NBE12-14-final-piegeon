@@ -41,4 +41,4 @@ src/
 - 서버 시각은 오프셋 없는 한국 시각이다. `lib/format.ts`가 브라우저 시간대와 상관없이 한국 시각으로 계산한다.
 - 방에서의 내 멤버는 백엔드가 memberId를 따로 주지 않아서 이름으로 찾는다 (`components/room.tsx`).
 - Pretendard 글꼴은 SIL Open Font License 1.1이다.
-- 사진은 Wikimedia Commons(CC BY, CC BY-SA)다. 새 사진을 넣으면 `src/lib/photos.ts`에 저작자와 라이선스를 같이 적는다. 출처 페이지(`/credits`)에 자동으로 나온다.
+- 사진은 Wikimedia Commons(CC BY-SA)다. 새 사진을 넣으면 `src/lib/photos.ts`에 저작자, 라이선스, 원본 주소를 같이 적는다. 출처 페이지(`/credits`)에 자동으로 나온다.
