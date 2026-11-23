@@ -67,7 +67,7 @@
 - 이번 연결 관리 범위는 단일 서버다. 다중 서버 간 실시간 전달은 배포 요구가 생길 때 공유 발행기로 확장한다.
 - 이 구현은 공통 `changelog`와 `room`, `room member`, `survey` 경계에 한정한다. 장소·안건·일정 도메인은 수정하거나 활동 생산자로 연결하지 않는다.
 - 타임라인은 `GET /api/rooms/{roomId}/change-logs`에서 `cursor`, `size`로 조회하며, `cursor`보다 작은 ID를 최신순으로 반환한다. `size` 기본값은 20, 범위는 1~100이다. 응답 항목은 `logId`, 선택적 `actor`(`memberId`, `name`), `entityType`, `entityId`, `action`, `summary`, `createdAt`을 포함한다. 시스템 행위는 `actor: null`이다. 더 없으면 `nextCursor`는 `null`이다.
-- SSE는 `GET /api/rooms/{roomId}/change-logs/stream`에서 연결한다. `connected` 이벤트는 `latestEventId` 기준점을 보내고, `activity`는 영속 활동 ID를 SSE ID로 사용한다. Last-Event-ID 누락이 200건을 넘으면 `resync.required`를 보낸다.
+- SSE는 `GET /api/rooms/{roomId}/events`에서 연결한다. `connected` 이벤트는 `latestEventId` 기준점을 보내고, `activity`는 영속 활동 ID를 SSE ID로 사용한다. Last-Event-ID 누락이 200건을 넘으면 `resync.required`를 보낸다.
 - 사용자별 동시 SSE 연결은 최대 3개다. 초과 시 HTTP 429 `TOO_MANY_STREAMS`를 반환한다.
 - 방 멤버 조회는 방이 없으면 `ROOM_NOT_FOUND`, 비멤버와 나간 멤버는 구분 없이 `FORBIDDEN`을 반환한다.
 - 확인 API는 `POST /api/rooms/{roomId}/seen`이며, 마지막으로 표시한 활동의 `createdAt`을 `LocalDateTime` `seenUntil`로 받는다.

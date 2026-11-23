@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.domain.changelog.service.ChangeLogService;
+import world.chakchak.domain.changelog.service.ChangeLogStreamService;
 import world.chakchak.domain.place.service.PlaceCandidateService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
@@ -26,6 +27,7 @@ public class RoomLeaveService {
     private final AgendaService agendaService;
     private final PlaceCandidateService placeCandidateService;
     private final ChangeLogService changeLogService;
+    private final ChangeLogStreamService changeLogStreamService;
     private final Clock clock;
 
     @Transactional
@@ -52,5 +54,6 @@ public class RoomLeaveService {
         }
         placeCandidateService.deleteReactionsByMember(member.getId());
         changeLogService.recordMemberLeft(room, member);
+        changeLogStreamService.closeConnectionsForMember(roomId, member.getId());
     }
 }

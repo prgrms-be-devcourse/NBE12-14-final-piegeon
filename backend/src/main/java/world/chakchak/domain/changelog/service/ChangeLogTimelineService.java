@@ -11,8 +11,6 @@ import world.chakchak.domain.changelog.dto.ChangeLogPageResponse;
 import world.chakchak.domain.changelog.entity.ChangeLog;
 import world.chakchak.domain.changelog.repository.ChangeLogRepository;
 import world.chakchak.domain.room.service.RoomMemberService;
-import world.chakchak.global.error.BusinessException;
-import world.chakchak.global.error.CommonErrorCode;
 
 @Service
 @RequiredArgsConstructor
@@ -26,10 +24,6 @@ public class ChangeLogTimelineService {
             Long roomId, Long userId, Long cursor, Long requestedSize) {
         roomMemberService.getActiveMember(roomId, userId);
         long pageSize = requestedSize == null ? 20L : requestedSize;
-        if (pageSize < 1 || pageSize > 100) {
-            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
-        }
-
         Slice<ChangeLog> page =
                 changeLogRepository.findTimelinePage(
                         roomId, cursor, PageRequest.of(0, (int) pageSize));

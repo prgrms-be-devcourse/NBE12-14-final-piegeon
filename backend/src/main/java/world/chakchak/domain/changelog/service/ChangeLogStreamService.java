@@ -32,7 +32,7 @@ public class ChangeLogStreamService {
     private final Map<Long, Set<StreamConnection>> connections = new ConcurrentHashMap<>();
 
     public SseEmitter connect(Long roomId, Long userId, String lastEventIdHeader) {
-        RoomMember member = roomMemberService.getActiveMemberForStream(roomId, userId);
+        RoomMember member = roomMemberService.getActiveMember(roomId, userId);
         Long memberId = member.getId();
         Long lastEventId = parseLastEventId(lastEventIdHeader);
         Set<StreamConnection> memberConnections =
@@ -111,33 +111,13 @@ public class ChangeLogStreamService {
             return;
         }
         for (StreamConnection connection : roomConnections) {
-            if (isActiveMember(connection)) {
-                connection.offer(event);
-            } else {
-                connection.complete();
-            }
+            connection.offer(event);
         }
     }
 
     @Scheduled(fixedDelay = KEEP_ALIVE_DELAY_MILLIS)
     public void keepConnectionsAlive() {
-        connections.values().stream()
-                .flatMap(Set::stream)
-                .forEach(connection -> {
-                    if (isActiveMember(connection)) {
-                        connection.keepAlive();
-                    } else {
-                        connection.complete();
-                    }
-                });
-    }
-
-    private boolean isActiveMember(StreamConnection connection) {
-        try {
-            return roomMemberService.isActiveMember(connection.roomId, connection.memberId);
-        } catch (RuntimeException e) {
-            return false;
-        }
+        connections.values().stream().flatMap(Set::stream).forEach(StreamConnection::keepAlive);
     }
 
     private void remove(StreamConnection connection) {
