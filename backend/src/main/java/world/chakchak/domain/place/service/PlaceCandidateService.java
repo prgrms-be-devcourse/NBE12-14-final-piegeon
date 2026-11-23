@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
@@ -317,6 +318,9 @@ public class PlaceCandidateService {
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
         // 확정된 장소는 일정 블록이 가리킬 수 있어서 지우지 않는다. 그래서 확정 전 후보는 일정에서 쓰이지 않는다
         PlaceCandidate candidate = getReactableCandidate(room, placeId);
+        // 코멘트 작성은 방을 잠그지 않는다. 후보 행을 잠가서, 저장 중인 코멘트는 끝날 때까지 기다리고
+        // 잠근 뒤에 오는 코멘트는 삭제가 끝날 때까지 기다리게 한다
+        placeCandidateRepository.findByIdForUpdate(candidate.getId());
 
         // 후보를 가리키는 줄부터 지워야 외래 키에 걸리지 않는다
         placeReactionRepository.deleteAllByPlaceCandidate(candidate);
@@ -347,6 +351,9 @@ public class PlaceCandidateService {
      * 장소 후보에 코멘트를 남긴다. 확정된 장소에도 남길 수 있다. (P-09)
      *
      * <p>코멘트는 장소·방 상태를 바꾸지 않으므로 방 잠금을 잡지 않는다 (명세 V-06과 같음).
+     *
+     * <p>저장하려는 사이 후보가 지워지면(P-07) DB가 외래 키로 막는다. 서버 고장이 아니라 후보가 사라진 것이므로 PLACE_CANDIDATE_NOT_FOUND로
+     * 돌려준다.
      */
     @Transactional
     public CommentResponse addComment(
@@ -360,8 +367,13 @@ public class PlaceCandidateService {
             throw new BusinessException(CommonErrorCode.INVALID_STATUS);
         }
         PlaceCandidate candidate = getCandidateInRoom(roomId, placeId);
-        CommentResponse response =
-                CommentResponse.from(commentService.addOnPlace(candidate, me, request.body()));
+        CommentResponse response;
+        try {
+            response =
+                    CommentResponse.from(commentService.addOnPlace(candidate, me, request.body()));
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND);
+        }
         // TODO SSE (커밋 후): comment.created
         return response;
     }

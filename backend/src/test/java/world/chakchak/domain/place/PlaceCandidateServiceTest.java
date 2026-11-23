@@ -11,6 +11,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -18,6 +23,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import world.chakchak.IntegrationTest;
 import world.chakchak.domain.comment.dto.CommentRequest;
 import world.chakchak.domain.place.dto.GooglePlace;
@@ -52,8 +59,8 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * P-02 장소 후보 등록, P-03 칸반 보드, P-04·P-05 반응, P-06 확정, P-07 삭제, P-10 상세. 실제 MySQL에서 방 잠금과 저장, 조회를
- * 확인한다.
+ * P-02 장소 후보 등록, P-03 칸반 보드, P-04·P-05 반응, P-06 확정, P-07 삭제(코멘트 작성과 겹칠 때 포함), P-10 상세. 실제 MySQL에서 방
+ * 잠금과 저장, 조회를 확인한다.
  *
  * <p>Google 조회만 가짜로 바꾸고 register를 그대로 부른다. 그래야 트랜잭션이 실제로 열리는지, 멤버의 user를 트랜잭션 안에서 읽는지까지 함께 확인된다.
  */
@@ -68,6 +75,11 @@ class PlaceCandidateServiceTest {
     @Autowired private UserRepository userRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
+    @Autowired private PlatformTransactionManager transactionManager;
+
+    // 다른 트랜잭션이 잠금이나 저장한 줄을 쥐고 있는 시간
+    private static final long HOLD_MILLIS = 500;
+    private static final long WAIT_SECONDS = 10;
 
     @MockitoBean private PlaceSearchClient placeSearchClient;
 
@@ -1063,6 +1075,37 @@ class PlaceCandidateServiceTest {
             }
 
             @Test
+            @DisplayName("다른 사람이 코멘트를 저장하는 중에 지우면, 저장이 끝나길 기다렸다가 그 코멘트까지 지운다")
+            void waitsForCommentBeingSaved() throws java.lang.Exception {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+                CountDownLatch saved = new CountDownLatch(1);
+                ExecutorService pool = Executors.newSingleThreadExecutor();
+                try {
+                    // 코멘트를 저장하고 커밋하기 전에 잠시 머문다
+                    Future<?> commenting =
+                            pool.submit(() ->
+                                    new TransactionTemplate(transactionManager)
+                                            .executeWithoutResult(status -> {
+                                                comment(jiyoung, placeId, "늦게 단 코멘트");
+                                                saved.countDown();
+                                                sleep(HOLD_MILLIS);
+                                            }));
+                    assertThat(saved.await(WAIT_SECONDS, TimeUnit.SECONDS)).isTrue();
+
+                    pressDelete(minsu, placeId);
+
+                    commenting.get(WAIT_SECONDS, TimeUnit.SECONDS);
+                } finally {
+                    pool.shutdownNow();
+                }
+                assertThat(placeCandidateRepository.findById(placeId)).isEmpty();
+                assertThat(commentCountOf(placeId)).isZero();
+            }
+
+            @Test
             @DisplayName("올린 사람이 아니어도 방 멤버면 지울 수 있다")
             void anyMemberCanDelete() {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
@@ -1161,6 +1204,49 @@ class PlaceCandidateServiceTest {
             }
 
             @Test
+            @DisplayName("지우는 동안 기다리던 코멘트 작성은 후보가 사라졌으므로 500이 아니라 PLACE_CANDIDATE_NOT_FOUND이다")
+            void rejectsCommentWaitingForDelete() throws java.lang.Exception {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                RoomMember jiyoung = saveMember(room, "지영");
+                long placeId = register(minsu, "place-1").placeId();
+                CountDownLatch locked = new CountDownLatch(1);
+                ExecutorService pool = Executors.newSingleThreadExecutor();
+                try {
+                    // 삭제처럼 후보를 잠그고 잠시 머문 뒤 지운다
+                    Future<?> deleting =
+                            pool.submit(() ->
+                                    new TransactionTemplate(transactionManager)
+                                            .executeWithoutResult(status -> {
+                                                PlaceCandidate candidate =
+                                                        placeCandidateRepository
+                                                                .findByIdForUpdate(placeId)
+                                                                .orElseThrow();
+                                                locked.countDown();
+                                                sleep(HOLD_MILLIS);
+                                                // 등록하면 올린 사람의 반응이 생기므로 반응부터 지운다
+                                                placeReactionRepository.deleteAllByPlaceCandidate(
+                                                        candidate);
+                                                placeCandidateRepository.delete(candidate);
+                                            }));
+                    assertThat(locked.await(WAIT_SECONDS, TimeUnit.SECONDS)).isTrue();
+
+                    assertThatThrownBy(() -> comment(jiyoung, placeId, "늦은 코멘트"))
+                            .isInstanceOfSatisfying(
+                                    BusinessException.class,
+                                    e ->
+                                            assertThat(e.getErrorCode())
+                                                    .isEqualTo(
+                                                            PlaceErrorCode
+                                                                    .PLACE_CANDIDATE_NOT_FOUND));
+                    deleting.get(WAIT_SECONDS, TimeUnit.SECONDS);
+                } finally {
+                    pool.shutdownNow();
+                }
+                assertThat(commentCountOf(placeId)).isZero();
+            }
+
+            @Test
             @DisplayName("다른 방의 멤버가 지우면 FORBIDDEN이고 후보는 그대로다")
             void rejectsNonMember() {
                 Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
@@ -1178,6 +1264,15 @@ class PlaceCandidateServiceTest {
                                                 .isEqualTo(CommonErrorCode.FORBIDDEN));
                 assertThat(placeCandidateRepository.findById(placeId)).isPresent();
             }
+        }
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
         }
     }
 

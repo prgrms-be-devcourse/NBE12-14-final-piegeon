@@ -1,10 +1,14 @@
 package world.chakchak.domain.place.repository;
 
+import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import world.chakchak.domain.place.entity.PlaceCandidate;
 import world.chakchak.domain.room.entity.Room;
 
@@ -31,4 +35,13 @@ public interface PlaceCandidateRepository extends JpaRepository<PlaceCandidate, 
 
     /** 이 방의 후보. 없거나 다른 방의 후보면 빈 값이라 PLACE_CANDIDATE_NOT_FOUND로 막는다 (P-08, P-09) */
     Optional<PlaceCandidate> findByIdAndRoom_Id(Long id, Long roomId);
+
+    /**
+     * 후보 행을 잠근다 (SELECT ... FOR UPDATE). 지우는 동안 이 후보에 코멘트가 저장되지 못하게 한다. (P-07)
+     *
+     * <p>코멘트를 저장할 때 DB가 외래 키를 확인하려고 후보 행에 공유 잠금을 건다. 그래서 이 잠금과 코멘트 저장은 한 줄로 선다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select candidate from PlaceCandidate candidate where candidate.id = :id")
+    Optional<PlaceCandidate> findByIdForUpdate(@Param("id") Long id);
 }
