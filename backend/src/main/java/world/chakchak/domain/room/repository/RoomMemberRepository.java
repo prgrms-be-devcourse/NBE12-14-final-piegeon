@@ -42,7 +42,8 @@ public interface RoomMemberRepository extends JpaRepository<RoomMember, Long> {
                 member.id as memberId,
                 user.name as name,
                 member.joinedAt as joinedAt,
-                case when surveyResponse.id is null then false else true end as surveySubmitted
+                case when surveyResponse.id is null then false else true end as surveySubmitted,
+                surveyResponse.submittedAt as submittedAt
             from RoomMember member
             join member.user user
             left join SurveyResponse surveyResponse
@@ -63,5 +64,7 @@ public interface RoomMemberRepository extends JpaRepository<RoomMember, Long> {
         LocalDateTime getJoinedAt();
 
         boolean getSurveySubmitted();
+
+        LocalDateTime getSubmittedAt();
     }
 }
