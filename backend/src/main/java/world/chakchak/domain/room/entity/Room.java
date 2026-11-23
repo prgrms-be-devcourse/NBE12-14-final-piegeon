@@ -102,6 +102,10 @@ public class Room extends BaseEntity {
         if (!deadlinePassed && (activeMemberCount == 0 || responseCount < activeMemberCount)) {
             return false;
         }
+        if (responseCount == 0) {
+            this.status = RoomStatus.EXPIRED;
+            return false;
+        }
         this.surveyClosedAt = now;
         return true;
     }

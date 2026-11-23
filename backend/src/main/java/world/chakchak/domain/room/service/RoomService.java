@@ -153,7 +153,7 @@ public class RoomService {
      *
      * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND
      */
-    @Transactional(propagation = Propagation.MANDATORY)
+    @Transactional(propagation = Propagation.MANDATORY, noRollbackFor = BusinessException.class)
     public Room getForUpdate(Long roomId) {
         return roomRepository
                 .findByIdForUpdate(roomId)
