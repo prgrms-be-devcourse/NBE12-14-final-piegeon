@@ -32,7 +32,7 @@ import world.chakchak.domain.schedule.entity.ScheduleItem;
 import world.chakchak.domain.schedule.repository.ScheduleDayRepository;
 import world.chakchak.domain.schedule.repository.ScheduleItemRepository;
 
-/** B-01 일정 보드 조회, B-02 블록 추가, B-03 블록 이동 API를 HTTP로 호출한다. */
+/** B-01 일정 보드 조회, B-02 블록 추가, B-03 블록 이동, B-04 블록 수정 API를 HTTP로 호출한다. */
 @IntegrationTest
 class ScheduleApiIntegrationTest {
 
@@ -230,6 +230,75 @@ class ScheduleApiIntegrationTest {
 
                 assertThat(response.statusCode()).isEqualTo(400);
                 assertThat(response.body()).contains("\"code\":\"INVALID_INPUT\"");
+            }
+        }
+    }
+
+    @Nested
+    class Update {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName(
+                    "블록을 고치면 200과 SCHEDULE_ITEM_UPDATED가 오고, 시간이 어긋나면 warnings에 TIME_ORDER_MISMATCH가 붙는다")
+            void updatesItem() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                ScheduleDay day =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId).get(0);
+                PlaceCandidate place = saveConfirmedPlace(roomId);
+                scheduleItemRepository.saveAndFlush(
+                        ScheduleItem.create(day, place, 1000, LocalTime.of(12, 0), null));
+                ScheduleItem second =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(day, place, 2000, null, null));
+
+                HttpResponse<String> response =
+                        patch(
+                                "/api/rooms/" + roomId + "/schedule-items/" + second.getId(),
+                                "{\"startTime\":\"09:00\",\"memo\":\"아침\",\"dayVersion\":0}",
+                                cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"SCHEDULE_ITEM_UPDATED\"")
+                        .contains("\"version\":1")
+                        .contains("\"startTime\":\"09:00\"")
+                        .contains("\"memo\":\"아침\"")
+                        .contains("\"warnings\":[\"TIME_ORDER_MISMATCH\"]");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("memo가 200자를 넘거나 시각 형식이 틀리면 400 INVALID_INPUT이다")
+            void rejectsInvalidBody() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                ScheduleDay day =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId).get(0);
+                ScheduleItem item =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(
+                                        day, saveConfirmedPlace(roomId), 1000, null, null));
+                String path = "/api/rooms/" + roomId + "/schedule-items/" + item.getId();
+
+                HttpResponse<String> longMemo =
+                        patch(
+                                path,
+                                "{\"memo\":\"" + "가".repeat(201) + "\",\"dayVersion\":0}",
+                                cookie);
+                HttpResponse<String> badTime =
+                        patch(path, "{\"startTime\":\"25:00\",\"dayVersion\":0}", cookie);
+
+                assertThat(longMemo.statusCode()).isEqualTo(400);
+                assertThat(longMemo.body()).contains("\"code\":\"INVALID_INPUT\"");
+                assertThat(badTime.statusCode()).isEqualTo(400);
+                assertThat(badTime.body()).contains("\"code\":\"INVALID_INPUT\"");
             }
         }
     }

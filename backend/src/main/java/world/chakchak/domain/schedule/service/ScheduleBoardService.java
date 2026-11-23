@@ -1,8 +1,10 @@
 package world.chakchak.domain.schedule.service;
 
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,8 @@ import world.chakchak.domain.schedule.dto.DaySnapshot;
 import world.chakchak.domain.schedule.dto.MoveItemRequest;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
 import world.chakchak.domain.schedule.dto.ScheduleVersionConflictData;
+import world.chakchak.domain.schedule.dto.ScheduleWarning;
+import world.chakchak.domain.schedule.dto.UpdateItemRequest;
 import world.chakchak.domain.schedule.entity.ScheduleDay;
 import world.chakchak.domain.schedule.entity.ScheduleItem;
 import world.chakchak.domain.schedule.errorcode.ScheduleErrorCode;
@@ -32,7 +36,7 @@ import world.chakchak.domain.schedule.repository.ScheduleDayRepository;
 import world.chakchak.domain.schedule.repository.ScheduleItemRepository;
 import world.chakchak.global.error.BusinessException;
 
-/** 일정 보드 기능. (B-01 보드 조회, B-02 블록 추가, B-03 블록 이동) */
+/** 일정 보드 기능. (B-01 보드 조회, B-02 블록 추가, B-03 블록 이동, B-04 블록 수정) */
 @Service
 @RequiredArgsConstructor
 public class ScheduleBoardService {
@@ -177,6 +181,44 @@ public class ScheduleBoardService {
         return new DayChangeResponse(DaySnapshot.of(day, others), List.of());
     }
 
+    /**
+     * 블록의 시간과 메모를 고친다. 순서는 그대로다. (B-04)
+     *
+     * <p>시간이 앞뒤 블록과 어긋나도 막지 않고 warnings로 알려 준다. 시간도 메모도 그대로면 아무것도 저장하지 않고 버전도 올리지 않는다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
+     *     BOARD_LOCKED, 없거나 다른 방의 블록이면 SCHEDULE_ITEM_NOT_FOUND, 버전이 다르면 SCHEDULE_VERSION_CONFLICT
+     */
+    @Transactional
+    public DayChangeResponse updateItem(
+            Long roomId, Long itemId, Long userId, UpdateItemRequest request) {
+        RoomMember me = lockBoard(roomId, userId);
+        ScheduleItem item = getItemInRoom(roomId, itemId);
+        ScheduleDay day = item.getScheduleDay();
+        checkVersion(day, request.dayVersion());
+
+        LocalTime oldTime = item.getStartTime();
+        boolean timeChanged = !Objects.equals(oldTime, request.startTime());
+        boolean memoChanged = !Objects.equals(item.getMemo(), request.memo());
+        if (timeChanged || memoChanged) {
+            item.update(request.startTime(), request.memo());
+            day.increaseVersion();
+            changeLogService.record(
+                    me.getRoom(),
+                    me,
+                    EntityType.SCHEDULE_ITEM,
+                    item.getId(),
+                    EventKind.SCHEDULE_CHANGED,
+                    ActionStatus.UPDATE,
+                    changeSummary(day, item, oldTime, timeChanged, memoChanged));
+            // TODO SSE (커밋 후): board.updated (바뀐 날의 스냅샷)
+        }
+
+        List<ScheduleItem> items =
+                scheduleItemRepository.findAllByScheduleDay_IdOrderBySortOrderAsc(day.getId());
+        return new DayChangeResponse(DaySnapshot.of(day, items), timeOrderWarnings(items, item));
+    }
+
     // 보드 쓰기의 공통 시작. 방을 잠그고, 멤버인지, 보드를 고칠 수 있는 단계인지 본다
     private RoomMember lockBoard(Long roomId, Long userId) {
         Room room = roomService.getForUpdate(roomId);
@@ -254,5 +296,49 @@ public class ScheduleBoardService {
             items.get(i).changeSortOrder((i + 1) * SORT_GAP);
         }
         scheduleItemRepository.flush();
+    }
+
+    // 예: "1일차 광장시장: 11:00 → 15:00", "1일차 광장시장: 메모가 바뀌었어요", 둘 다면 쉼표로 잇는다
+    private String changeSummary(
+            ScheduleDay day,
+            ScheduleItem item,
+            LocalTime oldTime,
+            boolean timeChanged,
+            boolean memoChanged) {
+        List<String> changes = new ArrayList<>();
+        if (timeChanged) {
+            changes.add(timeText(oldTime) + " → " + timeText(item.getStartTime()));
+        }
+        if (memoChanged) {
+            changes.add("메모가 바뀌었어요");
+        }
+        return day.getDayIndex()
+                + "일차 "
+                + item.getPlaceCandidate().getName()
+                + ": "
+                + String.join(", ", changes);
+    }
+
+    // 11:00처럼 보여 준다. 시간이 없으면 "시간 미정"
+    private String timeText(LocalTime time) {
+        return time == null ? "시간 미정" : time.toString();
+    }
+
+    /**
+     * 이 블록의 시간이 바로 앞 블록보다 이르거나 바로 뒤 블록보다 늦으면 TIME_ORDER_MISMATCH.
+     *
+     * <p>이 블록이나 앞뒤 블록에 시간이 없으면 그쪽은 보지 않는다. 같은 시각은 괜찮다.
+     */
+    private List<ScheduleWarning> timeOrderWarnings(List<ScheduleItem> items, ScheduleItem item) {
+        LocalTime time = item.getStartTime();
+        if (time == null) {
+            return List.of();
+        }
+        int index = items.indexOf(item);
+        LocalTime before = index > 0 ? items.get(index - 1).getStartTime() : null;
+        LocalTime after = index < items.size() - 1 ? items.get(index + 1).getStartTime() : null;
+        boolean mismatch =
+                (before != null && time.isBefore(before)) || (after != null && time.isAfter(after));
+        return mismatch ? List.of(ScheduleWarning.TIME_ORDER_MISMATCH) : List.of();
     }
 }
