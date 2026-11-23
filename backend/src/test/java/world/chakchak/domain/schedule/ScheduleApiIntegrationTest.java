@@ -32,7 +32,7 @@ import world.chakchak.domain.schedule.entity.ScheduleItem;
 import world.chakchak.domain.schedule.repository.ScheduleDayRepository;
 import world.chakchak.domain.schedule.repository.ScheduleItemRepository;
 
-/** B-01 일정 보드 조회, B-02 블록 추가, B-03 블록 이동, B-04 블록 수정 API를 HTTP로 호출한다. */
+/** B-01 일정 보드 조회, B-02 블록 추가, B-03 블록 이동, B-04 블록 수정, B-05 블록 삭제 API를 HTTP로 호출한다. */
 @IntegrationTest
 class ScheduleApiIntegrationTest {
 
@@ -301,6 +301,80 @@ class ScheduleApiIntegrationTest {
                 assertThat(badTime.body()).contains("\"code\":\"INVALID_INPUT\"");
             }
         }
+    }
+
+    @Nested
+    class Delete {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("블록을 지우면 200과 SCHEDULE_ITEM_DELETED, 그날의 새 버전이 반환되고 지운 블록과 warnings 칸은 없다")
+            void deletesItem() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                ScheduleDay day =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId).get(0);
+                PlaceCandidate place = saveConfirmedPlace(roomId);
+                ScheduleItem first =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(day, place, 1000, null, null));
+                ScheduleItem second =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(day, place, 2000, null, null));
+
+                HttpResponse<String> response =
+                        delete(
+                                "/api/rooms/"
+                                        + roomId
+                                        + "/schedule-items/"
+                                        + second.getId()
+                                        + "?dayVersion=0",
+                                cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"SCHEDULE_ITEM_DELETED\"")
+                        .contains("\"version\":1")
+                        .contains("\"itemId\":" + first.getId())
+                        .doesNotContain("\"itemId\":" + second.getId())
+                        .doesNotContain("warnings");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("dayVersion이 없으면 400 INVALID_INPUT이다")
+            void rejectsMissingVersion() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                ScheduleDay day =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId).get(0);
+                ScheduleItem item =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(
+                                        day, saveConfirmedPlace(roomId), 1000, null, null));
+
+                HttpResponse<String> response =
+                        delete("/api/rooms/" + roomId + "/schedule-items/" + item.getId(), cookie);
+
+                assertThat(response.statusCode()).isEqualTo(400);
+                assertThat(response.body()).contains("\"code\":\"INVALID_INPUT\"");
+                assertThat(scheduleItemRepository.findById(item.getId())).isPresent();
+            }
+        }
+    }
+
+    private HttpResponse<String> delete(String path, String cookie) throws java.lang.Exception {
+        HttpRequest request =
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                        .header("Cookie", cookie)
+                        .DELETE()
+                        .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private HttpResponse<String> patch(String path, String body, String cookie)
