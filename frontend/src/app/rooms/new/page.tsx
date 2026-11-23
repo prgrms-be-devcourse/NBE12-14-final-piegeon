@@ -47,6 +47,7 @@ export default function NewRoomPage() {
 
   return (
     <AuthShell
+      photo="castle"
       big={
         <>
           친구들 취향이

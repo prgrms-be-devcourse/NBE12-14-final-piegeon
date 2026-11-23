@@ -37,6 +37,11 @@ export default function Landing() {
           </div>
         ))}
       </section>
+      <footer className="page" style={{ paddingTop: 0 }}>
+        <p className="small muted">
+          사진은 Wikimedia Commons(CC BY, CC BY-SA)에서 가져왔어요. <Link href="/credits">사진·글꼴 출처</Link>
+        </p>
+      </footer>
     </>
   );
 }

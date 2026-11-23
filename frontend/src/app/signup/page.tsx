@@ -46,6 +46,7 @@ function SignupForm() {
 
   return (
     <AuthShell
+      photo="kuromon"
       big={
         <>
           친구들 취향이

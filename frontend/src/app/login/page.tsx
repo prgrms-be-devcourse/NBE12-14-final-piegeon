@@ -32,6 +32,7 @@ function LoginForm() {
 
   return (
     <AuthShell
+      photo="umeda"
       big={
         <>
           혼자 짜지 않아도
