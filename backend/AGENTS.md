@@ -66,7 +66,7 @@
 - `@DisplayName`에 검증하는 규칙을 한국어 한 문장으로 적는다.
 - 테스트 클래스 내부는 `@Nested`를 사용해 1단계로 CRUD 기능별(`Create`, `Read`, `Update`, `Delete` 등), 2단계로 `Success`와 `Failure` 케이스별로 계층을 나눈다.
 - 작업을 끝내기 전에 `./gradlew build`를 실행하고, 실제 출력 결과를 보고한다.
-- PR과 `dev`, `main` push에서는 `.github/workflows/backend-ci.yml`이 같은 `./gradlew build`를 실행한다.
+- `backend/`가 바뀐 PR과 `dev` push에서는 `.github/workflows/backend-ci.yml`이, `main` 머지에서는 `.github/workflows/deploy.yml`이 같은 `./gradlew build`를 실행한다.
 
 ## 하지 말 것
 - API 키와 운영 환경의 비밀번호를 코드나 설정 파일에 적지 않는다. 값은 환경변수로 받는다. 로컬 DB 계정만 예외다.
