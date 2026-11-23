@@ -14,7 +14,6 @@ import world.chakchak.domain.survey.dto.SurveyStatusResponse;
 public class SurveyStatusService {
 
     private final RoomMemberService roomMemberService;
-    private final RoomMemberRepository roomMemberRepository;
 
     public SurveyStatusResponse getStatus(Long roomId, Long userId) {
         var member = roomMemberService.getActiveMember(roomId, userId);
