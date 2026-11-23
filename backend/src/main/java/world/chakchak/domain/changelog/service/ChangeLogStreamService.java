@@ -40,7 +40,7 @@ public class ChangeLogStreamService {
         long memberConnectionCount =
                 memberConnections.stream().filter(c -> c.memberId.equals(memberId)).count();
         if (memberConnectionCount >= MAX_CONNECTIONS_PER_MEMBER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+            throw new BusinessException(CommonErrorCode.TOO_MANY_STREAMS);
         }
         SseEmitter emitter = new SseEmitter(CONNECTION_TIMEOUT_MILLIS);
         StreamConnection connection = new StreamConnection(roomId, memberId, userId, emitter);

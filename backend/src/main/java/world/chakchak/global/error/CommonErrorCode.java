@@ -17,6 +17,7 @@ public enum CommonErrorCode implements ErrorCode {
     INVALID_STATUS(HttpStatus.CONFLICT, "지금 단계에서는 할 수 없는 요청입니다."),
     VERSION_CONFLICT(HttpStatus.CONFLICT, "다른 사람이 먼저 수정했습니다. 최신 내용을 다시 불러와 주세요."),
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "요청 횟수 제한을 초과했습니다."),
+    TOO_MANY_STREAMS(HttpStatus.TOO_MANY_REQUESTS, "동시 SSE 연결 수 제한을 초과했습니다."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버에서 오류가 발생했습니다."),
     EXTERNAL_API_ERROR(HttpStatus.BAD_GATEWAY, "외부 서비스 호출에 실패했습니다.");
 
