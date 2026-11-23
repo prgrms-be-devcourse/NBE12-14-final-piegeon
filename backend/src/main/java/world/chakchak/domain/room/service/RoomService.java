@@ -160,6 +160,13 @@ public class RoomService {
                 .orElseThrow(() -> new BusinessException(RoomErrorCode.ROOM_NOT_FOUND));
     }
 
+    @Transactional(readOnly = true)
+    public void checkExists(Long roomId) {
+        if (!roomRepository.existsById(roomId)) {
+            throw new BusinessException(RoomErrorCode.ROOM_NOT_FOUND);
+        }
+    }
+
     private RoomCreatedResponse createInTransaction(
             Long userId, CreateRoomRequest request, String inviteCode) {
         Room room =

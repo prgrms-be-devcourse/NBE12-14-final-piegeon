@@ -9,9 +9,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import world.chakchak.domain.room.entity.RoomMember;
+import world.chakchak.domain.room.service.RoomMemberService;
+import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.domain.survey.dto.SubmitSurveyRequest;
 import world.chakchak.domain.survey.dto.SubmitSurveyResponse;
+import world.chakchak.domain.survey.dto.SurveyMeResponse;
+import world.chakchak.domain.survey.entity.ActivityCode;
+import world.chakchak.domain.survey.entity.Pace;
+import world.chakchak.domain.survey.entity.StayType;
 import world.chakchak.domain.survey.entity.SurveyResponse;
+import world.chakchak.domain.survey.errorcode.SurveyFetchErrorCode;
 import world.chakchak.domain.survey.errorcode.SurveySubmitErrorCode;
 import world.chakchak.domain.survey.repository.SurveyResponseRepository;
 import world.chakchak.global.error.BusinessException;
@@ -23,10 +30,43 @@ public class SurveyResponseService {
 
     private final SurveyResponseRepository surveyResponseRepository;
     private final Clock clock;
+    private final RoomService roomService;
+    private final RoomMemberService roomMemberService;
 
     public List<SurveyResponse> getActiveMemberResponses(Long roomId) {
         return surveyResponseRepository.findAllByRoomMember_Room_IdAndRoomMember_LeftAtIsNull(
                 roomId);
+    }
+
+    @Transactional(readOnly = true)
+    public SurveyMeResponse getMine(Long roomId, Long userId) {
+        roomService.checkExists(roomId);
+        RoomMember member = roomMemberService.getActiveMember(roomId, userId);
+        SurveyResponse response =
+                surveyResponseRepository
+                        .findByRoomMember_Id(member.getId())
+                        .orElseThrow(
+                                () -> new BusinessException(SurveyFetchErrorCode.SURVEY_NOT_FOUND));
+        return new SurveyMeResponse(
+                response.getId(),
+                response.getBudget(),
+                option(response.getStayType()),
+                option(response.getPace()),
+                response.getActPrefs().stream().map(SurveyResponseService::option).toList(),
+                response.getAvoidNote(),
+                response.getSubmittedAt());
+    }
+
+    private static SurveyMeResponse.Option option(StayType value) {
+        return value == null ? null : new SurveyMeResponse.Option(value.name(), value.getLabel());
+    }
+
+    private static SurveyMeResponse.Option option(Pace value) {
+        return value == null ? null : new SurveyMeResponse.Option(value.name(), value.getLabel());
+    }
+
+    private static SurveyMeResponse.Option option(ActivityCode value) {
+        return new SurveyMeResponse.Option(value.name(), value.getLabel());
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
