@@ -22,3 +22,4 @@ pnpm-debug.log*
 # Next·TypeScript가 만드는 파일
 next-env.d.ts
 *.tsbuildinfo
+.vercel
