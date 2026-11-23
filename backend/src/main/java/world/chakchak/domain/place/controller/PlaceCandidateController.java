@@ -3,7 +3,10 @@ package world.chakchak.domain.place.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.net.URI;
+import java.time.Duration;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -138,6 +141,29 @@ public class PlaceCandidateController {
         placeCandidateService.delete(roomId, placeId, loginUser.userId());
         return ResponseEntity.ok(
                 ApiResponse.successWithoutData("PLACE_CANDIDATE_DELETED", "장소 후보를 삭제했습니다."));
+    }
+
+    /**
+     * P-11 장소 사진.
+     *
+     * <p>이미지로 보내는 리다이렉트라 공통 응답(ApiResponse)으로 감싸지 않는다(명세가 정한 예외). 에러는 다른 API처럼 공통 형식이다.
+     */
+    @Operation(
+            summary = "장소 사진 (P-11)",
+            description =
+                    "Google 사진 주소로 302 리다이렉트한다. 프론트는 상세의 photoUrl을 <img src>에 그대로 넣는다. "
+                            + "API 키가 브라우저에 보이지 않게 서버를 거친다.")
+    @GetMapping("/{placeId}/photo")
+    public ResponseEntity<Void> getPhoto(
+            @PathVariable Long roomId,
+            @PathVariable Long placeId,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        String photoUri = placeCandidateService.getPhotoUri(roomId, placeId, loginUser.userId());
+        // Google 정책상 사진 주소는 오래 저장하지 않는다. 대신 브라우저가 1시간 동안 다시 묻지 않게 해서 호출 수를 줄인다
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(photoUri))
+                .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePrivate())
+                .build();
     }
 
     /** P-08 장소 코멘트 목록 */

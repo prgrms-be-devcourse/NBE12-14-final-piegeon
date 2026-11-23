@@ -47,7 +47,10 @@ import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
-/** 장소 후보 기능. (P-02 등록, P-03 칸반 보드, P-04, P-05 반응, P-06 확정, P-07 삭제, P-08, P-09 장소 코멘트, P-10 상세) */
+/**
+ * 장소 후보 기능. (P-02 등록, P-03 칸반 보드, P-04, P-05 반응, P-06 확정, P-07 삭제, P-08, P-09 장소 코멘트, P-10 상세, P-11
+ * 사진)
+ */
 @Service
 @RequiredArgsConstructor
 public class PlaceCandidateService {
@@ -339,6 +342,32 @@ public class PlaceCandidateService {
         // TODO 커밋 후 SSE place.deleted (data는 placeId)
     }
 
+    /**
+     * 장소 사진의 Google 주소. controller가 이 주소로 302 리다이렉트한다. (P-11)
+     *
+     * <p>@Transactional을 붙이지 않는다. 등록과 같은 이유로, Google을 기다리는 동안 DB 연결을 잡고 있지 않으려고 멤버·후보 확인만
+     * TransactionTemplate으로 묶고 Google은 그 밖에서 부른다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 없거나 다른 방의 후보면
+     *     PLACE_CANDIDATE_NOT_FOUND, 저장된 사진이 없거나 Google에서 사라졌으면 PLACE_PHOTO_NOT_FOUND, Google 오류면
+     *     PLACES_API_ERROR
+     */
+    public String getPhotoUri(Long roomId, Long placeId, Long userId) {
+        TransactionTemplate readOnly = new TransactionTemplate(transactionManager);
+        readOnly.setReadOnly(true);
+        String photoName =
+                readOnly.execute(status -> {
+                    roomMemberService.getActiveMember(roomId, userId);
+                    return getCandidateInRoom(roomId, placeId).getPhotoName();
+                });
+        if (photoName == null) {
+            throw new BusinessException(PlaceErrorCode.PLACE_PHOTO_NOT_FOUND);
+        }
+        return placeSearchClient
+                .findPhotoUri(photoName)
+                .orElseThrow(() -> new BusinessException(PlaceErrorCode.PLACE_PHOTO_NOT_FOUND));
+    }
+
     /** 장소 후보 코멘트 목록, 오래된 순. (P-08) */
     @Transactional(readOnly = true)
     public CommentListResponse getComments(Long roomId, Long placeId, Long userId) {
@@ -419,6 +448,7 @@ public class PlaceCandidateService {
                         PlaceCategory.fromGoogleType(candidate.getPlaceType())),
                 candidate.getAddress(),
                 candidate.getGoogleMapsUrl(),
+                photoUrlOf(roomId, candidate),
                 PlaceStage.of(candidate.isConfirmed(), agreeCount, activeMemberCount),
                 agreeCount,
                 activeMemberCount,
@@ -427,6 +457,14 @@ public class PlaceCandidateService {
                 candidate.getConfirmedAt(),
                 reactions,
                 commentService.countOnPlace(candidate.getId()));
+    }
+
+    // 사진 API 주소. 저장된 사진이 없으면 null이라 프론트가 빈 사진 자리를 그린다
+    private String photoUrlOf(Long roomId, PlaceCandidate candidate) {
+        if (candidate.getPhotoName() == null) {
+            return null;
+        }
+        return "/api/rooms/" + roomId + "/place-candidates/" + candidate.getId() + "/photo";
     }
 
     // 반응과 삭제는 일정 조율(PLANNING) 중에, 아직 확정 안 된 후보에만 할 수 있다. 잠금 안에서 확인한다.

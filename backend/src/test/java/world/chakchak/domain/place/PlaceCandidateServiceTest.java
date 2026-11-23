@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -59,8 +61,8 @@ import world.chakchak.global.error.BusinessException;
 import world.chakchak.global.error.CommonErrorCode;
 
 /**
- * P-02 장소 후보 등록, P-03 칸반 보드, P-04·P-05 반응, P-06 확정, P-07 삭제(코멘트 작성과 겹칠 때 포함), P-10 상세. 실제 MySQL에서 방
- * 잠금과 저장, 조회를 확인한다.
+ * P-02 장소 후보 등록, P-03 칸반 보드, P-04·P-05 반응, P-06 확정, P-07 삭제(코멘트 작성과 겹칠 때 포함), P-10 상세, P-11 사진. 실제
+ * MySQL에서 방 잠금과 저장, 조회를 확인한다.
  *
  * <p>Google 조회만 가짜로 바꾸고 register를 그대로 부른다. 그래야 트랜잭션이 실제로 열리는지, 멤버의 user를 트랜잭션 안에서 읽는지까지 함께 확인된다.
  */
@@ -1265,6 +1267,129 @@ class PlaceCandidateServiceTest {
                 assertThat(placeCandidateRepository.findById(placeId)).isPresent();
             }
         }
+    }
+
+    @Nested
+    class Photo {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("저장된 사진 이름으로 Google에서 받은 사진 주소를 돌려준다")
+            void returnsGooglePhotoUri() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+                given(placeSearchClient.findPhotoUri("places/place-1/photos/p1"))
+                        .willReturn(Optional.of("https://lh3.googleusercontent.com/a"));
+
+                assertThat(photoUri(minsu, placeId))
+                        .isEqualTo("https://lh3.googleusercontent.com/a");
+            }
+
+            @Test
+            @DisplayName("상세의 photoUrl은 사진이 있으면 사진 API 주소, 없으면 null이다")
+            void detailHasPhotoUrlOnlyWhenPhotoSaved() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long withPhoto = register(minsu, "place-1").placeId();
+                long noPhoto = register(minsu, "place-2").placeId();
+                removePhoto(noPhoto);
+
+                assertThat(getDetail(minsu, withPhoto).photoUrl())
+                        .isEqualTo(
+                                "/api/rooms/"
+                                        + room.getId()
+                                        + "/place-candidates/"
+                                        + withPhoto
+                                        + "/photo");
+                assertThat(getDetail(minsu, noPhoto).photoUrl()).isNull();
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("저장된 사진이 없으면 Google을 부르지 않고 PLACE_PHOTO_NOT_FOUND다")
+            void rejectsWhenNoPhotoSaved() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+                removePhoto(placeId);
+
+                assertThatThrownBy(() -> photoUri(minsu, placeId))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(PlaceErrorCode.PLACE_PHOTO_NOT_FOUND));
+                verify(placeSearchClient, never()).findPhotoUri(anyString());
+            }
+
+            @Test
+            @DisplayName("Google에서 사진이 사라졌으면 PLACE_PHOTO_NOT_FOUND다")
+            void rejectsWhenGoogleHasNoPhoto() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                long placeId = register(minsu, "place-1").placeId();
+                given(placeSearchClient.findPhotoUri(anyString())).willReturn(Optional.empty());
+
+                assertThatThrownBy(() -> photoUri(minsu, placeId))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(PlaceErrorCode.PLACE_PHOTO_NOT_FOUND));
+            }
+
+            @Test
+            @DisplayName("다른 방의 후보 사진이면 PLACE_CANDIDATE_NOT_FOUND이고 Google을 부르지 않는다")
+            void rejectsCandidateOfOtherRoom() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                long otherPlaceId = register(saveMember(otherRoom, "철수"), "place-1").placeId();
+
+                assertThatThrownBy(() -> photoUri(minsu, otherPlaceId))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(
+                                                        PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND));
+                verify(placeSearchClient, never()).findPhotoUri(anyString());
+            }
+
+            @Test
+            @DisplayName("다른 방의 멤버가 사진을 보면 FORBIDDEN이다")
+            void rejectsNonMember() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                long placeId = register(saveMember(room, "민수"), "place-1").placeId();
+                Room otherRoom = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember outsider = saveMember(otherRoom, "철수");
+
+                assertThatThrownBy(() ->
+                                placeCandidateService.getPhotoUri(
+                                        room.getId(), placeId, outsider.getUser().getId()))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e ->
+                                        assertThat(e.getErrorCode())
+                                                .isEqualTo(CommonErrorCode.FORBIDDEN));
+            }
+        }
+    }
+
+    private String photoUri(RoomMember member, long placeId) {
+        return placeCandidateService.getPhotoUri(
+                member.getRoom().getId(), placeId, member.getUser().getId());
+    }
+
+    // 사진 없이 등록된 장소로 만든다
+    private void removePhoto(long placeId) {
+        jdbcTemplate.update("UPDATE place_candidate SET photo_name = NULL WHERE id = ?", placeId);
     }
 
     private static void sleep(long millis) {

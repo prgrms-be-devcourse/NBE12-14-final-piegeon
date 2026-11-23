@@ -27,6 +27,8 @@ public enum PlaceErrorCode implements ErrorCode {
     NOT_FULLY_AGREED(HttpStatus.CONFLICT, "활동 멤버 전원이 동의하지 않았습니다."),
     // 등록자가 아닌데 후보 삭제 (P-07)
     NOT_PLACE_OWNER(HttpStatus.FORBIDDEN, "장소를 등록한 사람만 삭제할 수 있습니다."),
+    // 사진이 저장되지 않은 장소이거나, Google에서 사진이 사라짐 (P-11)
+    PLACE_PHOTO_NOT_FOUND(HttpStatus.NOT_FOUND, "장소 사진이 없습니다."),
     // 확정 안 된 장소를 일정 블록에 배치 (B-02, 장소 규칙이라 여기에 둠)
     PLACE_NOT_CONFIRMED(HttpStatus.CONFLICT, "확정이 되지 않은 장소는 일정에 넣을 수 없습니다."),
     // Google Places 호출 실패 (P-01, P-02)
