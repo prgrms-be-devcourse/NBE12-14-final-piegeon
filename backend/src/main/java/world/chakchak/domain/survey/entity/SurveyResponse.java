@@ -31,7 +31,6 @@ public class SurveyResponse extends BaseEntity {
     private static final long MAX_BUDGET = 99_999_999L;
     private static final int MIN_ACT_PREFS = 1;
     private static final int MAX_ACT_PREFS = 3;
-    private static final int MAX_AVOID_NOTE_LENGTH = 100;
 
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "plan_room_member_id", nullable = false, unique = true)
@@ -75,13 +74,6 @@ public class SurveyResponse extends BaseEntity {
         if (budget != null && (budget < MIN_BUDGET || budget > MAX_BUDGET)) {
             throw new BusinessException(SurveyErrorCode.BUDGET_INVALID);
         }
-        if (avoidNote == null || avoidNote.isBlank()) {
-            throw new BusinessException(SurveyErrorCode.AVOID_NOTE_REQUIRED);
-        }
-        if (avoidNote != null && avoidNote.length() > MAX_AVOID_NOTE_LENGTH) {
-            throw new BusinessException(SurveyErrorCode.AVOID_NOTE_TOO_LONG);
-        }
-
         this.roomMember = roomMember;
         this.budget = budget;
         this.stayType = stayType;

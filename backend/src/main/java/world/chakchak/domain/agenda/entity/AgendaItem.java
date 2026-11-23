@@ -82,7 +82,7 @@ public class AgendaItem extends BaseEntity {
             LocalDateTime deadlineAt) {
         // D-1이 됐거나 지났으면 안건을 만들지 않는다. 만들면 마감이 D-1로 줄어 만들자마자 투표할 수 없는 안건이 된다.
         // (예: 출발 4일 전에 만든 방은 설문 마감(생성 + 3일)이 정확히 D-1이다)
-        if (!now.isBefore(dayBeforeDeparture(room.getStartDate()))) {
+        if (!canOpenAt(room, now)) {
             throw new BusinessException(AgendaErrorCode.AGENDA_DEADLINE_PASSED);
         }
         // 투표자 0명으로 안건을 열면 아무도 투표할 수 없어 마감까지 VOTING으로 남는다.
