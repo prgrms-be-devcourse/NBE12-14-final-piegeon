@@ -97,28 +97,35 @@ export function safeNext(next: string | null, fallback = "/rooms"): string {
   return next;
 }
 
-/** 화이트/블랙. 고르지 않으면 시스템 설정을 따른다 */
-export function useTheme(): [string | null, () => void] {
-  const [theme, setTheme] = useState<string | null>(null);
+/** 화이트/블랙. 고르지 않으면 시스템 설정을 따른다. 지금 보이는 쪽("light" | "dark")과 바꾸는 함수를 준다 */
+export function useTheme(): ["light" | "dark", () => void] {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   useEffect(() => {
-    try {
-      setTheme(localStorage.getItem("theme"));
-    } catch {
-      setTheme(null);
+    const picked = document.documentElement.dataset.theme;
+    if (picked === "dark" || picked === "light") {
+      setTheme(picked);
+      return;
     }
+    // 고른 적이 없으면 시스템 설정을 따르고, 시스템 설정이 바뀌면 같이 바뀐다
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const sync = () => {
+      if (!document.documentElement.dataset.theme) setTheme(media.matches ? "dark" : "light");
+    };
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
   }, []);
   const toggle = useCallback(() => {
-    const current =
-      document.documentElement.dataset.theme ??
-      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    const next = current === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem("theme", next);
-    } catch {
-      // 저장이 막혀 있어도 이번 화면에서는 바뀐다
-    }
-    setTheme(next);
+    setTheme((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      try {
+        localStorage.setItem("theme", next);
+      } catch {
+        // 저장이 막혀 있어도 이번 화면에서는 바뀐다
+      }
+      return next;
+    });
   }, []);
   return [theme, toggle];
 }
