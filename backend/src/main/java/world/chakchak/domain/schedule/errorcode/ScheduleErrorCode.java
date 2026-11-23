@@ -17,8 +17,8 @@ public enum ScheduleErrorCode implements ErrorCode {
     SCHEDULE_DAY_NOT_FOUND(HttpStatus.NOT_FOUND, "일정의 해당 날짜를 찾을 수 없습니다."),
     // 없거나 다른 방의 블록 (B-03, B-04, B-05)
     SCHEDULE_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "일정 블록을 찾을 수 없습니다."),
-    // 방이 REVIEWING·FINALIZED라 보드가 잠김 (B-02~B-05)
-    BOARD_LOCKED(HttpStatus.CONFLICT, "최종 확정 투표중이거나 확정된 일정은 수정할 수 없습니다."),
+    // 방이 PLANNING이 아니라 보드를 고칠 수 없음. 설문 중, 최종 검토·확정 뒤, 만료 모두 (B-02~B-05)
+    BOARD_LOCKED(HttpStatus.CONFLICT, "지금 단계에서는 일정을 수정할 수 없습니다."),
     // 요청의 dayVersion이 서버와 다름 (B-02~B-05)
     SCHEDULE_VERSION_CONFLICT(HttpStatus.CONFLICT, "다른 멤버가 먼저 일정을 수정했습니다. 최신 보드를 다시 불러와 주세요."),
     // 하루 블록이 10개를 넘음 (B-02)

@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import world.chakchak.IntegrationTest;
 import world.chakchak.domain.place.entity.PlaceCandidate;
 import world.chakchak.domain.place.repository.PlaceCandidateRepository;
@@ -31,7 +32,7 @@ import world.chakchak.domain.schedule.entity.ScheduleItem;
 import world.chakchak.domain.schedule.repository.ScheduleDayRepository;
 import world.chakchak.domain.schedule.repository.ScheduleItemRepository;
 
-/** B-01 일정 보드 조회 API를 HTTP로 호출한다. */
+/** B-01 일정 보드 조회, B-02 블록 추가 API를 HTTP로 호출한다. */
 @IntegrationTest
 class ScheduleApiIntegrationTest {
 
@@ -44,6 +45,7 @@ class ScheduleApiIntegrationTest {
     @Autowired private ScheduleDayRepository scheduleDayRepository;
     @Autowired private ScheduleItemRepository scheduleItemRepository;
     @Autowired private PlaceCandidateRepository placeCandidateRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
 
     private final HttpClient client = HttpClient.newHttpClient();
@@ -92,6 +94,84 @@ class ScheduleApiIntegrationTest {
                 assertThat(response.body()).contains("\"code\":\"FORBIDDEN\"");
             }
         }
+    }
+
+    @Nested
+    class Create {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("블록을 넣으면 201과 SCHEDULE_ITEM_CREATED, 새 블록 id와 그날의 새 버전이 반환된다")
+            void addsItem() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                ScheduleDay day =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId).get(0);
+                PlaceCandidate place = saveConfirmedPlace(roomId);
+
+                HttpResponse<String> response =
+                        post(
+                                itemsPath(roomId, day),
+                                "{\"placeId\":"
+                                        + place.getId()
+                                        + ",\"afterItemId\":null,\"startTime\":\"14:00\","
+                                        + "\"memo\":\"예약 필요\",\"dayVersion\":0}",
+                                cookie);
+
+                assertThat(response.statusCode()).isEqualTo(201);
+                assertThat(response.body())
+                        .contains("\"code\":\"SCHEDULE_ITEM_CREATED\"")
+                        .contains("\"itemId\":")
+                        .contains("\"version\":1")
+                        .contains("\"startTime\":\"14:00\"")
+                        .contains("\"memo\":\"예약 필요\"")
+                        .doesNotContain("sortOrder");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("placeId가 없거나 memo가 200자를 넘으면 400 INVALID_INPUT이다")
+            void rejectsInvalidBody() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                ScheduleDay day =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId).get(0);
+                PlaceCandidate place = saveConfirmedPlace(roomId);
+
+                HttpResponse<String> noPlace =
+                        post(itemsPath(roomId, day), "{\"dayVersion\":0}", cookie);
+                HttpResponse<String> longMemo =
+                        post(
+                                itemsPath(roomId, day),
+                                "{\"placeId\":"
+                                        + place.getId()
+                                        + ",\"memo\":\""
+                                        + "가".repeat(201)
+                                        + "\",\"dayVersion\":0}",
+                                cookie);
+
+                assertThat(noPlace.statusCode()).isEqualTo(400);
+                assertThat(noPlace.body()).contains("\"code\":\"INVALID_INPUT\"");
+                assertThat(longMemo.statusCode()).isEqualTo(400);
+                assertThat(longMemo.body()).contains("\"code\":\"INVALID_INPUT\"");
+            }
+        }
+    }
+
+    private String itemsPath(long roomId, ScheduleDay day) {
+        return "/api/rooms/" + roomId + "/schedule-days/" + day.getId() + "/items";
+    }
+
+    // 방을 API로 만들면 설문 단계라서, 보드를 고칠 수 있게 PLANNING으로 바꿔 둔다
+    private long createPlanningRoom(String cookie) throws java.lang.Exception {
+        long roomId = createRoom(cookie);
+        jdbcTemplate.update("UPDATE plan_room SET status = 'PLANNING' WHERE id = ?", roomId);
+        return roomId;
     }
 
     private HttpResponse<String> get(long roomId, String cookie) throws java.lang.Exception {
