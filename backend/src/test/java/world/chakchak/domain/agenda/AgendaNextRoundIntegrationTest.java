@@ -27,6 +27,7 @@ import world.chakchak.domain.agenda.entity.AgendaStatus;
 import world.chakchak.domain.agenda.entity.AgendaSubject;
 import world.chakchak.domain.agenda.repository.AgendaItemRepository;
 import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
+import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
@@ -57,6 +58,7 @@ class AgendaNextRoundIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private AgendaItemRepository agendaItemRepository;
     @Autowired private AgendaOptionRepository agendaOptionRepository;
+    @Autowired private AgendaService agendaService;
     @Autowired private SurveyResponseRepository surveyResponseRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
@@ -194,6 +196,40 @@ class AgendaNextRoundIntegrationTest {
                         .extracting(AgendaOption::getValue)
                         .containsExactly("600000", "800000", "1000000");
                 assertThat(options.get(1).getProposedBy().getId()).isEqualTo(jieunMember.getId());
+            }
+
+            @Test
+            @DisplayName("기한이 지난 예산 안건을 마감 처리하면 EXPIRED가 되고 방은 SURVEYING이며 다음 회차를 열 수 있다")
+            void opensNextRoundAfterDeadlineExpiry() throws Exception {
+                Room room = surveyingRoom();
+                LocalDateTime now = LocalDateTime.now(clock);
+                AgendaItem budget =
+                        agendaItemRepository.save(
+                                AgendaItem.create(
+                                        room,
+                                        AgendaSubject.BUDGET,
+                                        1,
+                                        "예산을 정해주세요",
+                                        2,
+                                        now,
+                                        now.plusDays(3)));
+                agendaOptionRepository.save(AgendaOption.budget(budget, 600_000L, 0, null));
+                agendaOptionRepository.save(AgendaOption.budget(budget, 1_000_000L, 1, null));
+                jdbcTemplate.update(
+                        "update agenda_item set deadline_at = ? where id = ?",
+                        now.minusMinutes(1),
+                        budget.getId());
+
+                assertThat(agendaService.findRoomIdsWithOverdueAgendas()).contains(room.getId());
+                agendaService.expireOverdueAgendas(room.getId());
+
+                assertThat(agendaItemRepository.findById(budget.getId()).orElseThrow().getStatus())
+                        .isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(roomRepository.findById(room.getId()).orElseThrow().getStatus())
+                        .isEqualTo(RoomStatus.SURVEYING);
+                HttpResponse<String> response = openNextRound(room, budget);
+                assertThat(response.statusCode()).isEqualTo(201);
+                assertThat(response.body()).contains("\"round\":2");
             }
         }
 

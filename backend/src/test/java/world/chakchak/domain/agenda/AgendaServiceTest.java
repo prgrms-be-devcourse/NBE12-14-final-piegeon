@@ -556,6 +556,15 @@ class AgendaServiceTest {
                     ROOM_ID, agenda.getId(), USER_ID, new VoteRequest(option.getId(), comment));
         }
 
+        // 13-2 마감 처리의 앞부분: 방 잠금, 잠근 뒤의 시각, 투표 중 안건
+        private void givenOverdueCheck(LocalDateTime now, AgendaItem... voting) {
+            given(roomService.getForUpdate(ROOM_ID)).willReturn(room);
+            given(clock.instant()).willReturn(now.atZone(SEOUL).toInstant());
+            given(clock.getZone()).willReturn(SEOUL);
+            given(agendaItemRepository.findAllByRoomIdAndStatus(ROOM_ID, AgendaStatus.VOTING))
+                    .willReturn(List.of(voting));
+        }
+
         private void assertVoteError(Runnable action, ErrorCode errorCode) {
             assertThatThrownBy(action::run)
                     .isInstanceOf(BusinessException.class)
@@ -785,6 +794,79 @@ class AgendaServiceTest {
                 agendaService.applyExpired(room, budget);
 
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.SURVEYING);
+            }
+
+            @Test
+            @DisplayName("기한이 지난 설문 안건은 미결로 끝나고 방은 SURVEYING에 머문다")
+            void expiresOverdueSurveyAgenda() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                givenOverdueCheck(budget.getDeadlineAt(), budget);
+
+                agendaService.expireOverdueAgendas(ROOM_ID);
+
+                assertThat(budget.getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.SURVEYING);
+            }
+
+            @Test
+            @DisplayName("기한이 지난 최종 확정 안건은 미결로 끝나고 방이 PLANNING으로 돌아간다")
+            void expiresOverdueFinalPlan() {
+                reviewing();
+                AgendaItem finalPlan = openAgenda(AgendaSubject.FINAL_PLAN, 2);
+                givenOverdueCheck(finalPlan.getDeadlineAt().plusMinutes(1), finalPlan);
+
+                agendaService.expireOverdueAgendas(ROOM_ID);
+
+                assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+            }
+
+            @Test
+            @DisplayName("같은 방에서 기한이 지난 안건만 미결로 끝내고 아직 기한이 남은 안건은 그대로 둔다")
+            void expiresOnlyOverdueAgendas() {
+                AgendaItem overdue = openAgenda(AgendaSubject.BUDGET, 2);
+                AgendaItem open =
+                        withId(
+                                AgendaItem.create(
+                                        room,
+                                        AgendaSubject.STAY,
+                                        1,
+                                        "안건 제목",
+                                        2,
+                                        NOW.minusHours(1),
+                                        NOW.plusDays(5)));
+                givenOverdueCheck(overdue.getDeadlineAt(), overdue, open);
+
+                agendaService.expireOverdueAgendas(ROOM_ID);
+
+                assertThat(overdue.getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(open.getStatus()).isEqualTo(AgendaStatus.VOTING);
+            }
+
+            @Test
+            @DisplayName("출발 전날 00:00이 된 최종 확정 안건은 최종 집계를 위해 투표 중으로 남고 방도 그대로다")
+            void keepsFinalPlanForFinalTally() {
+                reviewing();
+                AgendaItem finalPlan = openAgenda(AgendaSubject.FINAL_PLAN, 2);
+                givenOverdueCheck(room.getStartDate().minusDays(1).atStartOfDay(), finalPlan);
+
+                agendaService.expireOverdueAgendas(ROOM_ID);
+
+                assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.VOTING);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.REVIEWING);
+            }
+
+            @Test
+            @DisplayName("기한 지난 안건이 있는 방을 찾을 때 지금 시각과 내일 날짜로 조회한다")
+            void findsOverdueRoomsWithCurrentTime() {
+                given(clock.instant()).willReturn(NOW.atZone(SEOUL).toInstant());
+                given(clock.getZone()).willReturn(SEOUL);
+                given(
+                                agendaItemRepository.findRoomIdsWithOverdueAgendas(
+                                        AgendaStatus.VOTING, NOW, NOW.toLocalDate().plusDays(1)))
+                        .willReturn(List.of(ROOM_ID));
+
+                assertThat(agendaService.findRoomIdsWithOverdueAgendas()).containsExactly(ROOM_ID);
             }
         }
 
