@@ -233,6 +233,35 @@ public class AgendaService {
         }
     }
 
+    /** 마감 시각이 지난 투표 중 안건이 있는 방을 찾는다 (13-2). 출발 전날 00:00(D-1)이 된 방은 최종 집계 대상이라 뺀다. */
+    public List<Long> findRoomIdsWithOverdueAgendas() {
+        LocalDateTime now = LocalDateTime.now(clock);
+        return agendaItemRepository.findRoomIdsWithOverdueAgendas(
+                AgendaStatus.VOTING, now, now.toLocalDate().plusDays(1));
+    }
+
+    /**
+     * 방의 기한 지난 안건을 미결(EXPIRED)로 끝낸다 (13-2). 최종 확정이면 방이 PLANNING으로 돌아가고, 설문 안건은 다음 회차(V-04)를 기다린다.
+     *
+     * <p>방을 잠근 뒤 안건을 다시 읽으므로, 그 사이 마지막 표로 결정된 안건은 건드리지 않는다.
+     */
+    @Transactional
+    public void expireOverdueAgendas(Long roomId) {
+        Room room = roomService.getForUpdate(roomId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<AgendaItem> votingAgendas =
+                agendaItemRepository.findAllByRoomIdAndStatus(roomId, AgendaStatus.VOTING);
+        for (AgendaItem agenda : votingAgendas) {
+            if (!agenda.isExpirableAt(now)) {
+                continue;
+            }
+            agenda.expire();
+            applyExpired(room, agenda);
+        }
+        // TODO change_log: AGENDA UPDATE, 최종 확정이면 PLAN_ROOM UPDATE
+        // TODO SSE (커밋 후): agenda.expired, 방 상태가 바뀌면 room.status_changed
+    }
+
     /**
      * 설문이 마감되면 예산·숙소 타입·이동 강도의 1회차 안건을 연다 (5-1). 설문 마감을 판정한 쪽(S-02 마지막 제출, R-06 퇴장, 13-1 의견 마감
      * 스케줄러)이 방 잠금을 잡은 채 {@code Room.closeSurveyIfReady}가 true일 때 부른다.

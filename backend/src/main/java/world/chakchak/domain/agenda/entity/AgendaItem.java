@@ -176,6 +176,11 @@ public class AgendaItem extends BaseEntity {
         return status == AgendaStatus.VOTING && now.isBefore(deadlineAt);
     }
 
+    /** 마감 시각이 지나 미결로 끝낼 안건인지. D-1부터는 최종 집계가 낸 표로 결정하므로 대상이 아니다. (13-2) */
+    public boolean isExpirableAt(LocalDateTime now) {
+        return status == AgendaStatus.VOTING && !now.isBefore(deadlineAt) && canOpenAt(room, now);
+    }
+
     /**
      * 이 멤버에게 투표 자격이 있는지. 안건이 열린 시각(created_at) 이전에 합류한 멤버만 자격이 있다. (V-01·V-02 eligible, V-03)
      *
