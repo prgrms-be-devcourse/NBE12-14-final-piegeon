@@ -234,7 +234,7 @@ public class AgendaOption extends BaseEntity {
         }
     }
 
-    /** 예산 선지의 금액. D-1 최종 집계에서 동점이면 낮은 금액을 고를 때 쓴다. (13-3) */
+    /** 예산 선지의 금액. 다음 회차(V-04)에서 직전 회차의 추가 선지를 금액 순서에 끼워 넣을 때 쓴다. */
     public long budgetAmount() {
         if (agendaItem.getSubject() != AgendaSubject.BUDGET) {
             throw new IllegalStateException("예산 선지가 아닙니다: " + value);

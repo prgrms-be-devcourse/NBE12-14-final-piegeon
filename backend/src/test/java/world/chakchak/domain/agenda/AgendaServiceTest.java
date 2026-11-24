@@ -1048,6 +1048,271 @@ class AgendaServiceTest {
     }
 
     @Nested
+    class DeadlineJobs {
+
+        // 출발일 2027-07-01의 전날 00:00
+        private static final LocalDateTime D_MINUS_1 = LocalDateTime.of(2027, 6, 30, 0, 0);
+
+        @BeforeEach
+        void giveRoomId() {
+            ReflectionTestUtils.setField(room, "id", ROOM_ID);
+        }
+
+        private void givenLockedRoomAt(LocalDateTime now) {
+            given(roomService.getForUpdate(ROOM_ID)).willReturn(room);
+            given(clock.instant()).willReturn(now.atZone(SEOUL).toInstant());
+            given(clock.getZone()).willReturn(SEOUL);
+        }
+
+        private void surveyClosed() {
+            ReflectionTestUtils.setField(room, "surveyClosedAt", NOW.minusDays(1));
+        }
+
+        private AgendaItem openItem(AgendaSubject subject) {
+            return withId(
+                    AgendaItem.create(
+                            room, subject, 1, "안건 제목", 3, NOW.minusHours(1), NOW.plusDays(3)));
+        }
+
+        private AgendaItem resolvedPace() {
+            AgendaItem pace = openItem(AgendaSubject.PACE);
+            pace.resolve(withId(AgendaOption.pace(pace, Pace.RELAXED, 0)), NOW);
+            return pace;
+        }
+
+        private AgendaOption stayOption(AgendaItem agenda, StayType type, int index) {
+            return withId(AgendaOption.stay(agenda, type, index));
+        }
+
+        private void givenLatest(AgendaItem... agendas) {
+            for (AgendaItem agenda : agendas) {
+                given(
+                                agendaItemRepository.findTopByRoomIdAndSubjectOrderByRoundDesc(
+                                        ROOM_ID, agenda.getSubject()))
+                        .willReturn(Optional.of(agenda));
+            }
+        }
+
+        private void givenVotes(AgendaItem agenda, Vote... votes) {
+            given(voteRepository.findAllByAgendaItemId(agenda.getId())).willReturn(List.of(votes));
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("표가 갈린 투표 중 항목과 미결 항목을 최다 득표로 결정하고 세 항목이 끝나면 방이 PLANNING이 된다")
+            void talliesSurveyAgendasAndStartsPlanning() {
+                surveyClosed();
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem budget = openItem(AgendaSubject.BUDGET);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                AgendaOption high = budget(budget, 1_000_000L, 1, null);
+                RoomMember hyunwoo = member("현우", NOW.minusDays(1));
+                givenVotes(
+                        budget,
+                        vote(budget, high, me),
+                        vote(budget, high, jieun),
+                        vote(budget, low, hyunwoo));
+                AgendaItem stay = openItem(AgendaSubject.STAY);
+                AgendaOption hotel = stayOption(stay, StayType.HOTEL, 0);
+                givenVotes(stay, vote(stay, hotel, me));
+                stay.expire();
+                AgendaItem pace = resolvedPace();
+                givenLatest(budget, stay, pace);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(budget.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(budget.getResolvedOptionId()).isEqualTo(high.getId());
+                assertThat(stay.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(stay.getResolvedOptionId()).isEqualTo(hotel.getId());
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+            }
+
+            @Test
+            @DisplayName("미결 회차에 남은 나간 멤버의 표는 집계에서 뺀다")
+            void excludesVotesOfLeftMembers() {
+                surveyClosed();
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem stay = openItem(AgendaSubject.STAY);
+                AgendaOption hotel = stayOption(stay, StayType.HOTEL, 0);
+                AgendaOption personal = stayOption(stay, StayType.PERSONAL, 1);
+                RoomMember leftA = member("나간A", NOW.minusDays(1));
+                RoomMember leftB = member("나간B", NOW.minusDays(1));
+                Vote leftVoteA = vote(stay, hotel, leftA);
+                Vote leftVoteB = vote(stay, hotel, leftB);
+                Vote myVote = vote(stay, personal, me);
+                leftA.leave(NOW);
+                leftB.leave(NOW);
+                stay.expire();
+                givenVotes(stay, leftVoteA, leftVoteB, myVote);
+                AgendaItem budget = openItem(AgendaSubject.BUDGET);
+                givenVotes(budget, vote(budget, budget(budget, 600_000L, 0, null), me));
+                givenLatest(budget, stay, resolvedPace());
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(stay.getResolvedOptionId()).isEqualTo(personal.getId());
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+            }
+
+            @Test
+            @DisplayName("활동 멤버의 표가 0개인 항목이 있으면 그 항목은 미결, 다른 항목은 결정되고 방은 EXPIRED가 된다")
+            void expiresRoomWhenAnItemHasNoVotes() {
+                surveyClosed();
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem budget = openItem(AgendaSubject.BUDGET);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                givenVotes(budget, vote(budget, low, me));
+                AgendaItem stay = openItem(AgendaSubject.STAY);
+                givenVotes(stay);
+                givenLatest(budget, stay, resolvedPace());
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(budget.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(stay.getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.EXPIRED);
+            }
+
+            @Test
+            @DisplayName("1위가 동점인 항목이 있으면 그 항목은 미결, 다른 항목은 결정되고 방은 EXPIRED가 된다")
+            void expiresRoomWhenAnItemIsTied() {
+                surveyClosed();
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem budget = openItem(AgendaSubject.BUDGET);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                AgendaOption high = budget(budget, 1_000_000L, 1, null);
+                givenVotes(budget, vote(budget, low, me), vote(budget, high, jieun));
+                AgendaItem stay = openItem(AgendaSubject.STAY);
+                AgendaOption hotel = stayOption(stay, StayType.HOTEL, 0);
+                givenVotes(stay, vote(stay, hotel, me));
+                givenLatest(budget, stay, resolvedPace());
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(budget.getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(budget.getResolvedOptionId()).isNull();
+                assertThat(stay.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(stay.getResolvedOptionId()).isEqualTo(hotel.getId());
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.EXPIRED);
+            }
+
+            @Test
+            @DisplayName("D-1까지 설문이 마감되지 않은 방은 EXPIRED가 된다")
+            void expiresRoomWithOpenSurvey() {
+                givenLockedRoomAt(D_MINUS_1);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.EXPIRED);
+                verifyNoInteractions(voteRepository);
+            }
+
+            @Test
+            @DisplayName("설문은 마감됐지만 D-1이 지나 안건이 열리지 못한 방은 EXPIRED가 된다")
+            void expiresRoomWithoutAgendas() {
+                surveyClosed();
+                givenLockedRoomAt(D_MINUS_1);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.EXPIRED);
+            }
+
+            @Test
+            @DisplayName("최종 투표는 미투표자가 있어도 낸 표가 모두 동의면 방이 FINALIZED가 된다")
+            void finalizesWhenCastVotesAgree() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
+                AgendaOption agree =
+                        withId(AgendaOption.finalPlan(finalPlan, FinalPlanChoice.AGREE));
+                givenVotes(finalPlan, vote(finalPlan, agree, me), vote(finalPlan, agree, jieun));
+                givenLatest(finalPlan);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(finalPlan.getResolvedOptionId()).isEqualTo(agree.getId());
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.FINALIZED);
+                assertThat(room.getFinalizedAt()).isEqualTo(D_MINUS_1);
+            }
+
+            @Test
+            @DisplayName("최종 투표에 표가 없으면 안건은 미결로 끝나고 방이 PLANNING으로 돌아간다")
+            void returnsToPlanningWithoutFinalVotes() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
+                givenVotes(finalPlan);
+                givenLatest(finalPlan);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+            }
+
+            @Test
+            @DisplayName("마지막 멤버가 나가 최종 안건이 이미 미결이고 방만 REVIEWING이면 방이 PLANNING으로 돌아간다")
+            void returnsToPlanningWhenFinalPlanAlreadyExpired() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
+                finalPlan.expire();
+                givenLatest(finalPlan);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+                verifyNoInteractions(voteRepository);
+            }
+
+            @Test
+            @DisplayName("이미 PLANNING이 된 방은 다시 집계해도 바뀌지 않는다")
+            void doesNothingForPlanningRoom() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.PLANNING);
+                givenLockedRoomAt(D_MINUS_1);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+                verifyNoInteractions(agendaItemRepository, voteRepository);
+            }
+        }
+
+        @Nested
+        class Failure {
+
+            @Test
+            @DisplayName("D-1 전이면 최종 집계를 하지 않는다")
+            void skipsTallyBeforeDayBeforeDeparture() {
+                surveyClosed();
+                givenLockedRoomAt(D_MINUS_1.minusSeconds(1));
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.SURVEYING);
+                verifyNoInteractions(agendaItemRepository, voteRepository);
+            }
+
+            @Test
+            @DisplayName("최종 투표 중인 방에 최종 확정 안건이 없으면 코드 버그로 보고 예외를 던진다")
+            void rejectsReviewingRoomWithoutFinalPlan() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
+                givenLockedRoomAt(D_MINUS_1);
+
+                assertThatThrownBy(() -> agendaService.runFinalTally(ROOM_ID))
+                        .isInstanceOf(IllegalStateException.class);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.REVIEWING);
+            }
+        }
+    }
+
+    @Nested
     class OpenSurveyAgendas {
 
         // 서비스가 저장한 안건과 선지

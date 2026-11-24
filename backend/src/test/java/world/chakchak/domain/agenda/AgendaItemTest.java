@@ -616,6 +616,174 @@ class AgendaItemTest {
     }
 
     @Nested
+    class FinalTally {
+
+        private RoomMember member() {
+            return RoomMember.create(
+                    room(),
+                    User.create("member@example.com", "멤버", "hash"),
+                    Clock.fixed(NOW.atZone(SEOUL).toInstant(), SEOUL));
+        }
+
+        private <T> T withId(T option, long id) {
+            ReflectionTestUtils.setField(option, "id", id);
+            return option;
+        }
+
+        private AgendaOption budgetOption(AgendaItem agenda, long amount, long id) {
+            return withId(AgendaOption.budget(agenda, amount, (int) id, null), id);
+        }
+
+        private AgendaOption stayOption(AgendaItem agenda, StayType type, long id) {
+            return withId(AgendaOption.stay(agenda, type, (int) id), id);
+        }
+
+        private AgendaOption finalOption(AgendaItem agenda, FinalPlanChoice choice, long id) {
+            return withId(AgendaOption.finalPlan(agenda, choice), id);
+        }
+
+        private Vote vote(AgendaItem agenda, AgendaOption option) {
+            return Vote.create(agenda, option, member(), NOW);
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("표가 갈리면 가장 많은 표를 받은 선지로 정한다")
+            void picksMostVotedOption() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 3);
+                AgendaOption low = budgetOption(agenda, 600_000L, 1L);
+                AgendaOption high = budgetOption(agenda, 1_000_000L, 2L);
+
+                Optional<AgendaOption> winner =
+                        agenda.finalTallyOption(
+                                List.of(vote(agenda, low), vote(agenda, high), vote(agenda, high)));
+
+                assertThat(winner).containsSame(high);
+            }
+
+            @Test
+            @DisplayName("최종 확정은 미투표자가 있어도 낸 표가 모두 동의면 동의로 정한다")
+            void picksAgreeWhenCastVotesAgree() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.FINAL_PLAN, 4);
+                AgendaOption agree = finalOption(agenda, FinalPlanChoice.AGREE, 1L);
+
+                Optional<AgendaOption> winner =
+                        agenda.finalTallyOption(List.of(vote(agenda, agree), vote(agenda, agree)));
+
+                assertThat(winner).containsSame(agree);
+            }
+
+            @Test
+            @DisplayName("미결로 끝난 안건도 최종 집계로 결정할 수 있다")
+            void resolvesExpiredAgenda() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.STAY, 3);
+                AgendaOption option = stayOption(agenda, StayType.HOTEL, 1L);
+                agenda.expire();
+
+                agenda.resolveByFinalTally(option, D_MINUS_1);
+
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(agenda.getResolvedOptionId()).isEqualTo(1L);
+                assertThat(agenda.getResolvedAt()).isEqualTo(D_MINUS_1);
+            }
+
+            @Test
+            @DisplayName("투표 중인 안건도 최종 집계로 결정할 수 있다")
+            void resolvesVotingAgenda() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.STAY, 3);
+                AgendaOption option = stayOption(agenda, StayType.HOTEL, 1L);
+
+                agenda.resolveByFinalTally(option, D_MINUS_1);
+
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(agenda.getResolvedOptionId()).isEqualTo(1L);
+            }
+        }
+
+        @Nested
+        class Failure {
+
+            @Test
+            @DisplayName("집계할 표가 없으면 정할 선지가 없다")
+            void returnsEmptyWithoutVotes() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 3);
+
+                assertThat(agenda.finalTallyOption(List.of())).isEmpty();
+            }
+
+            @Test
+            @DisplayName("예산이 동점이면 낮은 금액을 고르지 않고 정할 선지가 없다")
+            void returnsEmptyOnBudgetTie() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 2);
+                AgendaOption high = budgetOption(agenda, 1_000_000L, 1L);
+                AgendaOption low = budgetOption(agenda, 600_000L, 2L);
+
+                assertThat(agenda.finalTallyOption(List.of(vote(agenda, high), vote(agenda, low))))
+                        .isEmpty();
+            }
+
+            @Test
+            @DisplayName("예산이 아닌 항목이 동점이면 먼저 만든 선지를 고르지 않고 정할 선지가 없다")
+            void returnsEmptyOnStayTie() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.STAY, 2);
+                AgendaOption first = stayOption(agenda, StayType.PERSONAL, 1L);
+                AgendaOption second = stayOption(agenda, StayType.HOTEL, 2L);
+
+                assertThat(
+                                agenda.finalTallyOption(
+                                        List.of(vote(agenda, second), vote(agenda, first))))
+                        .isEmpty();
+            }
+
+            @Test
+            @DisplayName("3위가 있어도 1위가 동점이면 정할 선지가 없다")
+            void returnsEmptyWhenTopIsTied() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.BUDGET, 5);
+                AgendaOption low = budgetOption(agenda, 600_000L, 1L);
+                AgendaOption middle = budgetOption(agenda, 800_000L, 2L);
+                AgendaOption high = budgetOption(agenda, 1_000_000L, 3L);
+
+                assertThat(
+                                agenda.finalTallyOption(
+                                        List.of(
+                                                vote(agenda, low),
+                                                vote(agenda, low),
+                                                vote(agenda, high),
+                                                vote(agenda, high),
+                                                vote(agenda, middle))))
+                        .isEmpty();
+            }
+
+            @Test
+            @DisplayName("이미 결정된 안건은 최종 집계로 다시 결정할 수 없다")
+            void rejectsResolvedAgenda() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.STAY, 3);
+                AgendaOption option = stayOption(agenda, StayType.HOTEL, 1L);
+                agenda.resolve(option, NOW);
+
+                assertErrorCode(
+                        () -> agenda.resolveByFinalTally(option, D_MINUS_1),
+                        AgendaErrorCode.AGENDA_CLOSED);
+                assertThat(agenda.getResolvedAt()).isEqualTo(NOW);
+            }
+
+            @Test
+            @DisplayName("다른 안건의 선지로는 최종 집계할 수 없다")
+            void rejectsOptionOfOtherAgenda() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.STAY, 3);
+                AgendaItem other = votingAgenda(AgendaSubject.STAY, 3);
+                AgendaOption foreign = stayOption(other, StayType.HOTEL, 1L);
+
+                assertThatThrownBy(() -> agenda.resolveByFinalTally(foreign, D_MINUS_1))
+                        .isInstanceOf(IllegalArgumentException.class);
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.VOTING);
+            }
+        }
+    }
+
+    @Nested
     class RemoveVoter {
 
         @Nested
