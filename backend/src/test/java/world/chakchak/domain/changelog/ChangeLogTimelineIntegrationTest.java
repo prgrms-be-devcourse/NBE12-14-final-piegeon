@@ -143,6 +143,11 @@ class ChangeLogTimelineIntegrationTest {
                         agendaOptionRepository.saveAndFlush(
                                 AgendaOption.stay(votedAgenda, StayType.HOTEL, 0));
                 voteRepository.saveAndFlush(Vote.create(votedAgenda, stay, leavingMember, now));
+                AgendaOption remainingChoice =
+                        agendaOptionRepository.saveAndFlush(
+                                AgendaOption.stay(votedAgenda, StayType.PERSONAL, 1));
+                voteRepository.saveAndFlush(
+                        Vote.create(votedAgenda, remainingChoice, listenerMember, now));
 
                 PlaceCandidate candidate =
                         PlaceCandidate.create(
@@ -199,16 +204,17 @@ class ChangeLogTimelineIntegrationTest {
                                             .orElseThrow()
                                             .getStatus())
                             .isEqualTo(AgendaStatus.EXPIRED);
-                    assertThat(
-                                    agendaItemRepository
-                                            .findById(votedAgenda.getId())
-                                            .orElseThrow()
-                                            .getTotalVoter())
-                            .isEqualTo(2);
+                    assertThat(agendaItemRepository.findById(votedAgenda.getId()).orElseThrow())
+                            .satisfies(agenda -> {
+                                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                                assertThat(agenda.getTotalVoter()).isEqualTo(1);
+                                assertThat(agenda.getResolvedOptionId())
+                                        .isEqualTo(remainingChoice.getId());
+                            });
                     assertThat(
                                     voteRepository.findByAgendaItemIdAndMemberId(
                                             votedAgenda.getId(), leavingMember.getId()))
-                            .isPresent();
+                            .isEmpty();
                     assertThat(
                                     placeReactionRepository
                                             .findAllByPlaceCandidate_RoomAndReactionAndMember_LeftAtIsNull(

@@ -314,7 +314,9 @@ public class AgendaService {
         };
     }
 
-    /** 활성 멤버가 퇴장한 후 진행 중인 안건의 참여 자격을 조정합니다. */
+    /**
+     * 멤버가 나가면 진행 중인 안건에서 그 멤버의 표를 지우고 자격자 수를 줄인 뒤 7-1로 다시 판정한다 (R-06). 결정·미결로 끝난 안건의 표는 기록으로 남긴다.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     public void memberLeft(Room lockedRoom, RoomMember member, LocalDateTime now) {
         boolean activeMembersRemain = roomMemberService.countActiveMembers(lockedRoom.getId()) > 0;
@@ -322,12 +324,11 @@ public class AgendaService {
                 agendaItemRepository.findAllByRoomIdAndStatus(
                         lockedRoom.getId(), AgendaStatus.VOTING);
         for (AgendaItem agenda : votingAgendas) {
-            if (!agenda.isEligible(member)
-                    || voteRepository
-                            .findByAgendaItemIdAndMemberId(agenda.getId(), member.getId())
-                            .isPresent()) {
+            if (!agenda.isEligible(member)) {
                 continue;
             }
+            // 나간 멤버의 표가 남으면 남은 멤버끼리 합의해도 만장일치가 되지 않는다
+            voteRepository.deleteByAgendaItemIdAndMemberId(agenda.getId(), member.getId());
             agenda.removeVoter();
             if (agenda.getStatus() == AgendaStatus.EXPIRED) {
                 if (activeMembersRemain) {
