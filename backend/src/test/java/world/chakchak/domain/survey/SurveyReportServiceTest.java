@@ -166,8 +166,8 @@ class SurveyReportServiceTest {
             }
 
             @Test
-            @DisplayName("예산은 만원 단위로 반올림해 같은 선지가 되면 만장일치로 보고 분포에는 입력한 금액을 그대로 보여준다")
-            void comparesBudgetsAfterRounding() {
+            @DisplayName("예산은 안건 선지처럼 만원 단위로 반올림한 금액으로 분포를 보여주고 반올림한 금액이 같으면 만장일치로 본다")
+            void roundsBudgetsLikeAgendaOptions() {
                 surveyClosed();
                 givenAnswers(
                         surveying(me, BEFORE_CLOSE, 1_226_000L, StayType.HOTEL, Pace.NORMAL),
@@ -178,7 +178,7 @@ class SurveyReportServiceTest {
 
                 assertThat(budget.unanimous()).isTrue();
                 assertThat(budget.distribution())
-                        .containsExactly(answerOf(me, "1226000"), answerOf(jieun, "1234000"));
+                        .containsExactly(answerOf(me, "1230000"), answerOf(jieun, "1230000"));
             }
 
             @Test

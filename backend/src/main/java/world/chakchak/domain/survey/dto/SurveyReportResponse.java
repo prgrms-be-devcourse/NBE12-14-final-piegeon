@@ -26,7 +26,7 @@ public record SurveyReportResponse(
             AgendaSubject subject, boolean unanimous, List<MemberAnswer> distribution) {}
 
     /**
-     * @param value 예산은 입력한 금액(원), 숙소 타입·이동 강도는 enum 이름, 피해야 할 것은 입력한 글
+     * @param value 예산은 안건 선지처럼 만원 단위로 반올림한 금액(원), 숙소 타입·이동 강도는 enum 이름, 피해야 할 것은 입력한 글
      */
     public record MemberAnswer(Long memberId, String name, String value) {}
 

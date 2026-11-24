@@ -59,43 +59,35 @@ public class SurveyReportService {
 
         List<ReportItem> items =
                 List.of(
-                        item(
-                                AgendaSubject.BUDGET,
-                                onTime,
-                                SurveyResponse::getBudget,
-                                AgendaOption::roundBudget),
-                        item(
-                                AgendaSubject.STAY,
-                                onTime,
-                                SurveyResponse::getStayType,
-                                Function.identity()),
-                        item(
-                                AgendaSubject.PACE,
-                                onTime,
-                                SurveyResponse::getPace,
-                                Function.identity()));
+                        item(AgendaSubject.BUDGET, onTime, SurveyReportService::roundedBudget),
+                        item(AgendaSubject.STAY, onTime, SurveyResponse::getStayType),
+                        item(AgendaSubject.PACE, onTime, SurveyResponse::getPace));
         return new SurveyReportResponse(
                 closedAt, onTime.size(), items, actPrefs(answers), avoidNotes(answers));
     }
 
     /**
-     * @param value 설문에서 이 항목의 값을 꺼낸다
-     * @param sameOption 같은 선지가 되는 값끼리 같은 결과를 낸다. 예산은 만원 단위로 반올림해 선지를 만들므로, 금액이 달라도 반올림하면 같을 때 투표 없이
-     *     결정된다. 그래서 반올림한 금액으로 비교한다
+     * 분포와 만장일치가 같은 값을 쓴다. 그래서 만장일치인데 분포의 값이 다르게 보이는 일이 없다.
+     *
+     * @param optionValue 설문 하나에서 이 항목의 값을 안건 선지와 같은 값으로 꺼낸다
      */
-    private static <T> ReportItem item(
+    private static ReportItem item(
             AgendaSubject subject,
             List<SurveyResponse> onTime,
-            Function<SurveyResponse, T> value,
-            Function<T, ?> sameOption) {
-        List<SurveyResponse> answered =
-                onTime.stream().filter(answer -> value.apply(answer) != null).toList();
-        boolean unanimous = answered.stream().map(value).map(sameOption).distinct().count() == 1;
+            Function<SurveyResponse, ?> optionValue) {
         List<MemberAnswer> distribution =
-                answered.stream()
-                        .map(answer -> memberAnswer(answer, String.valueOf(value.apply(answer))))
+                onTime.stream()
+                        .filter(answer -> optionValue.apply(answer) != null)
+                        .map(answer ->
+                                memberAnswer(answer, String.valueOf(optionValue.apply(answer))))
                         .toList();
+        boolean unanimous = distribution.stream().map(MemberAnswer::value).distinct().count() == 1;
         return new ReportItem(subject, unanimous, distribution);
+    }
+
+    // 안건 선지처럼 만원 단위로 반올림한 금액. 입력이 1,226,000원과 1,234,000원이면 둘 다 123만원 선지가 되어 투표 없이 결정된다
+    private static Long roundedBudget(SurveyResponse answer) {
+        return answer.getBudget() == null ? null : AgendaOption.roundBudget(answer.getBudget());
     }
 
     // 고른 인원이 많은 순. 인원이 같으면 ActivityCode 선언 순이다
