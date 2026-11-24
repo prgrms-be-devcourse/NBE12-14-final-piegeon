@@ -365,6 +365,27 @@ class RoomInviteApiIntegrationTest {
             }
 
             @Test
+            @DisplayName("만료된 방에는 합류할 수 없다")
+            void rejectsJoinToExpiredRoom() throws java.lang.Exception {
+                Room room = saveRoom("만료된 여행", RoomStatus.EXPIRED);
+                LoginSession session = login("새 멤버");
+                User user = userRepository.findByEmail(session.email()).orElseThrow();
+
+                HttpResponse<String> response = postJoin(room.getInviteCode(), session.cookie());
+
+                assertThat(response.statusCode()).isEqualTo(410);
+                assertThat(objectMapper.readTree(response.body()).path("code").stringValue())
+                        .isEqualTo("ROOM_EXPIRED");
+                assertThat(roomMemberRepository.findByRoom_IdAndUser_Id(room.getId(), user.getId()))
+                        .isEmpty();
+                assertThat(
+                                changeLogRepository.findAllByRoom_IdOrderByIdDesc(
+                                        room.getId(),
+                                        org.springframework.data.domain.PageRequest.of(0, 10)))
+                        .isEmpty();
+            }
+
+            @Test
             @DisplayName("활동 멤버와 탈퇴 이력이 있는 사용자는 합류할 수 없다")
             void rejectsAlreadyActiveAndPreviouslyDepartedMember() throws java.lang.Exception {
                 Room room = saveRoom("멤버 제한 여행", RoomStatus.PLANNING);
