@@ -1,5 +1,7 @@
 package world.chakchak.domain.agenda.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -27,11 +29,13 @@ import world.chakchak.global.security.LoginUser;
 @RestController
 @RequestMapping("/api/rooms/{roomId}/agendas")
 @RequiredArgsConstructor
+@Tag(name = "안건", description = "여행방 안건 조회, 투표 및 의견 관리 API")
 public class AgendaController {
 
     private final AgendaService agendaService;
 
     /** V-01 안건 목록 */
+    @Operation(summary = "안건 목록 조회", description = "해당 여행방의 안건 목록을 조회한다.")
     @GetMapping
     public ResponseEntity<ApiResponse<AgendaListResponse>> getAgendas(
             @PathVariable Long roomId, @AuthenticationPrincipal LoginUser loginUser) {
@@ -40,6 +44,9 @@ public class AgendaController {
     }
 
     /** V-02 안건 상세 */
+    @Operation(
+            summary = "안건 상세 조회",
+            description = "안건 ID로 안건 상세 정보를 조회한다. " + "투표 현황과 안건 관련 정보를 반환한다.")
     @GetMapping("/{agendaId}")
     public ResponseEntity<ApiResponse<AgendaDetailResponse>> getAgenda(
             @PathVariable Long roomId,
@@ -51,6 +58,9 @@ public class AgendaController {
     }
 
     /** V-03 투표·표 바꾸기 */
+    @Operation(
+            summary = "안건 투표",
+            description = "안건의 선택지에 투표한다. " + "이미 투표한 경우 다른 선택지로 투표를 변경할 수 있다.")
     @PutMapping("/{agendaId}/vote")
     public ResponseEntity<ApiResponse<AgendaDetailResponse>> vote(
             @PathVariable Long roomId,
@@ -63,6 +73,7 @@ public class AgendaController {
     }
 
     /** V-05 안건 코멘트 목록 */
+    @Operation(summary = "안건 코멘트 목록 조회", description = "해당 안건에 작성된 코멘트 목록을 조회한다.")
     @GetMapping("/{agendaId}/comments")
     public ResponseEntity<ApiResponse<CommentListResponse>> getComments(
             @PathVariable Long roomId,
@@ -74,6 +85,7 @@ public class AgendaController {
     }
 
     /** V-06 안건 코멘트 작성 */
+    @Operation(summary = "안건 코멘트 작성", description = "해당 안건에 새로운 코멘트를 작성한다. " + "작성한 코멘트 정보를 반환한다.")
     @PostMapping("/{agendaId}/comments")
     public ResponseEntity<ApiResponse<CommentResponse>> addComment(
             @PathVariable Long roomId,
@@ -87,6 +99,9 @@ public class AgendaController {
     }
 
     /** V-07 예산 선지 추가 */
+    @Operation(
+            summary = "예산 안건 선지 추가",
+            description = "예산 안건에 새로운 선택지를 추가한다. " + "추가된 선택지를 포함한 안건 상세 정보를 반환한다.")
     @PostMapping("/{agendaId}/options")
     public ResponseEntity<ApiResponse<AgendaDetailResponse>> addBudgetOption(
             @PathVariable Long roomId,
@@ -100,6 +115,9 @@ public class AgendaController {
     }
 
     /** V-08 예산 선지 삭제 */
+    @Operation(
+            summary = "예산 안건 선지 삭제",
+            description = "예산 안건에서 지정한 선택지를 삭제한다. " + "삭제 후 안건 상세 정보를 반환한다.")
     @DeleteMapping("/{agendaId}/options/{optionId}")
     public ResponseEntity<ApiResponse<AgendaDetailResponse>> deleteBudgetOption(
             @PathVariable Long roomId,
@@ -112,6 +130,9 @@ public class AgendaController {
     }
 
     /** V-04 다음 회차 열기 */
+    @Operation(
+            summary = "다음 회차 투표 열기",
+            description = "해당 안건의 다음 회차 투표를 연다. " + "새로운 회차가 생성되면 안건 상세 정보를 반환한다.")
     @PostMapping("/{agendaId}/next-round")
     public ResponseEntity<ApiResponse<AgendaDetailResponse>> openNextRound(
             @PathVariable Long roomId,

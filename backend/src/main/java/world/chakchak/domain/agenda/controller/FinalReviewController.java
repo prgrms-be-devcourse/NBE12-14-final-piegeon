@@ -1,5 +1,7 @@
 package world.chakchak.domain.agenda.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,11 +19,15 @@ import world.chakchak.global.security.LoginUser;
 @RestController
 @RequestMapping("/api/rooms/{roomId}")
 @RequiredArgsConstructor
+@Tag(name = "최종 확정", description = "여행 최종 확정 투표 API")
 public class FinalReviewController {
 
     private final AgendaService agendaService;
 
     /** C-01 최종 확정 투표 열기 */
+    @Operation(
+            summary = "최종 확정 투표 열기",
+            description = "해당 여행방의 최종 확정 투표를 연다. " + "투표가 열리면 안건 상세 정보를 반환한다.")
     @PostMapping("/final-review")
     public ResponseEntity<ApiResponse<AgendaDetailResponse>> openFinalReview(
             @PathVariable Long roomId, @AuthenticationPrincipal LoginUser loginUser) {
