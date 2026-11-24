@@ -1,7 +1,10 @@
 name: deploy
 
-# main에 머지되면 자동 배포한다. Actions 탭의 "Run workflow"로 다른 브랜치(예: dev)도 배포할 수 있다.
-# 서버는 한 대라 마지막에 배포한 브랜치가 떠 있다.
+# main에 머지되면 자동 배포한다. 운영에 올라가는 브랜치는 main 하나다.
+# Actions 탭의 "Run workflow"로 다시 배포할 수 있지만 main에서만 된다.
+# 다른 브랜치를 배포하면 그 브랜치의 Flyway 마이그레이션이 운영 DB에 섞여 들어가 이후 배포가 막히고,
+# 배포 역할(서버 root 셸 명령 가능)을 아무 브랜치에서나 쓸 수 있게 되기 때문이다.
+# 실제로 막는 것은 GitHub Settings → Environments → production의 Deployment branches(main만 허용)다.
 # 자동 배포는 서버에 올라가는 파일이 바뀔 때만 한다. 프론트·문서만 바뀐 머지는 배포하지 않는다.
 on:
   push:
@@ -25,7 +28,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # main이 아니면 건너뛴다. 실수로 다른 브랜치에서 Run workflow를 눌렀을 때 바로 알 수 있게 하는 표시다.
+    # 이 줄은 브랜치에서 워크플로를 고치면 지울 수 있으므로, 진짜 차단은 production environment의 브랜치 제한이 한다
+    if: github.ref == 'refs/heads/main'
     # AWS 배포 역할은 이 environment에서 온 요청만 받는다 (infra/terraform/deploy.tf)
+    # environment는 main 브랜치만 쓸 수 있게 제한돼 있다 (Settings → Environments → production)
     environment: production
     env:
       AWS_REGION: ap-northeast-2

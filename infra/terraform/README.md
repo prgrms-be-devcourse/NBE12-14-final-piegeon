@@ -50,7 +50,7 @@ terraform apply tfplan
 
 ## 배포 (GitHub Actions)
 
-`main`에 머지되면 `.github/workflows/deploy.yml`이 자동으로 배포한다. Actions 탭 → deploy → **Run workflow**에서 브랜치를 골라 수동으로도 배포할 수 있다. 서버는 한 대라 마지막에 배포한 브랜치가 떠 있다.
+`main`에 머지되면 `.github/workflows/deploy.yml`이 자동으로 배포한다. 운영에 배포하는 브랜치는 `main` 하나다. Actions 탭 → deploy → **Run workflow**로 다시 배포할 수 있지만 `main`에서만 된다. 서버와 DB가 하나라 여러 브랜치를 번갈아 배포하면 브랜치마다 다른 Flyway 마이그레이션이 운영 DB에 섞여 이후 배포가 막힌다.
 
 ```
 Actions: ./gradlew build → arm64 이미지 → OIDC로 AWS 역할 → S3 releases/<커밋>/ 업로드
@@ -61,6 +61,7 @@ Actions: ./gradlew build → arm64 이미지 → OIDC로 AWS 역할 → S3 relea
 - 서버 구성: `deploy/compose.prod.yml` (Caddy: 80·443, HTTPS 자동 / backend: 8080, actuator 9090은 서버 안에서만)
 - 이미지는 GHCR 대신 S3로 전달한다. org 패키지는 비공개라 서버가 받으려면 토큰이 필요한데, 공용 계정의 SSM 명령 기록에 토큰을 남기지 않으려고
 - 배포 역할(`devcos-team09--github-deploy`)은 이 저장소의 `production` environment에서 온 요청만 받는다. GitHub에 AWS 키를 저장하지 않는다
+- `production` environment는 GitHub Settings → Environments에서 Deployment branches를 `main`으로 제한한다. 배포 역할은 서버에 root로 셸 명령을 보낼 수 있으므로, 다른 브랜치에서 워크플로를 고쳐 실행해도 역할을 받지 못하게 한다
 - 저장소 변수: `AWS_DEPLOY_ROLE_ARN`, `EC2_INSTANCE_ID`, `DEPLOY_BUCKET` (비밀 아님, `terraform output`에서 나온 값)
 
 ### 앱 설정값 (SSM Parameter Store `/chakchak/prod/`)
