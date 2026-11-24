@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -30,20 +31,17 @@ public class ChangeLogStreamService {
     private final ChangeLogReplayService changeLogReplayService;
     private final RoomMemberService roomMemberService;
     private final Map<Long, Set<StreamConnection>> connections = new ConcurrentHashMap<>();
+    private final AtomicLong connectionSequence = new AtomicLong();
 
     public SseEmitter connect(Long roomId, Long userId, String lastEventIdHeader) {
         RoomMember member = roomMemberService.getActiveMember(roomId, userId);
         Long memberId = member.getId();
         Long lastEventId = parseLastEventId(lastEventIdHeader);
-        Set<StreamConnection> memberConnections =
-                connections.computeIfAbsent(roomId, ignored -> ConcurrentHashMap.newKeySet());
-        long memberConnectionCount =
-                memberConnections.stream().filter(c -> c.memberId.equals(memberId)).count();
-        if (memberConnectionCount >= MAX_CONNECTIONS_PER_MEMBER) {
-            throw new BusinessException(CommonErrorCode.TOO_MANY_STREAMS);
-        }
-        SseEmitter emitter = new SseEmitter(CONNECTION_TIMEOUT_MILLIS);
-        StreamConnection connection = new StreamConnection(roomId, memberId, userId, emitter);
+        SseEmitter emitter = createEmitter();
+        StreamConnection connection =
+                new StreamConnection(
+                        roomId, memberId, userId, emitter, connectionSequence.incrementAndGet());
+        StreamConnection[] evictedConnection = new StreamConnection[1];
         connections.compute(
                 roomId,
                 (ignored, roomConnections) -> {
@@ -51,12 +49,26 @@ public class ChangeLogStreamService {
                             roomConnections == null
                                     ? ConcurrentHashMap.newKeySet()
                                     : roomConnections;
+                    List<StreamConnection> memberConnections =
+                            activeConnections.stream()
+                                    .filter(c -> c.memberId.equals(memberId))
+                                    .toList();
+                    if (memberConnections.size() >= MAX_CONNECTIONS_PER_MEMBER) {
+                        evictedConnection[0] =
+                                memberConnections.stream()
+                                        .min((first, second) ->
+                                                Long.compare(first.sequence, second.sequence))
+                                        .orElseThrow();
+                    }
                     activeConnections.add(connection);
                     return activeConnections;
                 });
         if (!roomMemberService.isActiveMember(roomId, memberId)) {
             remove(connection);
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+        if (evictedConnection[0] != null) {
+            evictedConnection[0].complete();
         }
         emitter.onCompletion(() -> remove(connection));
         emitter.onTimeout(() -> remove(connection));
@@ -75,6 +87,10 @@ public class ChangeLogStreamService {
             throw e;
         }
         return emitter;
+    }
+
+    SseEmitter createEmitter() {
+        return new SseEmitter(CONNECTION_TIMEOUT_MILLIS);
     }
 
     public void closeConnectionsForMember(Long roomId, Long memberId) {
@@ -139,15 +155,18 @@ public class ChangeLogStreamService {
         private final Long memberId;
         private final Long userId;
         private final SseEmitter emitter;
+        private final long sequence;
         private final TreeMap<Long, ChangeLogItemResponse> pending = new TreeMap<>();
         private boolean initialized;
         private long lastSentActivityId;
 
-        private StreamConnection(Long roomId, Long memberId, Long userId, SseEmitter emitter) {
+        private StreamConnection(
+                Long roomId, Long memberId, Long userId, SseEmitter emitter, long sequence) {
             this.roomId = roomId;
             this.memberId = memberId;
             this.userId = userId;
             this.emitter = emitter;
+            this.sequence = sequence;
         }
 
         private synchronized void initialize(

@@ -4,8 +4,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
-import world.chakchak.domain.changelog.event.RoomMemberLeftEvent;
 import world.chakchak.domain.changelog.event.RoomEvent;
+import world.chakchak.domain.changelog.event.RoomMemberLeftEvent;
 
 @Component
 @RequiredArgsConstructor
