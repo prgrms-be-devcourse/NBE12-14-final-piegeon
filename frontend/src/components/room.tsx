@@ -43,6 +43,9 @@ export function useRoomEvents(roomId: string, enabled: boolean) {
     source.addEventListener("activity", refresh);
     source.addEventListener("member.left", refresh);
     source.addEventListener("resync.required", refresh);
+    // 변경 기록에 남지 않는 소식: 가고 싶어요 수, 새 코멘트
+    source.addEventListener("place.agreement_changed", refresh);
+    source.addEventListener("comment.created", refresh);
     return () => source.close();
   }, [roomId, enabled]);
 }

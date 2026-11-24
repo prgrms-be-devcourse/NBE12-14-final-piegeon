@@ -126,7 +126,6 @@ public class ScheduleBoardService {
                 EventKind.SCHEDULE_CHANGED,
                 ActionStatus.CREATE,
                 day.getDayIndex() + "일차 " + place.getName() + ": 추가됐어요");
-        // TODO SSE (커밋 후): board.updated (바뀐 날의 스냅샷)
         return new AddItemResponse(item.getId(), DaySnapshot.of(day, items));
     }
 
@@ -177,7 +176,6 @@ public class ScheduleBoardService {
                 EventKind.SCHEDULE_CHANGED,
                 ActionStatus.UPDATE,
                 day.getDayIndex() + "일차 " + item.getPlaceCandidate().getName() + ": 순서가 바뀌었어요");
-        // TODO SSE (커밋 후): board.updated (바뀐 날의 스냅샷)
         return new DayChangeResponse(DaySnapshot.of(day, others), List.of());
     }
 
@@ -211,7 +209,6 @@ public class ScheduleBoardService {
                     EventKind.SCHEDULE_CHANGED,
                     ActionStatus.UPDATE,
                     changeSummary(day, item, oldTime, timeChanged, memoChanged));
-            // TODO SSE (커밋 후): board.updated (바뀐 날의 스냅샷)
         }
 
         List<ScheduleItem> items =
@@ -251,7 +248,6 @@ public class ScheduleBoardService {
                 EventKind.SCHEDULE_CHANGED,
                 ActionStatus.DELETE,
                 day.getDayIndex() + "일차 " + item.getPlaceCandidate().getName() + ": 삭제됐어요");
-        // TODO SSE (커밋 후): board.updated (바뀐 날의 스냅샷)
         return new DayChangeResponse(DaySnapshot.of(day, items), List.of());
     }
 

@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -72,6 +73,8 @@ public class PlaceCandidateService {
     private final PlaceReactionRepository placeReactionRepository;
     private final CommentService commentService;
     private final ChangeLogService changeLogService;
+    // 변경 기록에 남기지 않는 실시간 소식(반응, 코멘트)을 보낸다. 커밋된 뒤에 SSE로 나간다 (ChangeLogStreamListener)
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -316,7 +319,6 @@ public class PlaceCandidateService {
                 EventKind.PLACE_CONFIRMED,
                 ActionStatus.CONFIRM,
                 candidate.getName() + ": 확정됐어요");
-        // TODO 커밋 후 SSE place.confirmed (data는 PlaceConfirmedEvent(placeId, confirmedAt))
         return new PlaceConfirmResponse(candidate.getId(), candidate.getConfirmedAt());
     }
 
@@ -353,7 +355,6 @@ public class PlaceCandidateService {
                 EventKind.PLACE_DELETED,
                 ActionStatus.DELETE,
                 candidate.getName() + ": 삭제됐어요");
-        // TODO 커밋 후 SSE place.deleted (data는 placeId)
     }
 
     /**
