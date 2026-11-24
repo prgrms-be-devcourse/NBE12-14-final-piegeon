@@ -1241,6 +1241,32 @@ class AgendaServiceTest {
             }
 
             @Test
+            @DisplayName("최종 투표에 동의 표가 더 많아도 반대 표가 섞여 있으면 반대로 정하고 방이 PLANNING으로 돌아간다")
+            void returnsToPlanningWhenAnyRejectVote() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
+                AgendaOption agree =
+                        withId(AgendaOption.finalPlan(finalPlan, FinalPlanChoice.AGREE));
+                AgendaOption reject =
+                        withId(AgendaOption.finalPlan(finalPlan, FinalPlanChoice.REJECT));
+                RoomMember hyunwoo = member("현우", NOW.minusDays(1));
+                givenVotes(
+                        finalPlan,
+                        vote(finalPlan, agree, me),
+                        vote(finalPlan, agree, jieun),
+                        vote(finalPlan, reject, hyunwoo));
+                givenLatest(finalPlan);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(finalPlan.getResolvedOptionId()).isEqualTo(reject.getId());
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
+                assertThat(room.getFinalizedAt()).isNull();
+            }
+
+            @Test
             @DisplayName("최종 투표에 표가 없으면 안건은 미결로 끝나고 방이 PLANNING으로 돌아간다")
             void returnsToPlanningWithoutFinalVotes() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);

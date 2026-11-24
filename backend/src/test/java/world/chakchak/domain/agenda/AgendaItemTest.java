@@ -676,6 +676,24 @@ class AgendaItemTest {
             }
 
             @Test
+            @DisplayName("최종 확정은 동의 표가 더 많아도 반대 표가 하나라도 있으면 반대로 정한다")
+            void picksRejectWhenAnyRejectVote() {
+                AgendaItem agenda = votingAgenda(AgendaSubject.FINAL_PLAN, 4);
+                AgendaOption agree = finalOption(agenda, FinalPlanChoice.AGREE, 1L);
+                AgendaOption reject = finalOption(agenda, FinalPlanChoice.REJECT, 2L);
+
+                // 동의 표를 앞에 둬야 반대 분기가 없을 때 첫 표(동의)가 반환되어 실패한다
+                Optional<AgendaOption> winner =
+                        agenda.finalTallyOption(
+                                List.of(
+                                        vote(agenda, agree),
+                                        vote(agenda, agree),
+                                        vote(agenda, reject)));
+
+                assertThat(winner).containsSame(reject);
+            }
+
+            @Test
             @DisplayName("미결로 끝난 안건도 최종 집계로 결정할 수 있다")
             void resolvesExpiredAgenda() {
                 AgendaItem agenda = votingAgenda(AgendaSubject.STAY, 3);
