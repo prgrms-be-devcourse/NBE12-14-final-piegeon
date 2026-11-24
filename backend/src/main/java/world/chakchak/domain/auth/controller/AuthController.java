@@ -18,6 +18,8 @@ import world.chakchak.domain.auth.dto.SignupRequest;
 import world.chakchak.domain.auth.service.AuthService;
 import world.chakchak.domain.changelog.service.ChangeLogStreamService;
 import world.chakchak.domain.user.dto.UserResponse;
+import world.chakchak.global.ratelimit.RateLimit;
+import world.chakchak.global.ratelimit.RateLimitKey;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
 import world.chakchak.global.security.SessionAuthenticator;
@@ -39,6 +41,7 @@ public class AuthController {
                     "이메일, 이름, 비밀번호를 입력받아 회원가입을 진행한다. "
                             + "회원가입만 수행하며 로그인 상태가 되지 않으므로 "
                             + "가입 후 별도로 로그인해야 한다.")
+    @RateLimit(key = RateLimitKey.IP, limit = 50, perSeconds = 3600)
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse<UserResponse>> signup(
             @Valid @RequestBody SignupRequest request) {
@@ -50,6 +53,7 @@ public class AuthController {
     @Operation(
             summary = "로그인",
             description = "이메일과 비밀번호를 검증하여 로그인을 진행한다. " + "로그인 성공 시 세션을 생성하고 사용자 정보를 반환한다.")
+    @RateLimit(key = RateLimitKey.IP, limit = 60, perSeconds = 60)
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<UserResponse>> login(
             @Valid @RequestBody LoginRequest request,
