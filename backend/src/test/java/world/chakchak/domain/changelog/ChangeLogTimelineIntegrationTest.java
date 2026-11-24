@@ -61,7 +61,7 @@ import world.chakchak.domain.user.repository.UserRepository;
 class ChangeLogTimelineIntegrationTest {
 
     private static final String PASSWORD = "password123!";
-    private static final String STREAM_PATH = "/api/rooms/%d/change-logs/stream";
+    private static final String STREAM_PATH = "/api/rooms/%d/events";
 
     private final int port;
     private final RoomRepository roomRepository;
@@ -414,7 +414,34 @@ class ChangeLogTimelineIntegrationTest {
             }
 
             @Test
-            @DisplayName("누락 활동이 200건을 넘으면 재동기화 이벤트를 보내고 200건은 재생한다")
+            @DisplayName("누락 활동 200건은 모두 재생한다")
+            void replaysActivitiesAtReplayLimit() throws Exception {
+                String ownerEmail = uniqueEmail();
+                String ownerCookie = login(ownerEmail, "방장");
+                User owner = userRepository.findByEmail(ownerEmail).orElseThrow();
+                Room room = saveRoom();
+                RoomMember member = join(room, owner);
+                insertActivities(room.getId(), member.getId(), 202);
+                List<Long> activityIds =
+                        jdbcTemplate.queryForList(
+                                "select id from change_log where plan_room_id = ? order by id",
+                                Long.class,
+                                room.getId());
+
+                HttpResponse<InputStream> atLimit =
+                        openStream(room.getId(), ownerCookie, activityIds.get(1).toString());
+                try (SseReader reader = new SseReader(atLimit.body())) {
+                    assertThat(reader.readEvent()).contains("event:connected");
+                    for (int index = 2; index < activityIds.size(); index++) {
+                        String replayed = reader.readEvent();
+                        assertThat(replayed).contains("event:activity");
+                        assertThat(eventId(replayed)).isEqualTo(activityIds.get(index));
+                    }
+                }
+            }
+
+            @Test
+            @DisplayName("누락 활동 201건 이상이면 재동기화 이벤트를 보낸다")
             void requiresResyncAboveReplayLimit() throws Exception {
                 String ownerEmail = uniqueEmail();
                 String ownerCookie = login(ownerEmail, "방장");
@@ -433,17 +460,6 @@ class ChangeLogTimelineIntegrationTest {
                 try (SseReader reader = new SseReader(overflow.body())) {
                     assertThat(reader.readEvent()).contains("event:connected");
                     assertThat(reader.readEvent()).contains("event:resync.required");
-                }
-
-                HttpResponse<InputStream> atLimit =
-                        openStream(room.getId(), ownerCookie, activityIds.get(1).toString());
-                try (SseReader reader = new SseReader(atLimit.body())) {
-                    assertThat(reader.readEvent()).contains("event:connected");
-                    for (int index = 2; index < activityIds.size(); index++) {
-                        String replayed = reader.readEvent();
-                        assertThat(replayed).contains("event:activity");
-                        assertThat(eventId(replayed)).isEqualTo(activityIds.get(index));
-                    }
                 }
             }
         }
@@ -475,15 +491,14 @@ class ChangeLogTimelineIntegrationTest {
                 String ownerCookie = login(ownerEmail, "방장");
                 User owner = userRepository.findByEmail(ownerEmail).orElseThrow();
                 Room room = saveRoom();
-                RoomMember member = join(room, owner);
+                join(room, owner);
                 HttpResponse<InputStream> stream = openStream(room.getId(), ownerCookie, null);
 
                 try (SseReader reader = new SseReader(stream.body())) {
                     assertThat(reader.readEvent()).contains("event:connected");
-                    jdbcTemplate.update(
-                            "update plan_room_member set left_at = ? where id = ?",
-                            LocalDateTime.now(clock),
-                            member.getId());
+                    HttpResponse<String> leaveResponse =
+                            delete("/api/rooms/" + room.getId() + "/members/me", ownerCookie);
+                    assertThat(leaveResponse.statusCode()).isEqualTo(200);
                     joinRoom(room, "다른 멤버");
 
                     assertThatThrownBy(reader::readEvent)

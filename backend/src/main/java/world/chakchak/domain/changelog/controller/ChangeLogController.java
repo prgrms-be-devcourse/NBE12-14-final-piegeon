@@ -43,9 +43,7 @@ public class ChangeLogController {
         return ResponseEntity.ok(ApiResponse.success("CHANGE_LOGS_FETCHED", response));
     }
 
-    @GetMapping(
-            value = {"/events", "/change-logs/stream"},
-            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<SseEmitter> stream(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long roomId,

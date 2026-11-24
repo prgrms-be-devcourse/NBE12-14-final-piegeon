@@ -49,10 +49,6 @@ public class RoomMemberService {
         return access.getActiveMember();
     }
 
-    public RoomMember getActiveMemberForStream(Long roomId, Long userId) {
-        return getActiveMember(roomId, userId);
-    }
-
     public boolean isActiveMember(Long roomId, Long memberId) {
         return roomMemberRepository.existsByRoom_IdAndIdAndLeftAtIsNull(roomId, memberId);
     }

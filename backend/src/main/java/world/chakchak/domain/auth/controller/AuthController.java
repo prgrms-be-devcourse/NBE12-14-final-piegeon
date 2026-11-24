@@ -55,7 +55,9 @@ public class AuthController {
             HttpServletRequest httpRequest,
             HttpServletResponse httpResponse,
             @AuthenticationPrincipal LoginUser loginUser) {
-        if (loginUser != null) changeLogStreamService.closeConnectionsForUser(loginUser.userId());
+        if (loginUser != null) {
+            changeLogStreamService.closeConnectionsForUser(loginUser.userId());
+        }
         sessionAuthenticator.logout(httpRequest, httpResponse);
         return ResponseEntity.noContent().build();
     }

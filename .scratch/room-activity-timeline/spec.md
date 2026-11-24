@@ -55,10 +55,10 @@
 - SSE는 방 화면마다 방별 연결 하나를 사용한다. 연결 준비 시 서버가 구독을 등록한 뒤 현재 마지막 활동 ID를 기준점으로 준비 이벤트를 보낸다.
 - 클라이언트는 연결 준비 기준 ID를 받은 뒤 일반 최신순 커서 페이지를 조회한다. 초기 조회가 끝날 때까지 수신한 SSE 이벤트를 버퍼링하고 조회 결과와 ID 기준으로 합쳐 중복을 제거한다. 조회 API에는 상한 ID(`throughId`) 파라미터를 두지 않는다.
 - 타임라인 조회는 최신 ID 내림차순이며 페이지 크기는 1~100, 기본 20이다. 다음 페이지는 현재 가장 오래된 활동 ID보다 작은 ID를 커서로 사용한다.
-- 실시간 이벤트는 저장된 활동 기록과 같은 항목 데이터를 사용한다. 활동 ID가 있는 이벤트는 해당 기록 ID를 SSE ID로 사용한다.
-- 재연결은 마지막 수신 ID보다 큰 방 기록을 ID 오름차순으로 재생한다. 누락이 200건을 초과하면 일부 재생 대신 `resync.required`를 보내고 클라이언트는 관련 방 화면 데이터를 재조회한다.
-- `resync.required`는 영속 기록 ID가 없는 제어 이벤트다. 클라이언트는 기존 연결을 닫고 관련 화면 데이터를 다시 조회한 뒤 새 연결을 연다.
-- 표·동의·코멘트 등 ID가 없는 일시적 이벤트는 영속 기록에 저장하지 않으며 재연결 시 재전송하지 않는다.
+- `activity` 실시간 이벤트만 저장된 활동 기록과 같은 항목 데이터를 사용하고 해당 `change_log` ID를 SSE ID로 사용한다. `agenda.resolved`, `vote.updated` 등 도메인 이벤트와 제어 이벤트는 SSE ID를 설정하지 않는다.
+- 재연결은 Last-Event-ID가 가리키는 `change_log` ID보다 큰 영속 활동 기록만 ID 오름차순으로 재생한다. 도메인 이벤트는 영속 기록이 아니므로 재생하지 않는다. 누락이 200건을 초과하면 일부 재생 대신 `resync.required`를 보내고 클라이언트는 관련 방 화면 데이터를 재조회한다.
+- `resync.required`는 SSE ID가 없는 제어 이벤트다. 클라이언트는 기존 연결을 닫고 관련 화면 데이터를 다시 조회한 뒤 새 연결을 연다.
+- 표·동의·코멘트 등 ID가 없는 일시적 도메인 이벤트는 영속 기록에 저장하지 않으며 재연결 시 재전송하지 않는다.
 - 최신 위치에 있는 사용자는 새 활동을 타임라인 맨 위에서 바로 보고, 이전 기록을 읽는 사용자는 현재 위치를 유지하면서 새 활동 표시를 본다.
 - 타임라인 활동은 대상 종류와 ID를 제공한다. 대상이 존재하면 해당 화면으로 이동하고, 삭제 또는 이동 불가 상태면 기록 문구를 표시한다.
 - 읽음 처리는 화면에 실제 표시된 활동까지만 한다. 확인 API의 기존 계약대로 마지막으로 표시한 활동의 `createdAt`을 `LocalDateTime` `seenUntil`로 전달하고, 저장된 마지막 확인 시각보다 과거 값으로 되돌리지 않는다.
@@ -67,7 +67,8 @@
 - 이번 연결 관리 범위는 단일 서버다. 다중 서버 간 실시간 전달은 배포 요구가 생길 때 공유 발행기로 확장한다.
 - 이 구현은 공통 `changelog`와 `room`, `room member`, `survey` 경계에 한정한다. 장소·안건·일정 도메인은 수정하거나 활동 생산자로 연결하지 않는다.
 - 타임라인은 `GET /api/rooms/{roomId}/change-logs`에서 `cursor`, `size`로 조회하며, `cursor`보다 작은 ID를 최신순으로 반환한다. `size` 기본값은 20, 범위는 1~100이다. 응답 항목은 `logId`, 선택적 `actor`(`memberId`, `name`), `entityType`, `entityId`, `action`, `summary`, `createdAt`을 포함한다. 시스템 행위는 `actor: null`이다. 더 없으면 `nextCursor`는 `null`이다.
-- SSE는 `GET /api/rooms/{roomId}/change-logs/stream`에서 연결한다. `connected` 이벤트는 `latestEventId` 기준점을 보내고, `activity`는 영속 활동 ID를 SSE ID로 사용한다. Last-Event-ID 누락이 200건을 넘으면 `resync.required`를 보낸다.
+- SSE는 `GET /api/rooms/{roomId}/events`에서 연결한다. `connected` 이벤트는 `latestEventId` 기준점을 보내고, `activity`는 영속 활동 ID를 SSE ID로 사용한다. Last-Event-ID 누락이 200건을 넘으면 `resync.required`를 보낸다.
+- 사용자별 동시 SSE 연결은 최대 3개다. 초과 시 HTTP 429 `TOO_MANY_STREAMS`를 반환한다.
 - 방 멤버 조회는 방이 없으면 `ROOM_NOT_FOUND`, 비멤버와 나간 멤버는 구분 없이 `FORBIDDEN`을 반환한다.
 - 확인 API는 `POST /api/rooms/{roomId}/seen`이며, 마지막으로 표시한 활동의 `createdAt`을 `LocalDateTime` `seenUntil`로 받는다.
 - 기존 방 멤버의 활동 권한, 활동 종류와 요약 기준, 200건 재연결 한도, 데이터베이스 스키마와 시간 정책은 방 활동 내역 명세 및 ADR의 결정을 따른다.
