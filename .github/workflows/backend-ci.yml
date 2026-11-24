@@ -1,10 +1,18 @@
 name: backend-ci
 
+# 백엔드 코드나 이 파일이 바뀔 때만 돈다. 프론트·문서·인프라만 바뀐 PR에서는 돌지 않는다.
+# main push는 deploy.yml이 같은 빌드를 하므로 여기서 다시 돌리지 않는다.
 on:
   pull_request:
     branches: [dev, main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
   push:
-    branches: [dev, main]
+    branches: [dev]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
 
 permissions:
   contents: read
@@ -15,8 +23,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 브랜치 보호의 필수 상태 체크로 지정할 때는 이 job 이름(backend)을 쓴다.
-  # paths 필터는 쓰지 않는다. 필터로 건너뛴 필수 체크는 Pending으로 남아 머지를 막는다.
+  # 이 job(backend)을 필수 상태 체크로 지정하면 paths 필터로 건너뛴 PR은 Pending으로 남아 머지가 막힌다.
+  # 필수로 바꿀 때는 paths 필터를 빼거나, 변경 감지 후 스텝만 건너뛰는 방식으로 바꾼다.
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
