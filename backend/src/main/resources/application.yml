@@ -28,3 +28,6 @@ app:
   google-places:
     base-url: https://places.googleapis.com
     timeout: 3s
+  # 13-2 안건 마감 스케줄러. 매분 0초에 돈다.
+  scheduler:
+    agenda-deadline-cron: "0 * * * * *"
