@@ -554,6 +554,68 @@ class AgendaItemTest {
     }
 
     @Nested
+    class ExpirableAt {
+
+        private AgendaItem agendaUntil(LocalDateTime deadlineAt) {
+            return AgendaItem.create(room(), AgendaSubject.BUDGET, 1, "안건 제목", 3, NOW, deadlineAt);
+        }
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("투표 중 안건은 마감 시각 정각부터 미결로 끝낼 수 있다")
+            void expirableAtDeadline() {
+                LocalDateTime deadline = NOW.plusDays(4);
+
+                assertThat(agendaUntil(deadline).isExpirableAt(deadline)).isTrue();
+            }
+
+            @Test
+            @DisplayName("투표 중 안건은 마감 시각이 지나면 미결로 끝낼 수 있다")
+            void expirableAfterDeadline() {
+                LocalDateTime deadline = NOW.plusDays(4);
+
+                assertThat(agendaUntil(deadline).isExpirableAt(deadline.plusMinutes(1))).isTrue();
+            }
+        }
+
+        @Nested
+        class Failure {
+
+            @Test
+            @DisplayName("마감 시각 전이면 미결로 끝낼 수 없다")
+            void notExpirableBeforeDeadline() {
+                LocalDateTime deadline = NOW.plusDays(4);
+
+                assertThat(agendaUntil(deadline).isExpirableAt(deadline.minusSeconds(1))).isFalse();
+            }
+
+            @Test
+            @DisplayName("마감이 출발 전날 00:00인 안건은 최종 집계 대상이라 미결로 끝내지 않는다")
+            void notExpirableAtFinalTally() {
+                assertThat(agendaUntil(D_MINUS_1).isExpirableAt(D_MINUS_1)).isFalse();
+            }
+
+            @Test
+            @DisplayName("마감이 더 일렀어도 출발 전날 00:00이 지났으면 최종 집계 대상이라 미결로 끝내지 않는다")
+            void notExpirableAfterFinalTallyStarts() {
+                AgendaItem agenda = agendaUntil(NOW.plusDays(4));
+
+                assertThat(agenda.isExpirableAt(D_MINUS_1.plusMinutes(1))).isFalse();
+            }
+
+            @Test
+            @DisplayName("이미 끝난 안건은 다시 미결로 끝낼 수 없다")
+            void notExpirableWhenClosed() {
+                AgendaItem agenda = expiredAgenda(AgendaSubject.BUDGET);
+
+                assertThat(agenda.isExpirableAt(NOW.plusDays(5))).isFalse();
+            }
+        }
+    }
+
+    @Nested
     class RemoveVoter {
 
         @Nested

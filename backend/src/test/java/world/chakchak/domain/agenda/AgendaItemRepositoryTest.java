@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -313,6 +314,49 @@ class AgendaItemRepositoryTest {
                                         room.getId(), AgendaStatus.VOTING))
                         .extracting(AgendaItem::getId)
                         .containsExactly(voting.getId());
+            }
+
+            // 다른 테스트가 남긴 방이 섞일 수 있어 이 테스트에서 만든 방만 확인한다
+            @Test
+            @DisplayName("마감 시각이 지난 투표 중 안건이 있는 방만 중복 없이 찾는다")
+            void findsRoomsWithOverdueAgendas() {
+                saveAgenda(room, AgendaSubject.BUDGET, 1);
+                saveAgenda(room, AgendaSubject.STAY, 1);
+                Room notYet = saveRoom();
+                saveAgenda(notYet, AgendaSubject.BUDGET, 1, DEADLINE.plusMinutes(1));
+                Room decided = saveRoom();
+                AgendaItem resolved = saveAgenda(decided, AgendaSubject.STAY, 1);
+                resolved.resolve(saveStayOption(resolved), DEADLINE);
+                agendaItemRepository.flush();
+
+                List<Long> roomIds =
+                        agendaItemRepository.findRoomIdsWithOverdueAgendas(
+                                AgendaStatus.VOTING, DEADLINE, DEADLINE.toLocalDate().plusDays(1));
+
+                assertThat(roomIds)
+                        .containsOnlyOnce(room.getId())
+                        .doesNotContain(notYet.getId(), decided.getId());
+            }
+
+            @Test
+            @DisplayName("출발 전날 00:00 직전까지는 찾고, 00:00이 되면 최종 집계 대상이라 찾지 않는다")
+            void excludesRoomsAtFinalTally() {
+                saveAgenda(room, AgendaSubject.BUDGET, 1);
+                LocalDateTime dayBeforeDeparture = room.getStartDate().minusDays(1).atStartOfDay();
+                LocalDateTime justBefore = dayBeforeDeparture.minusSeconds(1);
+
+                assertThat(
+                                agendaItemRepository.findRoomIdsWithOverdueAgendas(
+                                        AgendaStatus.VOTING,
+                                        justBefore,
+                                        justBefore.toLocalDate().plusDays(1)))
+                        .contains(room.getId());
+                assertThat(
+                                agendaItemRepository.findRoomIdsWithOverdueAgendas(
+                                        AgendaStatus.VOTING,
+                                        dayBeforeDeparture,
+                                        dayBeforeDeparture.toLocalDate().plusDays(1)))
+                        .doesNotContain(room.getId());
             }
         }
 
