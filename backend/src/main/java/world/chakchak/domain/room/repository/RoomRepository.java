@@ -1,6 +1,9 @@
 package world.chakchak.domain.room.repository;
 
 import jakarta.persistence.LockModeType;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 import world.chakchak.domain.room.dto.RoomSummaryResponse;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
+import world.chakchak.domain.room.entity.RoomStatus;
 
 public interface RoomRepository extends JpaRepository<Room, Long> {
 
@@ -31,6 +35,30 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Room r where r.id = :id")
     Optional<Room> findByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * 의견 마감이 지났는데 설문이 아직 마감되지 않은 방 (13-1).
+     *
+     * <p>출발일이 내일보다 뒤인 방만 찾는다. 출발 전날 00:00(D-1)이 된 방은 최종 집계가 처리한다.
+     */
+    @Query(
+            """
+            select r.id from Room r
+            where r.status = :status
+              and r.surveyClosedAt is null
+              and r.opinionDeadlineAt <= :now
+              and r.startDate > :tomorrow
+            """)
+    List<Long> findRoomIdsPastOpinionDeadline(
+            @Param("status") RoomStatus status,
+            @Param("now") LocalDateTime now,
+            @Param("tomorrow") LocalDate tomorrow);
+
+    /** 출발 전날 00:00(D-1)이 됐는데 아직 조율이나 최종 투표가 끝나지 않은 방 (D-1 최종 집계). */
+    @Query("select r.id from Room r where r.status in :statuses and r.startDate <= :tomorrow")
+    List<Long> findRoomIdsAtFinalTally(
+            @Param("statuses") Collection<RoomStatus> statuses,
+            @Param("tomorrow") LocalDate tomorrow);
 
     @Query(
             """

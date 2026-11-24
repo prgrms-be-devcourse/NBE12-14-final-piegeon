@@ -11,7 +11,9 @@ import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -198,6 +200,18 @@ public class AgendaItem extends BaseEntity {
     // 저장은 id로 한다. 안건과 선지가 서로를 객체로 참조하지 않게 하기 위해서다.
     public void resolve(AgendaOption option, LocalDateTime now) {
         requireVoting();
+        markResolved(option, now);
+    }
+
+    /** D-1 최종 집계로 결정한다. 미결(EXPIRED)로 끝나고 다음 회차가 열리지 않은 안건도 이 회차의 표로 결정한다. */
+    public void resolveByFinalTally(AgendaOption option, LocalDateTime now) {
+        if (status == AgendaStatus.RESOLVED) {
+            throw new BusinessException(AgendaErrorCode.AGENDA_CLOSED);
+        }
+        markResolved(option, now);
+    }
+
+    private void markResolved(AgendaOption option, LocalDateTime now) {
         if (!option.belongsTo(this)) {
             throw new IllegalArgumentException("이 안건의 선택지가 아닙니다: " + option.getId());
         }
@@ -246,6 +260,39 @@ public class AgendaItem extends BaseEntity {
         AgendaOption first = votes.getFirst().getAgendaOption();
         boolean unanimous = votes.stream().allMatch(v -> v.isFor(first));
         return unanimous ? Optional.of(first) : Optional.empty();
+    }
+
+    /**
+     * D-1 최종 집계로 정할 선지를 고른다. 정할 수 없으면 비어 있고, 그 항목은 미결로 끝난다.
+     *
+     * <ul>
+     *   <li>표가 없으면 정할 수 없다.
+     *   <li>최종 확정은 반대 표가 있으면 반대, 없으면 동의다.
+     *   <li>설문 안건은 단독 최다 득표 선지다. 1위가 동점이면 정할 수 없다.
+     * </ul>
+     *
+     * @param votes 집계할 표. 나간 멤버의 표는 service가 미리 뺀다
+     */
+    public Optional<AgendaOption> finalTallyOption(List<Vote> votes) {
+        if (votes.isEmpty()) {
+            return Optional.empty();
+        }
+        if (subject == AgendaSubject.FINAL_PLAN) {
+            return votes.stream()
+                    .filter(Vote::isReject)
+                    .map(Vote::getAgendaOption)
+                    .findFirst()
+                    .or(() -> Optional.of(votes.getFirst().getAgendaOption()));
+        }
+        Map<Long, List<Vote>> votesByOption =
+                votes.stream().collect(Collectors.groupingBy(v -> v.getAgendaOption().getId()));
+        int topCount = votesByOption.values().stream().mapToInt(List::size).max().orElseThrow();
+        List<AgendaOption> topOptions =
+                votesByOption.values().stream()
+                        .filter(optionVotes -> optionVotes.size() == topCount)
+                        .map(optionVotes -> optionVotes.getFirst().getAgendaOption())
+                        .toList();
+        return topOptions.size() == 1 ? Optional.of(topOptions.getFirst()) : Optional.empty();
     }
 
     /** 결정하지 못한 채 마감한다. (13-2 마감 스케줄러) */

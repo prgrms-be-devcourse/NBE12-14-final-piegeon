@@ -262,6 +262,98 @@ public class AgendaService {
         // TODO SSE (커밋 후): agenda.expired, 방 상태가 바뀌면 room.status_changed
     }
 
+    /** D-1 최종 집계 대상 방을 찾는다. */
+    public List<Long> findRoomIdsAtFinalTally() {
+        return roomService.findRoomIdsAtFinalTally(LocalDateTime.now(clock));
+    }
+
+    /**
+     * 출발 전날 00:00(D-1)이 된 방의 남은 안건을 활동 멤버가 낸 표로 결정한다.
+     *
+     * <p>집계가 끝나면 방이 PLANNING·FINALIZED·EXPIRED로 바뀌어 같은 방을 다시 처리하지 않는다.
+     */
+    @Transactional
+    public void runFinalTally(Long roomId) {
+        Room room = roomService.getForUpdate(roomId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (AgendaItem.canOpenAt(room, now)) {
+            return;
+        }
+        if (room.getStatus() == RoomStatus.SURVEYING) {
+            tallySurveyAgendas(room, now);
+        } else if (room.getStatus() == RoomStatus.REVIEWING) {
+            tallyFinalPlan(room, now);
+        }
+        // TODO change_log: AGENDA CONFIRM/UPDATE, PLAN_ROOM UPDATE/CONFIRM
+        // TODO SSE (커밋 후): agenda.resolved, agenda.expired, room.status_changed
+    }
+
+    // 세 항목이 모두 결정되면 PLANNING, 설문이 마감되지 않았거나 표가 0개이거나 1위가 동점인 항목이 있으면 방이 EXPIRED다
+    private void tallySurveyAgendas(Room room, LocalDateTime now) {
+        boolean allResolved = room.getSurveyClosedAt() != null;
+        for (AgendaSubject subject : SURVEY_SUBJECTS) {
+            Optional<AgendaItem> latest =
+                    agendaItemRepository.findTopByRoomIdAndSubjectOrderByRoundDesc(
+                            room.getId(), subject);
+            if (latest.isEmpty()) {
+                allResolved = false;
+                continue;
+            }
+            // 정하지 못한 항목이 있어도 단독 1위가 있는 다른 항목은 결정해 기록을 남기도록 끝까지 돈다
+            allResolved &= tallySurveyAgenda(latest.get(), now);
+        }
+        if (allResolved) {
+            room.startPlanning();
+        } else {
+            room.expire();
+        }
+    }
+
+    private boolean tallySurveyAgenda(AgendaItem agenda, LocalDateTime now) {
+        if (agenda.getStatus() == AgendaStatus.RESOLVED) {
+            return true;
+        }
+        Optional<AgendaOption> winner = agenda.finalTallyOption(activeMemberVotes(agenda));
+        if (winner.isPresent()) {
+            agenda.resolveByFinalTally(winner.get(), now);
+            return true;
+        }
+        if (agenda.getStatus() == AgendaStatus.VOTING) {
+            agenda.expire();
+        }
+        return false;
+    }
+
+    private void tallyFinalPlan(Room room, LocalDateTime now) {
+        AgendaItem agenda =
+                agendaItemRepository
+                        .findTopByRoomIdAndSubjectOrderByRoundDesc(
+                                room.getId(), AgendaSubject.FINAL_PLAN)
+                        .orElseThrow(() ->
+                                new IllegalStateException(
+                                        "최종 투표 안건이 없습니다: roomId=" + room.getId()));
+        // 마지막 멤버가 나가면 안건만 미결이 되고 방은 REVIEWING에 남는다 (R-06)
+        if (agenda.getStatus() == AgendaStatus.EXPIRED) {
+            applyExpired(room, agenda);
+            return;
+        }
+        Optional<AgendaOption> winner = agenda.finalTallyOption(activeMemberVotes(agenda));
+        if (winner.isPresent()) {
+            agenda.resolveByFinalTally(winner.get(), now);
+            applyResolved(room, agenda, winner.get(), now);
+            return;
+        }
+        agenda.expire();
+        applyExpired(room, agenda);
+    }
+
+    // 미결로 끝난 회차에는 나간 멤버의 표가 남아 있다. 떠난 사람의 표로 결과를 정하지 않는다
+    private List<Vote> activeMemberVotes(AgendaItem agenda) {
+        return voteRepository.findAllByAgendaItemId(agenda.getId()).stream()
+                .filter(vote -> vote.getMember().getLeftAt() == null)
+                .toList();
+    }
+
     /**
      * 설문이 마감되면 예산·숙소 타입·이동 강도의 1회차 안건을 연다 (5-1). 설문 마감을 판정한 쪽(S-02 마지막 제출, R-06 퇴장, 13-1 의견 마감
      * 스케줄러)이 방 잠금을 잡은 채 {@code Room.closeSurveyIfReady}가 true일 때 부른다.
