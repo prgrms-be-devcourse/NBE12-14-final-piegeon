@@ -751,10 +751,6 @@ class AgendaServiceTest {
                 given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(0L);
                 given(agendaItemRepository.findAllByRoomIdAndStatus(ROOM_ID, AgendaStatus.VOTING))
                         .willReturn(List.of(finalPlan));
-                given(
-                                voteRepository.findByAgendaItemIdAndMemberId(
-                                        finalPlan.getId(), jieun.getId()))
-                        .willReturn(Optional.empty());
 
                 agendaService.memberLeft(room, jieun, NOW);
 
@@ -762,6 +758,45 @@ class AgendaServiceTest {
                 assertThat(finalPlan.getResolvedOptionId()).isNull();
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.REVIEWING);
                 assertThat(room.getFinalizedAt()).isNull();
+            }
+
+            @Test
+            @DisplayName("표를 낸 멤버가 나가면 표가 지워지고 투표자 수가 줄어 남은 표로 안건이 결정된다")
+            void deletesVoteAndResolvesWhenVoterLeaves() {
+                RoomMember leaving = member("현우", NOW.minusDays(1));
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 3);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(2L);
+                given(agendaItemRepository.findAllByRoomIdAndStatus(ROOM_ID, AgendaStatus.VOTING))
+                        .willReturn(List.of(budget));
+                // 나간 멤버의 표를 지운 뒤의 조회 결과다
+                givenVotes(budget, vote(budget, low, me), vote(budget, low, jieun));
+                givenLatestRounds(budget, openAgenda(AgendaSubject.STAY, 2));
+
+                agendaService.memberLeft(room, leaving, NOW);
+
+                verify(voteRepository)
+                        .deleteByAgendaItemIdAndMemberId(budget.getId(), leaving.getId());
+                assertThat(budget.getTotalVoter()).isEqualTo(2);
+                assertThat(budget.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
+                assertThat(budget.getResolvedOptionId()).isEqualTo(low.getId());
+            }
+
+            @Test
+            @DisplayName("안건이 열린 뒤 합류해 투표 자격이 없는 멤버가 나가면 표를 지우지 않고 투표자 수도 그대로다")
+            void keepsVotersWhenIneligibleMemberLeaves() {
+                RoomMember lateJoiner = member("서연", NOW);
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(2L);
+                given(agendaItemRepository.findAllByRoomIdAndStatus(ROOM_ID, AgendaStatus.VOTING))
+                        .willReturn(List.of(budget));
+
+                agendaService.memberLeft(room, lateJoiner, NOW);
+
+                verify(voteRepository, never())
+                        .deleteByAgendaItemIdAndMemberId(budget.getId(), lateJoiner.getId());
+                assertThat(budget.getTotalVoter()).isEqualTo(2);
+                assertThat(budget.getStatus()).isEqualTo(AgendaStatus.VOTING);
             }
 
             @Test
