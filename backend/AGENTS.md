@@ -25,48 +25,19 @@
 - `world.chakchak.infra`: 외부 API 구현체
 - 도메인 패키지 안은 controller, service, repository, entity, dto, errorcode로 나눈다.
 
-## 코드 규칙
-- 호출 방향은 controller → service → repository다. controller에서 repository를 쓰지 않는다.
-- service에서 HttpServletRequest, HttpSession, SecurityContextHolder를 쓰지 않는다.
-  controller가 `@AuthenticationPrincipal LoginUser`에서 userId를 꺼내 인자로 넘긴다.
-- 다른 도메인의 repository를 직접 주입하지 않는다. 그 도메인의 service를 쓴다.
-- `global`에서 `domain`을 import하지 않는다.
-- 상태 전이 규칙은 엔티티 메서드에 둔다.
-- 현재 시각은 주입받은 `Clock`으로 구한다. `LocalDateTime.now(clock)`처럼 쓰고, `LocalDateTime.now()`를 인자 없이 부르지 않는다.
-- 시각 타입은 `LocalDateTime`이고 서비스 시간대(Asia/Seoul) 기준이다. DB에도 한국 시각이 그대로 저장된다. `spring.jpa.properties.hibernate.jdbc.time_zone`은 설정하지 않는다. 설정하면 서버 시간대에 따라 저장되는 값이 달라진다.
-- 요청·응답 DTO는 record로 만들고 이름은 `XxxRequest`, `XxxResponse`로 끝낸다. 엔티티를 응답으로 내보내지 않는다.
-- 코드 포맷은 Google Java Format의 AOSP 스타일(들여쓰기 4칸, 한 줄 100자)이다. 손으로 맞추지 않는다. 로컬에서는 컴파일할 때(`./gradlew build`, IntelliJ 빌드·실행·테스트) `spotlessApply`가 자동으로 실행된다. CI는 고치지 않고 검사만 하므로, 포맷이 어긋난 채 push하면 CI가 실패한다.
-- 의존성은 생성자 주입(`@RequiredArgsConstructor`)만 쓴다.
-- 엔티티에 `@Setter`, `@Data`를 쓰지 않는다. 연관관계는 `FetchType.LAZY`로 둔다.
-- JSON 라이브러리는 Jackson 3이다. ObjectMapper 등은 `tools.jackson.*`에서 import한다.
-  `com.fasterxml.jackson.databind.*`는 쓰지 않는다. 어노테이션만 `com.fasterxml.jackson.annotation.*`를 쓴다.
+## 작업별 규칙
+아래 규칙은 해당 파일을 다룰 때 읽는다. Claude Code는 `paths`가 맞는 파일을 열거나 고칠 때 자동으로 읽는다. 다른 도구는 작업 전에 해당 파일을 직접 읽는다.
 
-## API 규칙
-- 경로는 `/api`로 시작하고, 자원 이름은 복수형 kebab-case를 쓴다.
-- controller 메서드는 `ResponseEntity<ApiResponse<XxxResponse>>`를 반환하고 상태 코드를 여기서 정한다. (`ResponseEntity.ok(...)`, `ResponseEntity.status(HttpStatus.CREATED).body(...)`, 본문이 없으면 `ResponseEntity.noContent().build()`) `@ResponseStatus`는 쓰지 않는다.
-- 응답 본문은 성공과 실패 모두 `ApiResponse`(`success`, `code`, `message`, `data`)로 감싼다. 성공은 `ApiResponse.success(...)`, 실패는 `GlobalExceptionHandler`가 `ApiResponse.error(...)`로 만든다.
-- 실패는 `BusinessException(ErrorCode)`를 던진다. controller에서 try-catch로 에러 응답을 만들지 않는다.
-- DB unique 제약 위반(`DataIntegrityViolationException`)은 전역에서 처리하지 않는다. 중복이 예상되는 곳의 service에서 잡아 해당 도메인 에러 코드로 바꾼다. 잡지 않은 위반은 코드 버그이므로 500이 된다.
-- 에러 코드는 도메인마다 `domain.<도메인>.errorcode` 패키지의 `XxxErrorCode` enum에 둔다. enum 상수 이름이 응답의 `code`이고, API 명세의 이름을 그대로 쓴다. 여러 도메인이 함께 쓰는 코드(`UNAUTHORIZED`, `INVALID_INPUT` 등)만 `global.error.CommonErrorCode`에 둔다.
-- 성공 응답의 `code`는 `{대상}_{결과}` 형태다. (예: `USER_CREATED`, `ROOM_FETCHED`)
-- 요청과 응답의 시각은 오프셋 없는 `LocalDateTime`이고 한국 시간(Asia/Seoul) 기준이다. (예: `2026-11-12T21:30:00` = 한국 시각 21:30) 프론트는 사용자가 해외에 있어도 받은 값을 그대로 한국 시간으로 표시한다.
-- 입력 형식 검증은 요청 DTO의 Bean Validation으로, 업무 규칙 검증은 service와 엔티티에서 한다.
-- 방에 속한 API는 service 첫 줄에서 `RoomMemberService.getActiveMember(roomId, userId)`로 멤버인지 확인한다.
+| 작업 | 파일 | 대상 경로 (`backend/` 기준) |
+|---|---|---|
+| 코드 작성 (계층, 시각, DTO, 포맷, 엔티티, JSON) | `.claude/rules/code.md` | `src/main/java/**` |
+| API (경로, 응답, 에러 코드, 검증) | `.claude/rules/api.md` | `controller`, `dto`, `errorcode`, `global/error` |
+| DB (Flyway, ddl-auto, 마이그레이션) | `.claude/rules/db.md` | `src/main/resources/db/**`, `application*.yml`, `entity`, `repository` |
+| 테스트 | `.claude/rules/test.md` | `src/test/**` |
 
-## DB 규칙
-- 스키마 변경은 `src/main/resources/db/migration`에 Flyway 파일을 새로 추가한다. 이름은 `V<번호>__<설명>.sql`이다.
-- `spring.jpa.hibernate.ddl-auto`는 `validate`다. 엔티티를 바꾸면 마이그레이션도 함께 추가한다.
-- 마이그레이션 파일 하나에는 DDL을 하나만 둔다. MySQL은 DDL을 롤백하지 못한다.
-
-## 테스트 규칙
-- 기능을 추가하거나 고치면 테스트를 함께 추가한다.
-- 엔티티와 service의 규칙은 Spring 없이 단위 테스트로 쓴다. (예: `UserTest`)
-- DB가 필요한 테스트는 `@Import(TestcontainersConfig.class)`로 Testcontainers의 MySQL을 쓴다. H2를 쓰지 않는다.
-- 인증 흐름처럼 필터와 세션까지 확인해야 하는 테스트는 `AuthIntegrationTest`처럼 실제 서버를 띄워 HTTP로 호출한다.
-- `@DisplayName`에 검증하는 규칙을 한국어 한 문장으로 적는다.
-- 테스트 클래스 내부는 `@Nested`를 사용해 1단계로 CRUD 기능별(`Create`, `Read`, `Update`, `Delete` 등), 2단계로 `Success`와 `Failure` 케이스별로 계층을 나눈다.
+## 작업 마무리
 - 작업을 끝내기 전에 `./gradlew build`를 실행하고, 실제 출력 결과를 보고한다.
-- PR과 `dev`, `main` push에서는 `.github/workflows/backend-ci.yml`이 같은 `./gradlew build`를 실행한다.
+- `backend/`가 바뀐 PR과 `dev` push에서는 `.github/workflows/backend-ci.yml`이, `main` 머지에서는 `.github/workflows/deploy.yml`이 같은 `./gradlew build`를 실행한다.
 
 ## 하지 말 것
 - API 키와 운영 환경의 비밀번호를 코드나 설정 파일에 적지 않는다. 값은 환경변수로 받는다. 로컬 DB 계정만 예외다.
