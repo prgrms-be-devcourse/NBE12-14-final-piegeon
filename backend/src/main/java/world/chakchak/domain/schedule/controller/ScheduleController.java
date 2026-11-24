@@ -7,12 +7,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.schedule.dto.AddItemRequest;
 import world.chakchak.domain.schedule.dto.AddItemResponse;
@@ -85,5 +87,18 @@ public class ScheduleController {
         DayChangeResponse response =
                 scheduleBoardService.updateItem(roomId, itemId, loginUser.userId(), request);
         return ResponseEntity.ok(ApiResponse.success("SCHEDULE_ITEM_UPDATED", response));
+    }
+
+    /** B-05 블록 삭제 */
+    @Operation(summary = "블록 삭제 (B-05)", description = "블록 하나를 지우고, 그날의 바뀐 모습을 돌려준다.")
+    @DeleteMapping("/schedule-items/{itemId}")
+    public ResponseEntity<ApiResponse<DayChangeResponse>> deleteItem(
+            @PathVariable Long roomId,
+            @PathVariable Long itemId,
+            @AuthenticationPrincipal LoginUser loginUser,
+            @RequestParam Long dayVersion) {
+        DayChangeResponse response =
+                scheduleBoardService.deleteItem(roomId, itemId, loginUser.userId(), dayVersion);
+        return ResponseEntity.ok(ApiResponse.success("SCHEDULE_ITEM_DELETED", response));
     }
 }

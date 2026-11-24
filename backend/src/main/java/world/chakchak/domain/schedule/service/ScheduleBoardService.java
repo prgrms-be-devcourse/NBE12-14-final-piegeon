@@ -36,7 +36,7 @@ import world.chakchak.domain.schedule.repository.ScheduleDayRepository;
 import world.chakchak.domain.schedule.repository.ScheduleItemRepository;
 import world.chakchak.global.error.BusinessException;
 
-/** 일정 보드 기능. (B-01 보드 조회, B-02 블록 추가, B-03 블록 이동, B-04 블록 수정) */
+/** 일정 보드 기능. (B-01 보드 조회, B-02 블록 추가, B-03 블록 이동, B-04 블록 수정, B-05 블록 삭제) */
 @Service
 @RequiredArgsConstructor
 public class ScheduleBoardService {
@@ -217,6 +217,42 @@ public class ScheduleBoardService {
         List<ScheduleItem> items =
                 scheduleItemRepository.findAllByScheduleDay_IdOrderBySortOrderAsc(day.getId());
         return new DayChangeResponse(DaySnapshot.of(day, items), timeOrderWarnings(items, item));
+    }
+
+    /**
+     * 블록 하나를 지운다. 남은 블록의 순서값은 다시 매기지 않는다. (B-05)
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
+     *     BOARD_LOCKED, 없거나 다른 방의 블록이면 SCHEDULE_ITEM_NOT_FOUND, 버전이 다르면 SCHEDULE_VERSION_CONFLICT
+     */
+    @Transactional
+    public DayChangeResponse deleteItem(Long roomId, Long itemId, Long userId, long dayVersion) {
+        RoomMember me = lockBoard(roomId, userId);
+        ScheduleItem item = getItemInRoom(roomId, itemId);
+        ScheduleDay day = item.getScheduleDay();
+        checkVersion(day, dayVersion);
+
+        // 응답에 쓸 남은 블록. 지울 블록만 목록에서 뺀다
+        List<ScheduleItem> items =
+                new ArrayList<>(
+                        scheduleItemRepository.findAllByScheduleDay_IdOrderBySortOrderAsc(
+                                day.getId()));
+        items.remove(item);
+
+        scheduleItemRepository.delete(item);
+        day.increaseVersion();
+
+        // 예: "1일차 광장시장: 삭제됐어요"
+        changeLogService.record(
+                me.getRoom(),
+                me,
+                EntityType.SCHEDULE_ITEM,
+                item.getId(),
+                EventKind.SCHEDULE_CHANGED,
+                ActionStatus.DELETE,
+                day.getDayIndex() + "일차 " + item.getPlaceCandidate().getName() + ": 삭제됐어요");
+        // TODO SSE (커밋 후): board.updated (바뀐 날의 스냅샷)
+        return new DayChangeResponse(DaySnapshot.of(day, items), List.of());
     }
 
     // 보드 쓰기의 공통 시작. 방을 잠그고, 멤버인지, 보드를 고칠 수 있는 단계인지 본다
