@@ -339,12 +339,143 @@ textarea.in { height: auto; padding: 12px 16px; resize: vertical; line-height: 1
 .pass-days ul { list-style: none; margin: 0; padding: 0; }
 .pass-days .t { width: 46px; flex: none; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 
-/* 랜딩 */
-.land-hero { padding: 72px 24px 48px; max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
-.land-hero h1 { margin: 0; font-size: 56px; line-height: 1.12; letter-spacing: -0.02em; }
-.land-hero p { font-size: 18px; color: var(--ink-2); max-width: 52ch; }
-.land-steps { max-width: 1120px; margin: 0 auto; padding: 24px 24px 72px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-.land-steps .card b.n { font-size: 13px; color: var(--accent); }
+/* 랜딩: 큰 글자와 여백으로 나누고, 그림자는 첫 화면의 카드 하나에만 쓴다 */
+.land { background: var(--surface); }
+.land-in { max-width: 1200px; margin: 0 auto; padding: 0 40px; }
+.land-sec { padding: 120px 0; }
+.land-sec.alt { background: var(--bg); }
+.land-eyebrow { font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: 0.01em; }
+.land-h2 { margin: 0; font-size: 52px; line-height: 1.15; font-weight: 800; letter-spacing: -0.025em; }
+.land-lead { font-size: 19px; line-height: 1.65; color: var(--ink-2); max-width: 36ch; }
+
+/* 첫 화면 */
+.land-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr); gap: 72px; align-items: center; padding-top: 56px; padding-bottom: 120px; }
+.land-hero h1 { margin: 0; font-size: 88px; line-height: 1.04; font-weight: 800; letter-spacing: -0.035em; }
+.land-hero h1 em { font-style: normal; color: var(--accent); }
+.land-hero .land-lead { margin-top: 28px; font-size: 21px; }
+.land-cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 40px; }
+.land-cta .btn { min-height: 56px; padding: 0 28px; font-size: 17px; }
+.land-note { margin-top: 20px; font-size: 14px; color: var(--ink-2); }
+.land-shot { position: relative; margin: 0; }
+.land-shot img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 32px; display: block; }
+.land-shot figcaption {
+  position: absolute; left: -40px; bottom: 48px; width: min(320px, 82%);
+  background: var(--surface); border-radius: 22px; padding: 18px 20px;
+  box-shadow: 0 30px 60px -24px rgba(8, 8, 12, 0.45); display: flex; flex-direction: column; gap: 12px;
+}
+.land-shot .q { display: flex; justify-content: space-between; align-items: baseline; font-size: 15px; font-weight: 700; }
+.land-shot .q span { color: var(--accent); font-size: 14px; }
+.land-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.land-opt {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 8px; border-radius: 14px;
+  background: var(--bg); font-size: 14px;
+}
+.land-opt.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); font-weight: 700; }
+
+/* 단톡방 */
+.land-night { background: #111114; color: #f4f4f6; }
+:root[data-theme="dark"] .land-night { background: #18181d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .land-night { background: #18181d; } }
+.land-night .land-lead { color: #a3a3ae; }
+.land-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 80px; align-items: center; }
+.land-chat { display: flex; flex-direction: column; gap: 14px; }
+.land-chat .who { font-size: 13px; color: #a3a3ae; margin: 0 0 6px 6px; }
+.land-chat .bub {
+  display: inline-block; max-width: 440px; padding: 14px 18px; border-radius: 22px 22px 22px 6px;
+  background: #26262e; color: #f4f4f6; font-size: 17px; line-height: 1.5;
+}
+.land-chat .me { align-self: flex-end; background: #f4f4f6; color: #111114; border-radius: 22px 22px 6px 22px; }
+.land-chat .late { box-shadow: inset 0 0 0 1.5px #ff5a82; }
+
+/* 사용 순서: 글과 화면 조각을 번갈아 */
+.land-steps { display: flex; flex-direction: column; gap: 96px; margin-top: 72px; }
+.land-step { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr); gap: 72px; align-items: center; }
+.land-step:nth-child(even) .land-step-tx { order: 2; }
+.land-step-tx { display: flex; flex-direction: column; gap: 14px; }
+.land-step-tx h3 { margin: 0; font-size: 34px; line-height: 1.25; font-weight: 800; letter-spacing: -0.02em; }
+.land-step-tx p { font-size: 18px; line-height: 1.65; color: var(--ink-2); max-width: 34ch; }
+.land-ui { background: var(--surface); border-radius: 28px; padding: 36px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.land-sec.alt .land-ui { box-shadow: inset 0 0 0 1px var(--line); }
+.land-ui .ttl { font-size: 17px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.land-ui .sub { font-size: 14px; color: var(--ink-2); }
+.land-grid4 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.land-tile { padding: 16px 12px; border-radius: 14px; background: var(--bg); text-align: center; font-size: 15px; }
+.land-tile.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); font-weight: 700; }
+.land-faces { display: inline-flex; }
+.land-faces .av { box-shadow: 0 0 0 2px var(--surface); }
+.land-faces .av + .av { margin-left: -7px; }
+.land-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.land-col { display: flex; flex-direction: column; gap: 8px; }
+.land-col > span { font-size: 13px; color: var(--ink-2); }
+.land-col img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 14px; display: block; }
+.land-col.full img { box-shadow: 0 0 0 3px var(--accent); }
+.land-col b { font-size: 14px; }
+.land-day { display: flex; flex-direction: column; }
+.land-day li { display: flex; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 16px; }
+.land-day li:first-child { border-top: 0; }
+.land-day time { width: 52px; flex: none; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.land-day ul { list-style: none; margin: 0; padding: 0; }
+.land-agree { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 6px; font-size: 14px; color: var(--ink-2); }
+
+/* 장소 사진 */
+.land-places { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-top: 48px; }
+.land-place { position: relative; border-radius: 22px; overflow: hidden; aspect-ratio: 3 / 4; margin: 0; }
+.land-place img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.land-place figcaption {
+  position: absolute; inset: auto 0 0 0; padding: 56px 16px 16px; color: #ffffff;
+  background: linear-gradient(transparent, rgba(8, 8, 12, 0.78)); display: flex; flex-direction: column; gap: 2px;
+}
+.land-place figcaption b { font-size: 17px; }
+.land-place figcaption span { font-size: 13px; opacity: 0.9; }
+.land-place .chip {
+  position: absolute; left: 12px; top: 12px; padding: 4px 11px; border-radius: 999px; font-size: 12px;
+  background: #ffffff; color: #111114;
+}
+.land-place .chip.on { background: var(--accent); color: var(--on-accent); }
+
+/* 새 소식 */
+.land-news { background: var(--surface); border-radius: 28px; padding: 8px 28px; box-shadow: inset 0 0 0 1px var(--line); }
+.land-news li { display: flex; gap: 16px; align-items: center; padding: 20px 0; border-top: 1px solid var(--line); }
+.land-news li:first-child { border-top: 0; }
+.land-news ul { list-style: none; margin: 0; padding: 0; }
+.land-news .ic { width: 48px; height: 48px; border-radius: 14px; flex: none; display: grid; place-items: center; font-weight: 800; object-fit: cover; }
+.land-news .ic.must { background: var(--accent); color: var(--on-accent); }
+.land-news li > span:last-child { display: flex; flex-direction: column; line-height: 1.45; min-width: 0; }
+.land-news b { font-size: 16px; }
+.land-news small { font-size: 14px; color: var(--ink-2); }
+
+/* 마무리 */
+.land-end { background: var(--accent); color: var(--on-accent); }
+.land-end .land-in { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 32px; padding-top: 110px; padding-bottom: 110px; }
+.land-end p { margin-top: 14px; font-size: 19px; opacity: 0.92; }
+.land-end .btn { min-height: 64px; padding: 0 36px; font-size: 19px; background: var(--on-accent); color: var(--accent); }
+.land-end .btn:hover { background: var(--on-accent); color: var(--accent-strong); }
+.land-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; padding-top: 36px; padding-bottom: 44px; font-size: 14px; color: var(--ink-2); }
+.land-foot .brand { padding: 0; margin-right: auto; font-size: 22px; }
+
+@media (max-width: 1040px) {
+  .land-hero, .land-two, .land-step { grid-template-columns: minmax(0, 1fr); gap: 48px; }
+  .land-step:nth-child(even) .land-step-tx { order: 0; }
+  .land-shot { max-width: 520px; }
+  .land-shot figcaption { left: 16px; }
+  .land-places { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .land-in { padding: 0 20px; }
+  .land-sec { padding: 80px 0; }
+  .land-hero { padding-top: 28px; padding-bottom: 80px; }
+  .land-hero h1 { font-size: 52px; }
+  .land-hero .land-lead { font-size: 18px; }
+  .land-h2 { font-size: 36px; }
+  .land-step-tx h3 { font-size: 26px; }
+  .land-steps { gap: 64px; margin-top: 48px; }
+  .land-ui { padding: 22px; border-radius: 22px; }
+  .land-shot figcaption { left: 12px; right: 12px; width: auto; bottom: 12px; }
+  .land-places { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .land-places .land-place:last-child { display: none; }
+  .land-end .land-in { padding-top: 72px; padding-bottom: 72px; }
+  .land-cta .btn { flex: 1 1 auto; }
+}
 
 /* 휴대폰 */
 @media (max-width: 860px) {
@@ -380,8 +511,6 @@ textarea.in { height: auto; padding: 12px 16px; resize: vertical; line-height: 1
   .page { padding: 24px 16px 56px; gap: 28px; }
   .top-in { padding: 12px 16px; }
   .top-in .hide-sm { display: none; }
-  .land-hero h1 { font-size: 36px; }
-  .land-steps { grid-template-columns: minmax(0, 1fr); }
   .pass-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 16px 20px; }
   .pass-top, .pass-days { padding-left: 20px; padding-right: 20px; }
 }

@@ -13,6 +13,8 @@ export interface Photo {
 }
 
 const BY_SA_4 = { license: "CC BY-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/deed.ko" };
+const BY_SA_3 = { license: "CC BY-SA 3.0", licenseUrl: "https://creativecommons.org/licenses/by-sa/3.0/deed.ko" };
+const BY_2 = { license: "CC BY 2.0", licenseUrl: "https://creativecommons.org/licenses/by/2.0/deed.ko" };
 
 export const PHOTOS = {
   umeda: {
@@ -38,6 +40,46 @@ export const PHOTOS = {
     author: "DXR",
     ...BY_SA_4,
     sourceUrl: "https://commons.wikimedia.org/wiki/File:Osaka_Castle,_Keep_tower,_South_view_20190415_1.jpg",
+  },
+  dotonbori: {
+    src: "/img/dotonbori.jpg",
+    alt: "밤의 도톤보리 운하와 간판 불빛",
+    title: "도톤보리의 밤",
+    author: "Martin Falbisoner",
+    ...BY_SA_4,
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Dotonbori,_Osaka,_at_night,_November_2016.jpg",
+  },
+  usj: {
+    src: "/img/usj.jpg",
+    alt: "유니버설 스튜디오 재팬 입구의 지구본",
+    title: "유니버설 스튜디오 재팬",
+    author: "Csiiiyu",
+    ...BY_SA_4,
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Universal_Studios_Japan_entrance.jpg",
+  },
+  kushikatsu: {
+    src: "/img/kushikatsu.jpg",
+    alt: "신세카이 쿠시카츠 한 접시",
+    title: "신세카이 쿠시카츠",
+    author: "Ajay Suresh",
+    ...BY_2,
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Kushikatsu_-_Shinsekai_(28289215848).jpg",
+  },
+  kaiyukan: {
+    src: "/img/kaiyukan.jpg",
+    alt: "카이유칸 수족관 건물",
+    title: "카이유칸 수족관",
+    author: "Dick Thomas Johnson",
+    ...BY_2,
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Osaka_Aquarium_Kaiyukan_2022-04-24.jpg",
+  },
+  hozenji: {
+    src: "/img/hozenji.jpg",
+    alt: "밤의 호젠지 요코초 골목",
+    title: "호젠지 요코초",
+    author: "Choi2451",
+    ...BY_SA_3,
+    sourceUrl: "https://commons.wikimedia.org/wiki/File:Hozenji_Yokocho_at_night.jpg",
   },
 } satisfies Record<string, Photo>;
 
