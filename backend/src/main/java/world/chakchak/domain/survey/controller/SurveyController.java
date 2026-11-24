@@ -1,5 +1,7 @@
 package world.chakchak.domain.survey.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -24,12 +26,17 @@ import world.chakchak.global.security.LoginUser;
 @RestController
 @RequestMapping("/api/rooms/{roomId}/survey")
 @RequiredArgsConstructor
+@Tag(name = "여행 설문", description = "여행방 설문 응답 조회 및 제출 API")
 public class SurveyController {
 
     private final SurveySubmitService surveySubmitService;
     private final SurveyResponseService surveyResponseService;
     private final SurveyReportService surveyReportService;
 
+    @Operation(
+            summary = "내 설문 응답 조회",
+            description =
+                    "해당 여행방에서 로그인한 사용자가 제출한 설문 응답을 조회한다. " + "아직 설문을 제출하지 않은 경우에도 조회 결과를 확인할 수 있다.")
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<SurveyMeResponse>> getMine(
             @AuthenticationPrincipal LoginUser loginUser, @PathVariable Long roomId) {
@@ -44,6 +51,12 @@ public class SurveyController {
         return ResponseEntity.ok(ApiResponse.success("SURVEY_REPORT_FETCHED", response));
     }
 
+    @Operation(
+            summary = "여행 설문 제출",
+            description =
+                    "해당 여행방의 여행 설문 응답을 제출한다. "
+                            + "요청 본문에 설문 응답 정보를 전달하며, "
+                            + "제출이 완료되면 생성된 설문 응답 정보를 반환한다.")
     @PostMapping
     public ResponseEntity<ApiResponse<SubmitSurveyResponse>> submit(
             @AuthenticationPrincipal LoginUser loginUser,

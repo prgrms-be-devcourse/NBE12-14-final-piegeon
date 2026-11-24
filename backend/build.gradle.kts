@@ -42,6 +42,10 @@ dependencies {
     // 외부 API 호출 (Google Places 등)
     implementation("org.springframework.boot:spring-boot-starter-restclient")
 
+    // 호출 횟수 제한 (토큰 버킷). Caffeine은 오래 안 쓴 사용자의 버킷을 지우는 데 쓴다
+    implementation("com.bucket4j:bucket4j_jdk17-core:8.22.0")
+    implementation("com.github.ben-manes.caffeine:caffeine")
+
     // 모니터링
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")

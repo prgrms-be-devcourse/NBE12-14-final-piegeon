@@ -28,6 +28,8 @@ import world.chakchak.domain.place.dto.PlaceDetailResponse;
 import world.chakchak.domain.place.dto.PlaceReactionRequest;
 import world.chakchak.domain.place.dto.RegisterPlaceRequest;
 import world.chakchak.domain.place.service.PlaceCandidateService;
+import world.chakchak.global.ratelimit.RateLimit;
+import world.chakchak.global.ratelimit.RateLimitKey;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
 
@@ -153,6 +155,7 @@ public class PlaceCandidateController {
             description =
                     "Google 사진 주소로 302 리다이렉트한다. 프론트는 상세의 photoUrl을 <img src>에 그대로 넣는다. "
                             + "API 키가 브라우저에 보이지 않게 서버를 거친다.")
+    @RateLimit(key = RateLimitKey.USER, limit = 300, perSeconds = 60)
     @GetMapping("/{placeId}/photo")
     public ResponseEntity<Void> getPhoto(
             @PathVariable Long roomId,

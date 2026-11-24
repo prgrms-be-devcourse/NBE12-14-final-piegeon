@@ -1,0 +1,9 @@
+# api.chakchak.world 로 오는 요청을 백엔드로 넘긴다. 인증서는 Caddy가 Let's Encrypt로 자동 발급·갱신한다.
+# 가비아 DNS에 api.chakchak.world → 서버 IP를 넣어야 발급된다. 그 전에는 HTTPS가 안 된다.
+# 응답은 압축하지 않는다. SSE를 압축하면 모였다가 나가서 실시간이 늦어진다.
+{$API_DOMAIN} {
+	reverse_proxy backend:8080 {
+		# SSE를 받는 즉시 흘려보낸다
+		flush_interval -1
+	}
+}

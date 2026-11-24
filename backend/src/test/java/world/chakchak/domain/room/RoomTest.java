@@ -129,6 +129,16 @@ class RoomTest {
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.SURVEYING);
                 assertThat(room.getSurveyClosedAt()).isEqualTo(deadline);
             }
+
+            @Test
+            @DisplayName("D-1까지 설문 조율을 끝내지 못한 SURVEYING 방은 EXPIRED가 된다")
+            void expiresSurveyingRoom() {
+                Room room = roomIn(RoomStatus.SURVEYING);
+
+                room.expire();
+
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.EXPIRED);
+            }
         }
 
         @Nested
@@ -167,6 +177,15 @@ class RoomTest {
 
                 assertThatThrownBy(room::returnToPlanning)
                         .isInstanceOf(IllegalStateException.class);
+            }
+
+            @Test
+            @DisplayName("SURVEYING이 아닌 방은 EXPIRED로 바꿀 수 없다")
+            void rejectsExpireOutsideSurveying() {
+                Room room = roomIn(RoomStatus.PLANNING);
+
+                assertThatThrownBy(room::expire).isInstanceOf(IllegalStateException.class);
+                assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
             }
         }
     }

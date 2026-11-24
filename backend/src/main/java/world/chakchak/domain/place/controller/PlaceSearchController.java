@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.place.dto.PlaceSearchResponse;
 import world.chakchak.domain.place.service.PlaceSearchService;
+import world.chakchak.global.ratelimit.RateLimit;
+import world.chakchak.global.ratelimit.RateLimitKey;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
 
@@ -30,6 +32,7 @@ public class PlaceSearchController {
             description =
                     "검색어 앞에 여행지를 붙여 Google에서 찾는다. 이 방에 이미 올라온 장소는 "
                             + "alreadyRegistered가 true다. 다음 페이지는 nextPageToken을 pageToken으로 보낸다.")
+    @RateLimit(key = RateLimitKey.USER, limit = 30, perSeconds = 60)
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<PlaceSearchResponse>> search(
             @PathVariable Long roomId,

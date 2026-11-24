@@ -47,7 +47,6 @@ public class PlaceSearchService {
         }
 
         // "시장"만 보내면 전국 결과가 섞이므로 여행지를 앞에 붙인다 ("서울 시장")
-        // TODO 사용자당 분당 30회 호출 제한 (명세 제안, 429 TOO_MANY_REQUESTS)
         PlaceSearchResult result =
                 placeSearchClient.search(room.getDestination() + " " + query, pageToken);
 

@@ -85,7 +85,7 @@ class SurveyStatusApiIntegrationTest {
                 assertThat(beforeData.path("activeMemberCount").longValue()).isEqualTo(3);
                 assertThat(beforeData.path("submittedCount").longValue()).isEqualTo(1);
                 assertMemberStatus(beforeData, currentMember, false, null);
-                assertMemberStatus(beforeData, submittedMember, true, submittedAt.toString());
+                assertMemberStatus(beforeData, submittedMember, true, submittedAt);
                 assertMemberStatus(beforeData, unsubmittedMember, false, null);
 
                 LocalDateTime closedAt = LocalDateTime.now(clock);
@@ -106,7 +106,7 @@ class SurveyStatusApiIntegrationTest {
                 assertThat(afterData.path("activeMemberCount").longValue()).isEqualTo(3);
                 assertThat(afterData.path("submittedCount").longValue()).isEqualTo(1);
                 assertMemberStatus(afterData, currentMember, false, null);
-                assertMemberStatus(afterData, submittedMember, true, submittedAt.toString());
+                assertMemberStatus(afterData, submittedMember, true, submittedAt);
                 assertMemberStatus(afterData, unsubmittedMember, false, null);
             }
 
@@ -198,7 +198,7 @@ class SurveyStatusApiIntegrationTest {
     }
 
     private void assertMemberStatus(
-            JsonNode data, RoomMember member, boolean submitted, String submittedAt) {
+            JsonNode data, RoomMember member, boolean submitted, LocalDateTime submittedAt) {
         JsonNode memberStatus =
                 streamMembers(data).stream()
                         .filter(candidate ->
@@ -209,7 +209,9 @@ class SurveyStatusApiIntegrationTest {
         if (submittedAt == null) {
             assertThat(memberStatus.path("submittedAt").isNull()).isTrue();
         } else {
-            assertThat(memberStatus.path("submittedAt").stringValue()).isEqualTo(submittedAt);
+            // JSON은 소수점 끝의 0을 지우고(.12345) toString()은 남겨서(.123450) 문자열로 비교하면 가끔 다르다
+            assertThat(LocalDateTime.parse(memberStatus.path("submittedAt").stringValue()))
+                    .isEqualTo(submittedAt);
         }
     }
 

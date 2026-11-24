@@ -82,14 +82,23 @@ public class PlaceCandidateService {
     /**
      * 장소 후보를 등록하고, 올린 사람의 "가고 싶어요"를 함께 남긴다. (P-02)
      *
-     * <p>@Transactional을 붙이지 않는다. Google 조회까지 트랜잭션에 넣으면 외부 API를 기다리는 동안 방 잠금을 잡고 있게 된다. 그래서 Google
-     * 조회는 트랜잭션 밖에서 하고, 잠금부터 저장까지만 TransactionTemplate으로 묶는다.
+     * <p>@Transactional을 붙이지 않는다. Google 조회까지 트랜잭션에 넣으면 외부 API를 기다리는 동안 방 잠금을 잡고 있게 된다. 그래서 멤버·방
+     * 상태를 짧은 읽기 트랜잭션으로 먼저 확인하고, 통과한 요청만 Google을 부른 뒤, 잠금부터 저장까지를 TransactionTemplate으로 묶는다. 먼저 확인하지
+     * 않으면 방 멤버가 아닌 사용자도 유료 Google 호출을 일으킬 수 있다.
      *
-     * @throws BusinessException Google에 없는 장소면 PLACE_NOT_FOUND, 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면
-     *     FORBIDDEN, 방이 PLANNING이 아니면 INVALID_STATUS, 한도를 넘으면 PLACE_LIMIT_EXCEEDED, 이미 올라온 장소면
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
+     *     INVALID_STATUS, Google에 없는 장소면 PLACE_NOT_FOUND, 한도를 넘으면 PLACE_LIMIT_EXCEEDED, 이미 올라온 장소면
      *     PLACE_ALREADY_REGISTERED
      */
     public PlaceCandidateItem register(Long roomId, Long userId, String googlePlaceId) {
+        // Google은 유료라 멤버·방 상태를 먼저 본다. 잠금은 잡지 않고 읽기만 한다
+        TransactionTemplate readOnly = new TransactionTemplate(transactionManager);
+        readOnly.setReadOnly(true);
+        readOnly.executeWithoutResult(status -> {
+            RoomMember member = roomMemberService.getActiveMember(roomId, userId);
+            requirePlanning(member.getRoom());
+        });
+
         GooglePlace place =
                 placeSearchClient
                         .findById(googlePlaceId)
@@ -97,6 +106,13 @@ public class PlaceCandidateService {
 
         return new TransactionTemplate(transactionManager)
                 .execute(status -> registerInTransaction(roomId, userId, place));
+    }
+
+    // 후보는 일정 조율(PLANNING) 중에만 올릴 수 있다
+    private void requirePlanning(Room room) {
+        if (room.getStatus() != RoomStatus.PLANNING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
     }
 
     // 잠금 → 멤버 확인 → 상태 확인 → 한도·중복 확인 → 저장 (명세 1-4)
@@ -107,10 +123,8 @@ public class PlaceCandidateService {
         // 잠금 안에서 확인해야 확인 직후 방을 나간 사람의 등록을 막을 수 있다
         RoomMember member = roomMemberService.getActiveMember(roomId, userId);
 
-        // 후보는 일정 조율(PLANNING) 중에만 올릴 수 있다. 잠금 안에서 봐야 그 사이 바뀐 상태를 놓치지 않는다
-        if (room.getStatus() != RoomStatus.PLANNING) {
-            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
-        }
+        // 앞에서 봤어도 잠금 안에서 다시 본다. Google을 기다리는 사이 상태가 바뀌었을 수 있다
+        requirePlanning(room);
 
         long limit = limitOf(room);
         if (placeCandidateRepository.countByRoom(room) >= limit) {
