@@ -1,0 +1,8 @@
+app:
+  cors:
+    allowed-origins: http://localhost:3000
+  google-places:
+    api-key: test-key
+  # 테스트 중 스케줄러가 테스트 데이터를 바꾸지 않게 끈다
+  scheduler:
+    agenda-deadline-cron: "-"

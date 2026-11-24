@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/chakchak
+    username: chakchak
+    password: chakchak
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+
+app:
+  cors:
+    allowed-origins: http://localhost:3000
+  # 키가 없는 팀원도 서버를 띄울 수 있게 기본값을 둔다. 이 값으로는 장소 검색만 실패(502)한다.
+  # 실제로 검색해 보려면 GOOGLE_PLACES_API_KEY 환경변수에 자기 키를 넣는다. 실제 키를 이 파일에 적지 않는다.
+  google-places:
+    api-key: ${GOOGLE_PLACES_API_KEY:local-dummy-key}

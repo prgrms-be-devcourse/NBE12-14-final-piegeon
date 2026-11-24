@@ -1,0 +1,267 @@
+package world.chakchak.domain.agenda;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceUnitUtil;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
+import world.chakchak.IntegrationTest;
+import world.chakchak.domain.agenda.entity.AgendaItem;
+import world.chakchak.domain.agenda.entity.AgendaOption;
+import world.chakchak.domain.agenda.entity.AgendaSubject;
+import world.chakchak.domain.agenda.repository.AgendaItemRepository;
+import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
+import world.chakchak.domain.room.entity.Room;
+import world.chakchak.domain.room.entity.RoomMember;
+import world.chakchak.domain.room.entity.RoomStatus;
+import world.chakchak.domain.room.repository.RoomMemberRepository;
+import world.chakchak.domain.room.repository.RoomRepository;
+import world.chakchak.domain.user.entity.User;
+import world.chakchak.domain.user.repository.UserRepository;
+
+/** agenda_option 테이블 저장·조회 테스트 (V12) */
+@IntegrationTest
+@Transactional
+class AgendaOptionRepositoryTest {
+
+    private static final LocalDateTime NOW = LocalDateTime.of(2027, 6, 1, 12, 0);
+    private static final LocalDateTime DEADLINE = LocalDateTime.of(2027, 6, 5, 12, 0);
+
+    @Autowired private AgendaOptionRepository agendaOptionRepository;
+    @Autowired private AgendaItemRepository agendaItemRepository;
+    @Autowired private RoomRepository roomRepository;
+    @Autowired private RoomMemberRepository roomMemberRepository;
+    @Autowired private UserRepository userRepository;
+    @Autowired private Clock clock;
+    @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private EntityManager entityManager;
+
+    private Room room;
+    private AgendaItem budgetAgenda;
+
+    @BeforeEach
+    void setUp() {
+        // invite_code는 UNIQUE라 테스트마다 다른 값을 쓴다
+        String inviteCode = UUID.randomUUID().toString().substring(0, 8);
+        room =
+                roomRepository.save(
+                        Room.create(
+                                "여름 여행",
+                                "부산",
+                                LocalDate.of(2027, 7, 1),
+                                LocalDate.of(2027, 7, 3),
+                                inviteCode,
+                                RoomStatus.SURVEYING,
+                                clock));
+        budgetAgenda = saveAgenda(AgendaSubject.BUDGET, 1);
+    }
+
+    private AgendaItem saveAgenda(AgendaSubject subject, int round) {
+        return agendaItemRepository.saveAndFlush(
+                AgendaItem.create(room, subject, round, "예산을 정해주세요", 3, NOW, DEADLINE));
+    }
+
+    private RoomMember saveMember() {
+        User user =
+                userRepository.save(
+                        User.create(UUID.randomUUID() + "@example.com", "테스터", "hashed-password"));
+        return roomMemberRepository.save(RoomMember.create(room, user, clock));
+    }
+
+    private AgendaOption saveBudget(
+            AgendaItem agenda, long amount, int displayIndex, RoomMember proposedBy) {
+        return agendaOptionRepository.saveAndFlush(
+                AgendaOption.budget(agenda, amount, displayIndex, proposedBy));
+    }
+
+    @Nested
+    class Create {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("선지를 저장한 뒤 조회하면 라벨, 값, 순서, 추가한 멤버가 유지된다")
+            void savesAndFindsOption() {
+                RoomMember member = saveMember();
+                AgendaOption saved = saveBudget(budgetAgenda, 1_200_000L, 1, member);
+
+                AgendaOption found = agendaOptionRepository.findById(saved.getId()).orElseThrow();
+
+                assertThat(found.getAgendaItem().getId()).isEqualTo(budgetAgenda.getId());
+                assertThat(found.getLabel()).isEqualTo("120만원");
+                assertThat(found.getValue()).isEqualTo("1200000");
+                assertThat(found.getDisplayIndex()).isEqualTo(1);
+                assertThat(found.getProposedBy().getId()).isEqualTo(member.getId());
+                assertThat(found.getCreatedAt()).isNotNull();
+            }
+
+            @Test
+            @DisplayName("같은 금액이라도 다른 안건이면 선지를 저장할 수 있다")
+            void savesSameValueInOtherAgenda() {
+                AgendaItem nextRound = saveAgenda(AgendaSubject.BUDGET, 2);
+                saveBudget(budgetAgenda, 1_000_000L, 0, null);
+
+                AgendaOption saved = saveBudget(nextRound, 1_000_000L, 0, null);
+
+                assertThat(saved.getId()).isNotNull();
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("한 안건에 같은 값의 선지를 두 번 저장할 수 없다")
+            void rejectsDuplicateValue() {
+                saveBudget(budgetAgenda, 1_000_000L, 0, null);
+
+                assertThatThrownBy(() -> saveBudget(budgetAgenda, 1_000_000L, 1, saveMember()))
+                        .isInstanceOf(DataIntegrityViolationException.class)
+                        .hasMessageContaining("uk_agenda_option_agenda_value");
+            }
+        }
+    }
+
+    @Nested
+    class Read {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("안건의 선지 목록은 화면 순서대로 돌려준다")
+            void findsOptionsInDisplayOrder() {
+                AgendaOption third = saveBudget(budgetAgenda, 1_300_000L, 2, null);
+                AgendaOption first = saveBudget(budgetAgenda, 600_000L, 0, null);
+                AgendaOption second = saveBudget(budgetAgenda, 800_000L, 1, null);
+                saveBudget(saveAgenda(AgendaSubject.BUDGET, 2), 500_000L, 0, null);
+
+                assertThat(
+                                agendaOptionRepository.findAllByAgendaItemIdOrderByDisplayIndexAsc(
+                                        budgetAgenda.getId()))
+                        .extracting(AgendaOption::getId)
+                        .containsExactly(first.getId(), second.getId(), third.getId());
+            }
+
+            // 영속성 컨텍스트를 비워야 저장할 때 들고 있던 객체가 아니라 조회 결과로 로딩 여부를 확인할 수 있다
+            @Test
+            @DisplayName("안건의 선지 목록은 선지를 추가한 멤버와 사용자를 함께 읽어 온다")
+            void fetchesProposerWithOptions() {
+                saveBudget(budgetAgenda, 600_000L, 0, saveMember());
+                entityManager.clear();
+                PersistenceUnitUtil util =
+                        entityManager.getEntityManagerFactory().getPersistenceUnitUtil();
+
+                AgendaOption option =
+                        agendaOptionRepository
+                                .findAllByAgendaItemIdOrderByDisplayIndexAsc(budgetAgenda.getId())
+                                .getFirst();
+
+                assertThat(util.isLoaded(option, "proposedBy")).isTrue();
+                assertThat(util.isLoaded(option.getProposedBy(), "user")).isTrue();
+            }
+
+            @Test
+            @DisplayName("안건 id와 선지 id로 조회하면 그 안건의 선지를 돌려준다")
+            void findsOptionInAgenda() {
+                AgendaOption saved = saveBudget(budgetAgenda, 1_000_000L, 0, null);
+
+                assertThat(
+                                agendaOptionRepository.findByIdAndAgendaItemId(
+                                        saved.getId(), budgetAgenda.getId()))
+                        .isPresent();
+            }
+
+            @Test
+            @DisplayName("값으로 조회하면 그 안건에서 같은 값의 선지를 돌려준다")
+            void findsOptionByValue() {
+                AgendaOption saved = saveBudget(budgetAgenda, 1_000_000L, 0, null);
+
+                assertThat(
+                                agendaOptionRepository.findByAgendaItemIdAndValue(
+                                        budgetAgenda.getId(), "1000000"))
+                        .get()
+                        .extracting(AgendaOption::getId)
+                        .isEqualTo(saved.getId());
+            }
+
+            @Test
+            @DisplayName("이 안건에 멤버가 추가한 선지가 있는지 확인한다")
+            void checksProposedOptionExists() {
+                RoomMember proposer = saveMember();
+                RoomMember other = saveMember();
+                saveBudget(budgetAgenda, 1_000_000L, 0, proposer);
+
+                assertThat(
+                                agendaOptionRepository.existsByAgendaItemIdAndProposedById(
+                                        budgetAgenda.getId(), proposer.getId()))
+                        .isTrue();
+                assertThat(
+                                agendaOptionRepository.existsByAgendaItemIdAndProposedById(
+                                        budgetAgenda.getId(), other.getId()))
+                        .isFalse();
+            }
+
+            @Test
+            @DisplayName("다음 회차로 옮길 선지는 활동 중인 멤버가 추가한 선지만 화면 순서대로 고른다")
+            void findsOptionsProposedByActiveMembers() {
+                saveBudget(budgetAgenda, 600_000L, 0, null);
+                AgendaOption second = saveBudget(budgetAgenda, 1_500_000L, 2, saveMember());
+                AgendaOption first = saveBudget(budgetAgenda, 1_200_000L, 1, saveMember());
+                saveBudget(saveAgenda(AgendaSubject.BUDGET, 2), 900_000L, 0, saveMember());
+
+                assertThat(
+                                agendaOptionRepository.findAllProposedByActiveMembers(
+                                        budgetAgenda.getId()))
+                        .extracting(AgendaOption::getId)
+                        .containsExactly(first.getId(), second.getId());
+            }
+
+            // RoomMember에 아직 나가기 메서드가 없어 left_at은 SQL로 채운다
+            @Test
+            @DisplayName("방을 나간 멤버가 추가한 선지는 다음 회차로 옮기지 않는다")
+            void excludesOptionsProposedByLeftMembers() {
+                RoomMember left = saveMember();
+                saveBudget(budgetAgenda, 1_500_000L, 0, left);
+                AgendaOption active = saveBudget(budgetAgenda, 1_200_000L, 1, saveMember());
+                jdbcTemplate.update(
+                        "UPDATE plan_room_member SET left_at = ? WHERE id = ?", NOW, left.getId());
+
+                assertThat(
+                                agendaOptionRepository.findAllProposedByActiveMembers(
+                                        budgetAgenda.getId()))
+                        .extracting(AgendaOption::getId)
+                        .containsExactly(active.getId());
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("다른 안건의 id로 선지를 조회하면 결과가 없다")
+            void returnsEmptyForOtherAgenda() {
+                AgendaOption saved = saveBudget(budgetAgenda, 1_000_000L, 0, null);
+                AgendaItem other = saveAgenda(AgendaSubject.BUDGET, 2);
+
+                assertThat(
+                                agendaOptionRepository.findByIdAndAgendaItemId(
+                                        saved.getId(), other.getId()))
+                        .isEmpty();
+            }
+        }
+    }
+}

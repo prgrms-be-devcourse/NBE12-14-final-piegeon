@@ -1,0 +1,17 @@
+package world.chakchak.domain.changelog.entity;
+
+public enum EventKind {
+    MEMBER_JOINED,
+    MEMBER_LEFT,
+    SURVEY_CLOSED,
+    COORDINATION_COMPLETED,
+    AGENDA_OPENED,
+    AGENDA_RESOLVED,
+    AGENDA_EXPIRED,
+    PLACE_REGISTERED,
+    PLACE_DELETED,
+    PLACE_STAGE_CHANGED,
+    PLACE_CONFIRMED,
+    SCHEDULE_CHANGED,
+    PLAN_FINALIZED
+}

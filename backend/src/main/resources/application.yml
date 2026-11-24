@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: chakchak
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  session:
+    timeout: 14d
+    jdbc:
+      initialize-schema: never
+
+server:
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
+# Google Places (장소 검색 P-01, 장소 확인 P-02). api-key는 프로필별 파일에서 환경변수로 받는다.
+app:
+  google-places:
+    base-url: https://places.googleapis.com
+    timeout: 3s
+  # 13-2 안건 마감 스케줄러. 매분 0초에 돈다.
+  scheduler:
+    agenda-deadline-cron: "0 * * * * *"
