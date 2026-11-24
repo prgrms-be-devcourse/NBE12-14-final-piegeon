@@ -103,33 +103,43 @@ class PlaceCandidateApiIntegrationTest {
             }
 
             @Test
-            @DisplayName("방 멤버가 아니면 403 FORBIDDEN이고 아무것도 저장하지 않는다")
+            @DisplayName("방 멤버가 아니면 403 FORBIDDEN이고 Google을 부르지 않는다")
             void rejectsNonMember() throws java.lang.Exception {
                 long roomId = createRoom(login());
                 String outsider = login();
-                given(placeSearchClient.findById("place-1"))
-                        .willReturn(Optional.of(googlePlace("place-1")));
 
                 HttpResponse<String> response = register(roomId, "place-1", outsider);
 
                 assertThat(response.statusCode()).isEqualTo(403);
                 assertThat(response.body()).contains("\"code\":\"FORBIDDEN\"");
                 assertThat(placeCandidateRepository.countByRoom(room(roomId))).isZero();
+                verify(placeSearchClient, never()).findById(anyString());
             }
 
             @Test
-            @DisplayName("일정 조율(PLANNING) 중이 아닌 방이면 409 INVALID_STATUS이고 아무것도 저장하지 않는다")
+            @DisplayName("없는 방이면 404 ROOM_NOT_FOUND이고 Google을 부르지 않는다")
+            void rejectsUnknownRoom() throws java.lang.Exception {
+                String cookie = login();
+
+                HttpResponse<String> response = register(Long.MAX_VALUE, "place-1", cookie);
+
+                assertThat(response.statusCode()).isEqualTo(404);
+                assertThat(response.body()).contains("\"code\":\"ROOM_NOT_FOUND\"");
+                verify(placeSearchClient, never()).findById(anyString());
+            }
+
+            @Test
+            @DisplayName("일정 조율(PLANNING) 중이 아닌 방이면 409 INVALID_STATUS이고 Google을 부르지 않는다")
             void rejectsRoomNotPlanning() throws java.lang.Exception {
                 String cookie = login();
                 long roomId = createSurveyingRoom(cookie);
-                given(placeSearchClient.findById("place-1"))
-                        .willReturn(Optional.of(googlePlace("place-1")));
 
                 HttpResponse<String> response = register(roomId, "place-1", cookie);
 
                 assertThat(response.statusCode()).isEqualTo(409);
                 assertThat(response.body()).contains("\"code\":\"INVALID_STATUS\"");
                 assertThat(placeCandidateRepository.countByRoom(room(roomId))).isZero();
+                verify(placeSearchClient, never()).findById(anyString());
             }
 
             @Test
