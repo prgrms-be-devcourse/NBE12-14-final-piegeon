@@ -25,6 +25,8 @@ import world.chakchak.domain.room.dto.SummaryResponse;
 import world.chakchak.domain.room.service.RoomLeaveService;
 import world.chakchak.domain.room.service.RoomService;
 import world.chakchak.domain.room.service.RoomSummaryService;
+import world.chakchak.global.ratelimit.RateLimit;
+import world.chakchak.global.ratelimit.RateLimitKey;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
 
@@ -41,6 +43,7 @@ public class RoomController {
     @Operation(
             summary = "초대 미리보기 조회",
             description = "초대 코드로 여행방 정보를 미리 조회한다. " + "로그인한 사용자의 경우 참여 여부 등의 정보를 함께 반환한다.")
+    @RateLimit(key = RateLimitKey.IP, limit = 20, perSeconds = 60)
     @GetMapping("/invites/{inviteCode}")
     public ResponseEntity<ApiResponse<InvitePreviewResponse>> getInvitePreview(
             @AuthenticationPrincipal LoginUser loginUser, @PathVariable String inviteCode) {
@@ -115,6 +118,7 @@ public class RoomController {
     @Operation(
             summary = "여행방 생성",
             description = "요청 정보를 바탕으로 새로운 여행방을 생성한다. " + "생성이 완료되면 생성된 여행방 정보를 반환한다.")
+    @RateLimit(key = RateLimitKey.USER, limit = 10, perSeconds = 3600)
     @PostMapping
     public ResponseEntity<ApiResponse<RoomCreatedResponse>> create(
             @AuthenticationPrincipal LoginUser loginUser,

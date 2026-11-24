@@ -28,6 +28,9 @@ app:
   google-places:
     base-url: https://places.googleapis.com
     timeout: 3s
+  # API 호출 횟수 제한. API별 한도는 controller 메서드의 @RateLimit에 있다.
+  rate-limit:
+    enabled: true
   # 13-2 안건 마감 스케줄러. 매분 0초에 돈다.
   scheduler:
     agenda-deadline-cron: "0 * * * * *"
