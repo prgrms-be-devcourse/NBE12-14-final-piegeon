@@ -2,9 +2,11 @@
 # 배포 흐름: Actions가 이미지와 deploy/ 파일을 S3 releases/<커밋>/에 올리고, SSM Run Command로 서버의 deploy.sh를 실행한다.
 
 variable "github_repository" {
-  description = "배포를 허용할 GitHub 저장소 (owner/name)"
+  # 이 저장소는 GitHub OIDC 토큰의 sub에 조직·저장소 ID를 붙여 보낸다 (use_immutable_subject: true).
+  # 이름만 쓰면 sub가 달라 AssumeRoleWithWebIdentity가 거절된다. 값은 gh api repos/{owner}/{repo}/actions/oidc/customization/sub의 sub_claim_prefix에서 repo: 뒤를 쓴다
+  description = "배포를 허용할 GitHub 저장소 (owner@ownerID/name@repoID 형식)"
   type        = string
-  default     = "prgrms-be-devcourse/NBE12-14-final-piegeon"
+  default     = "prgrms-be-devcourse@88020948/NBE12-14-final-piegeon@1453607479"
 }
 
 variable "github_environment" {
