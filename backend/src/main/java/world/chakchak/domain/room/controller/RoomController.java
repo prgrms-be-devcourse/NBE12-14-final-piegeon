@@ -19,8 +19,10 @@ import world.chakchak.domain.room.dto.RoomCreatedResponse;
 import world.chakchak.domain.room.dto.RoomDetailResponse;
 import world.chakchak.domain.room.dto.RoomListResponse;
 import world.chakchak.domain.room.dto.SeenRequest;
+import world.chakchak.domain.room.dto.SummaryResponse;
 import world.chakchak.domain.room.service.RoomLeaveService;
 import world.chakchak.domain.room.service.RoomService;
+import world.chakchak.domain.room.service.RoomSummaryService;
 import world.chakchak.global.response.ApiResponse;
 import world.chakchak.global.security.LoginUser;
 
@@ -31,6 +33,7 @@ public class RoomController {
 
     private final RoomService roomService;
     private final RoomLeaveService roomLeaveService;
+    private final RoomSummaryService roomSummaryService;
 
     @GetMapping("/invites/{inviteCode}")
     public ResponseEntity<ApiResponse<InvitePreviewResponse>> getInvitePreview(
@@ -59,6 +62,13 @@ public class RoomController {
             @AuthenticationPrincipal LoginUser loginUser, @PathVariable Long roomId) {
         RoomDetailResponse response = roomService.getRoomDetail(roomId, loginUser.userId());
         return ResponseEntity.ok(ApiResponse.success("ROOM_FETCHED", response));
+    }
+
+    @GetMapping("/{roomId}/summary")
+    public ResponseEntity<ApiResponse<SummaryResponse>> getSummary(
+            @AuthenticationPrincipal LoginUser loginUser, @PathVariable Long roomId) {
+        SummaryResponse response = roomSummaryService.getSummary(roomId, loginUser.userId());
+        return ResponseEntity.ok(ApiResponse.success("ROOM_SUMMARY_FETCHED", response));
     }
 
     @PostMapping("/{roomId}/seen")
