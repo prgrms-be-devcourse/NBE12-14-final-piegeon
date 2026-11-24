@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+import world.chakchak.domain.changelog.event.RoomMemberLeftEvent;
 import world.chakchak.domain.changelog.event.RoomEvent;
 
 @Component
@@ -15,5 +16,10 @@ public class ChangeLogStreamListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publishAfterCommit(RoomEvent event) {
         changeLogStreamService.publish(event);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void closeConnectionsAfterMemberLeft(RoomMemberLeftEvent event) {
+        changeLogStreamService.closeConnectionsForMember(event.roomId(), event.memberId());
     }
 }

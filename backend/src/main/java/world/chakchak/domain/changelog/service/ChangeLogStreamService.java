@@ -54,6 +54,10 @@ public class ChangeLogStreamService {
                     activeConnections.add(connection);
                     return activeConnections;
                 });
+        if (!roomMemberService.isActiveMember(roomId, memberId)) {
+            remove(connection);
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
         emitter.onCompletion(() -> remove(connection));
         emitter.onTimeout(() -> remove(connection));
         emitter.onError(ignored -> remove(connection));

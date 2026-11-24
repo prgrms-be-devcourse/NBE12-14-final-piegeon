@@ -3,11 +3,12 @@ package world.chakchak.domain.room.service;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.domain.changelog.service.ChangeLogService;
-import world.chakchak.domain.changelog.service.ChangeLogStreamService;
+import world.chakchak.domain.changelog.event.RoomMemberLeftEvent;
 import world.chakchak.domain.place.service.PlaceCandidateService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
@@ -27,7 +28,7 @@ public class RoomLeaveService {
     private final AgendaService agendaService;
     private final PlaceCandidateService placeCandidateService;
     private final ChangeLogService changeLogService;
-    private final ChangeLogStreamService changeLogStreamService;
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     @Transactional
@@ -53,7 +54,7 @@ public class RoomLeaveService {
             agendaService.openSurveyAgendas(room, now);
         }
         placeCandidateService.deleteReactionsByMember(member.getId());
+        eventPublisher.publishEvent(new RoomMemberLeftEvent(roomId, member.getId()));
         changeLogService.recordMemberLeft(room, member);
-        changeLogStreamService.closeConnectionsForMember(roomId, member.getId());
     }
 }
