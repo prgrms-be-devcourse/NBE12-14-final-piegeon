@@ -1479,7 +1479,7 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("D-1 집계에서 정하지 못한 투표 중 항목은 미결 기록을 남기고 방이 만료되면 조율 완료는 남기지 않는다")
+            @DisplayName("D-1 집계에서 정하지 못한 투표 중 항목은 미결 기록을 남기고, 방이 만료되면 조율 완료 대신 방 만료를 알린다")
             void recordsExpiredItemWhenRoomExpires() {
                 surveyClosed();
                 givenLockedRoomAt(D_MINUS_1);
@@ -1494,11 +1494,12 @@ class AgendaServiceTest {
 
                 verify(agendaChangePublisher).resolved(null, budget, low);
                 verify(agendaChangePublisher).expired(null, stay);
+                verify(agendaChangePublisher).roomExpired(room);
                 verifyNoMoreInteractions(agendaChangePublisher);
             }
 
             @Test
-            @DisplayName("D-1 집계에서 이미 미결이던 회차를 정하지 못하면 미결 기록을 다시 남기지 않는다")
+            @DisplayName("D-1 집계에서 이미 미결이던 회차를 정하지 못하면 미결 기록을 다시 남기지 않고 방 만료만 알린다")
             void skipsRecordForAlreadyExpiredItem() {
                 surveyClosed();
                 givenLockedRoomAt(D_MINUS_1);
@@ -1513,6 +1514,7 @@ class AgendaServiceTest {
                 agendaService.runFinalTally(ROOM_ID);
 
                 verify(agendaChangePublisher).resolved(null, budget, low);
+                verify(agendaChangePublisher).roomExpired(room);
                 verifyNoMoreInteractions(agendaChangePublisher);
             }
 

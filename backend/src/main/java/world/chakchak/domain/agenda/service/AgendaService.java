@@ -303,6 +303,7 @@ public class AgendaService {
             agendaChangePublisher.coordinationCompleted(room, null);
         } else {
             room.expire();
+            agendaChangePublisher.roomExpired(room);
         }
     }
 

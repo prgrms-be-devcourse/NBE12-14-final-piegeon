@@ -2,6 +2,7 @@ package world.chakchak.domain.agenda;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -26,6 +27,7 @@ import world.chakchak.domain.agenda.entity.AgendaOption;
 import world.chakchak.domain.agenda.entity.AgendaStatus;
 import world.chakchak.domain.agenda.entity.AgendaSubject;
 import world.chakchak.domain.agenda.entity.FinalPlanChoice;
+import world.chakchak.domain.agenda.event.RoomStatusChangedEvent;
 import world.chakchak.domain.agenda.event.VoteUpdatedEvent;
 import world.chakchak.domain.agenda.event.VoteUpdatedEvent.OptionVoteCount;
 import world.chakchak.domain.agenda.service.AgendaChangePublisher;
@@ -39,7 +41,7 @@ import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.user.entity.User;
 
-/** 안건 도메인이 남기는 방 활동 기록의 종류·대상·행위·요약 문구와, 기록 없이 보내는 vote.updated를 확인한다. */
+/** 안건 도메인이 남기는 방 활동 기록의 종류·대상·행위·요약 문구와, 기록 없이 보내는 vote.updated·room.status_changed를 확인한다. */
 @ExtendWith(MockitoExtension.class)
 class AgendaChangePublisherTest {
 
@@ -255,6 +257,21 @@ class AgendaChangePublisherTest {
                                         List.of(
                                                 new OptionVoteCount(21L, 2),
                                                 new OptionVoteCount(22L, 0))));
+            }
+
+            @Test
+            @DisplayName("D-1에 방이 만료되면 기록 없이 id 없는 room.status_changed로 EXPIRED를 보낸다")
+            void publishesRoomExpired() {
+                agendaChangePublisher.roomExpired(room);
+
+                ArgumentCaptor<RoomEvent> captor = ArgumentCaptor.forClass(RoomEvent.class);
+                verify(eventPublisher).publishEvent(captor.capture());
+                RoomEvent event = captor.getValue();
+                assertThat(event.roomId()).isEqualTo(ROOM_ID);
+                assertThat(event.changeLogId()).isNull();
+                assertThat(event.name()).isEqualTo("room.status_changed");
+                assertThat(event.data()).isEqualTo(new RoomStatusChangedEvent(RoomStatus.EXPIRED));
+                verifyNoInteractions(changeLogService);
             }
         }
     }

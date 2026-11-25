@@ -35,6 +35,7 @@ import world.chakchak.domain.agenda.entity.AgendaOption;
 import world.chakchak.domain.agenda.entity.AgendaSubject;
 import world.chakchak.domain.agenda.repository.AgendaItemRepository;
 import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
+import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
@@ -44,10 +45,10 @@ import world.chakchak.domain.user.entity.User;
 import world.chakchak.domain.user.repository.UserRepository;
 
 /**
- * 투표(V-03)와 안건 코멘트(V-06)가 커밋된 뒤 같은 방 멤버의 SSE 스트림에 실제로 전달되는지 확인한다.
+ * 투표(V-03), 안건 코멘트(V-06), D-1 방 만료가 커밋된 뒤 같은 방 멤버의 SSE 스트림에 실제로 전달되는지 확인한다.
  *
- * <p>표 수(vote.updated)와 코멘트(comment.created)는 기록하지 않는 일시 이벤트라 SSE id가 없다. 안건 결정은 방 활동 기록으로 남아 로그
- * id를 SSE id로 쓰는 activity 이벤트로 간다.
+ * <p>표 수(vote.updated), 코멘트(comment.created), 방 만료(room.status_changed)는 기록하지 않는 일시 이벤트라 SSE id가
+ * 없다. 안건 결정은 방 활동 기록으로 남아 로그 id를 SSE id로 쓰는 activity 이벤트로 간다.
  */
 @IntegrationTest
 class AgendaSseIntegrationTest {
@@ -61,6 +62,7 @@ class AgendaSseIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private AgendaItemRepository agendaItemRepository;
     @Autowired private AgendaOptionRepository agendaOptionRepository;
+    @Autowired private AgendaService agendaService;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
 
@@ -105,7 +107,10 @@ class AgendaSseIntegrationTest {
     }
 
     private Room saveRoom() {
-        LocalDate start = LocalDate.now(clock).plusDays(30);
+        return saveRoom(LocalDate.now(clock).plusDays(30));
+    }
+
+    private Room saveRoom(LocalDate start) {
         Room room =
                 roomRepository.save(
                         Room.create(
@@ -188,6 +193,33 @@ class AgendaSseIntegrationTest {
                         .containsEntry("entity_type", "AGENDA")
                         .containsEntry("entity_id", budget.getId())
                         .containsEntry("plan_room_member_id", jieunMember.getId());
+            }
+
+            @Test
+            @DisplayName(
+                    "D-1까지 설문이 마감되지 않아 방이 만료되면 같은 방 멤버에게 id 없는 room.status_changed가 가고 활동 기록은 남지 않는다")
+            void streamsRoomExpired() throws Exception {
+                Room room = saveRoom(LocalDate.now(clock).plusDays(1));
+                join(room, jieun);
+
+                try (SseReader reader = new SseReader(openStream(room, jieunCookie).body())) {
+                    assertThat(reader.readEvent()).contains("event:connected");
+
+                    agendaService.runFinalTally(room.getId());
+
+                    String expired = reader.readEvent();
+                    assertThat(expired)
+                            .contains("event:room.status_changed")
+                            .contains("\"status\":\"EXPIRED\"");
+                    assertThat(hasSseId(expired)).isFalse();
+                }
+
+                assertThat(
+                                jdbcTemplate.queryForObject(
+                                        "select count(*) from change_log where plan_room_id = ?",
+                                        Long.class,
+                                        room.getId()))
+                        .isZero();
             }
         }
     }

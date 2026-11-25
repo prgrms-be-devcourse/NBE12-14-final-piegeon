@@ -227,19 +227,21 @@ class ChangeLogTimelineIntegrationTest {
                                             .orElseThrow()
                                             .getConfirmedAt())
                             .isNotNull();
-                    assertThat(
-                                    jdbcTemplate.queryForObject(
-                                            "select event_kind from change_log where plan_room_id = ?"
-                                                    + " order by id desc limit 1",
-                                            String.class,
-                                            room.getId()))
-                            .isEqualTo("MEMBER_LEFT");
-                    // 퇴장으로 결정 2건·미결 1건이 된 안건의 기록이 나감 기록보다 먼저 남는다
+                    // 원인인 나감 기록이 먼저 남고, 그 퇴장으로 결정 2건·미결 1건이 된 안건의 기록이 뒤따른다
+                    List<String> kinds =
+                            jdbcTemplate.queryForList(
+                                    "select event_kind from change_log where plan_room_id = ?"
+                                            + " order by id",
+                                    String.class,
+                                    room.getId());
+                    List<String> byLeave = kinds.subList(kinds.size() - 4, kinds.size());
+                    assertThat(byLeave.getFirst()).isEqualTo("MEMBER_LEFT");
+                    assertThat(byLeave.subList(1, 4)).allMatch(kind -> kind.startsWith("AGENDA_"));
+                    assertThat(reader.readEvent()).contains("event:activity").contains("나갔어요");
+                    assertThat(reader.readEvent()).contains("event:member.left");
                     for (int i = 0; i < 3; i++) {
                         assertThat(reader.readEvent()).contains("event:activity").contains("1회차");
                     }
-                    assertThat(reader.readEvent()).contains("event:activity").contains("나갔어요");
-                    assertThat(reader.readEvent()).contains("event:member.left");
                 }
 
                 Room soloRoom = saveRoom(RoomStatus.REVIEWING);

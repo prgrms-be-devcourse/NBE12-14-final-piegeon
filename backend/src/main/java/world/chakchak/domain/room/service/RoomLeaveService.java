@@ -42,6 +42,10 @@ public class RoomLeaveService {
 
         surveyResponseService.deleteForMember(member.getId());
         member.leave(now);
+        // 커밋 뒤 이벤트는 발행한 순서대로 처리된다. 나간 멤버의 연결을 먼저 닫아 이 퇴장으로 생기는 소식을 그 멤버에게 보내지 않는다
+        eventPublisher.publishEvent(new RoomMemberLeftEvent(roomId, member.getId()));
+        // 퇴장으로 생기는 안건 결정·설문 마감 기록보다 먼저 남겨, 타임라인에서 원인이 결과보다 앞서게 한다
+        changeLogService.recordMemberLeft(room, member);
         boolean surveyClosed =
                 room.getStatus() == RoomStatus.SURVEYING
                         && room.closeSurveyIfReady(
@@ -54,7 +58,5 @@ public class RoomLeaveService {
             agendaService.openSurveyAgendas(room, now);
         }
         placeCandidateService.deleteReactionsByMember(member.getId());
-        eventPublisher.publishEvent(new RoomMemberLeftEvent(roomId, member.getId()));
-        changeLogService.recordMemberLeft(room, member);
     }
 }

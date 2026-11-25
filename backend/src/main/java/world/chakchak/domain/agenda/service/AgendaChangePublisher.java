@@ -7,6 +7,7 @@ import world.chakchak.domain.agenda.dto.AgendaDetailResponse;
 import world.chakchak.domain.agenda.entity.AgendaItem;
 import world.chakchak.domain.agenda.entity.AgendaOption;
 import world.chakchak.domain.agenda.entity.AgendaSubject;
+import world.chakchak.domain.agenda.event.RoomStatusChangedEvent;
 import world.chakchak.domain.agenda.event.VoteUpdatedEvent;
 import world.chakchak.domain.changelog.entity.ActionStatus;
 import world.chakchak.domain.changelog.entity.EntityType;
@@ -15,6 +16,7 @@ import world.chakchak.domain.changelog.event.RoomEvent;
 import world.chakchak.domain.changelog.service.ChangeLogService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
+import world.chakchak.domain.room.entity.RoomStatus;
 
 /**
  * 안건 도메인의 방 활동 기록(change_log)과 일시 SSE 이벤트를 만든다.
@@ -22,8 +24,8 @@ import world.chakchak.domain.room.entity.RoomMember;
  * <ul>
  *   <li>안건이 열리고, 결정되고, 미결로 끝나고, 설문 마감·조율 완료·계획 확정이 되면 {@link ChangeLogService}로 한 줄을 남긴다. 그 기록이
  *       {@code activity} 이벤트(SSE id = 로그 id)로 나가고, 재연결 때 다시 보내진다.
- *   <li>표 수가 바뀐 것({@code vote.updated})은 남기지 않는 일시 이벤트라 id 없이 보낸다. 재연결 때 다시 보내지 않으므로 클라이언트가 다시
- *       조회한다.
+ *   <li>표 수가 바뀐 것({@code vote.updated})과 D-1에 방이 만료된 것({@code room.status_changed})은 남기지 않는 일시 이벤트라
+ *       id 없이 보낸다. 재연결 때 다시 보내지 않으므로 클라이언트가 다시 조회한다.
  * </ul>
  *
  * <p>둘 다 호출자의 트랜잭션 안에서 부르고, 실제 전송은 커밋 뒤에 한다({@code ChangeLogStreamListener}).
@@ -35,6 +37,7 @@ import world.chakchak.domain.room.entity.RoomMember;
 public class AgendaChangePublisher {
 
     static final String VOTE_UPDATED = "vote.updated";
+    static final String ROOM_STATUS_CHANGED = "room.status_changed";
 
     private final ChangeLogService changeLogService;
     private final ApplicationEventPublisher eventPublisher;
@@ -106,6 +109,21 @@ public class AgendaChangePublisher {
     public void voteUpdated(Long roomId, AgendaDetailResponse detail) {
         eventPublisher.publishEvent(
                 new RoomEvent(roomId, null, VOTE_UPDATED, VoteUpdatedEvent.from(detail)));
+    }
+
+    /**
+     * D-1 최종 집계에서 설문 조율을 끝내지 못해 방이 만료됐다 (13-3). 명세의 기록 대상에 방 만료가 없어 기록 없이 보낸다.
+     *
+     * <p>설문이 마감되지 않았거나 모든 항목이 이미 미결이던 방은 이 집계에서 남는 기록이 없다. 이 이벤트가 없으면 접속 중인 멤버는 화면을 다시 불러오기 전까지 수정할
+     * 수 있는 방으로 보게 된다.
+     */
+    public void roomExpired(Room room) {
+        eventPublisher.publishEvent(
+                new RoomEvent(
+                        room.getId(),
+                        null,
+                        ROOM_STATUS_CHANGED,
+                        new RoomStatusChangedEvent(RoomStatus.EXPIRED)));
     }
 
     private void recordAgenda(
