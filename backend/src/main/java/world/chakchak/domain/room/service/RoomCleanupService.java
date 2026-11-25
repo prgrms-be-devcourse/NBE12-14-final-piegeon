@@ -37,7 +37,7 @@ public class RoomCleanupService {
 
         // 2. agenda_item과 agenda_option 사이의 순환 FK를 먼저 해제
         jdbcTemplate.update(
-                "update agenda_item set status = 'VOTING', resolved_option_id = null, resolved_at = null where plan_room_id = ?",
+                "update agenda_item set status = 'EXPIRED', resolved_option_id = null, resolved_at = null where plan_room_id = ? and resolved_option_id is not null",
                 roomId);
 
         // 3. 방에 직접 속하거나 멤버를 참조하는 데이터

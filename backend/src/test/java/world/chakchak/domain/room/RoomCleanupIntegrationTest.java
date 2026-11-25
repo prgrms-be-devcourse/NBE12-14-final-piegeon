@@ -214,6 +214,12 @@ class RoomCleanupIntegrationTest {
                 now,
                 agendaId);
         jdbcTemplate.update(
+                "insert into agenda_item (plan_room_id, subject, round, title, status, total_voter, deadline_at, created_at, modified_at) values (?, 'STAY_TYPE', 1, 'cleanup-test-expired-agenda', 'EXPIRED', 0, ?, ?, ?)",
+                roomId,
+                now.plusDays(1),
+                now,
+                now);
+        jdbcTemplate.update(
                 "insert into vote (plan_room_member_id, agenda_id, agenda_option_id, created_at, modified_at) values (?, ?, ?, ?, ?)",
                 memberId,
                 agendaId,
