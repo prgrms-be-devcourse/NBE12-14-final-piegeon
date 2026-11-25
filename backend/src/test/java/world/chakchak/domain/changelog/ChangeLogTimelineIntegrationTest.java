@@ -234,7 +234,11 @@ class ChangeLogTimelineIntegrationTest {
                                             String.class,
                                             room.getId()))
                             .isEqualTo("MEMBER_LEFT");
-                    assertThat(reader.readEvent()).contains("event:activity");
+                    // 퇴장으로 결정 2건·미결 1건이 된 안건의 기록이 나감 기록보다 먼저 남는다
+                    for (int i = 0; i < 3; i++) {
+                        assertThat(reader.readEvent()).contains("event:activity").contains("1회차");
+                    }
+                    assertThat(reader.readEvent()).contains("event:activity").contains("나갔어요");
                     assertThat(reader.readEvent()).contains("event:member.left");
                 }
 
