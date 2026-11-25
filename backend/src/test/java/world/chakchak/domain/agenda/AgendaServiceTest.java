@@ -6,12 +6,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -28,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -51,6 +54,7 @@ import world.chakchak.domain.agenda.errorcode.AgendaErrorCode;
 import world.chakchak.domain.agenda.repository.AgendaItemRepository;
 import world.chakchak.domain.agenda.repository.AgendaOptionRepository;
 import world.chakchak.domain.agenda.repository.VoteRepository;
+import world.chakchak.domain.agenda.service.AgendaChangePublisher;
 import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.domain.comment.dto.CommentListResponse;
 import world.chakchak.domain.comment.dto.CommentRequest;
@@ -89,6 +93,7 @@ class AgendaServiceTest {
     @Mock private AgendaOptionRepository agendaOptionRepository;
     @Mock private VoteRepository voteRepository;
     @Mock private SurveyResponseService surveyResponseService;
+    @Mock private AgendaChangePublisher agendaChangePublisher;
 
     @InjectMocks private AgendaService agendaService;
 
@@ -662,7 +667,7 @@ class AgendaServiceTest {
                         openAgenda(AgendaSubject.STAY, 2),
                         resolvedAgenda(AgendaSubject.PACE));
 
-                boolean resolved = agendaService.judge(room, budget, NOW);
+                boolean resolved = agendaService.judge(room, me, budget, NOW);
 
                 assertThat(resolved).isTrue();
                 assertThat(budget.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
@@ -682,7 +687,7 @@ class AgendaServiceTest {
                         resolvedAgenda(AgendaSubject.STAY),
                         resolvedAgenda(AgendaSubject.PACE));
 
-                agendaService.judge(room, budget, NOW);
+                agendaService.judge(room, me, budget, NOW);
 
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
             }
@@ -695,7 +700,7 @@ class AgendaServiceTest {
                 AgendaOption agree = finalOption(finalPlan, FinalPlanChoice.AGREE);
                 givenVotes(finalPlan, vote(finalPlan, agree, me), vote(finalPlan, agree, jieun));
 
-                boolean resolved = agendaService.judge(room, finalPlan, NOW);
+                boolean resolved = agendaService.judge(room, me, finalPlan, NOW);
 
                 assertThat(resolved).isTrue();
                 assertThat(finalPlan.getResolvedOptionId()).isEqualTo(agree.getId());
@@ -711,7 +716,7 @@ class AgendaServiceTest {
                 AgendaOption reject = finalOption(finalPlan, FinalPlanChoice.REJECT);
                 givenVotes(finalPlan, vote(finalPlan, reject, me));
 
-                boolean resolved = agendaService.judge(room, finalPlan, NOW);
+                boolean resolved = agendaService.judge(room, me, finalPlan, NOW);
 
                 assertThat(resolved).isTrue();
                 assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
@@ -730,7 +735,7 @@ class AgendaServiceTest {
                 givenLatestRounds(budget, openAgenda(AgendaSubject.STAY, 2));
 
                 budget.removeVoter();
-                boolean resolved = agendaService.judge(room, budget, NOW);
+                boolean resolved = agendaService.judge(room, null, budget, NOW);
 
                 assertThat(resolved).isTrue();
                 assertThat(budget.getResolvedOptionId()).isEqualTo(low.getId());
@@ -745,7 +750,7 @@ class AgendaServiceTest {
                 givenVotes(finalPlan, vote(finalPlan, agree, me), vote(finalPlan, agree, jieun));
 
                 finalPlan.removeVoter();
-                boolean resolved = agendaService.judge(room, finalPlan, NOW);
+                boolean resolved = agendaService.judge(room, null, finalPlan, NOW);
 
                 assertThat(resolved).isTrue();
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.FINALIZED);
@@ -903,6 +908,146 @@ class AgendaServiceTest {
 
                 assertThat(agendaService.findRoomIdsWithOverdueAgendas()).containsExactly(ROOM_ID);
             }
+
+            @Test
+            @DisplayName("결정되지 않은 투표는 방 활동 기록을 남기지 않고 표 수만 vote.updated로 알린다")
+            void publishesOnlyVoteUpdatedWhenUndecided() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, low);
+                givenMyVote(budget, null);
+                givenVotes(budget, vote(budget, low, me));
+
+                AgendaDetailResponse response = voteFor(budget, low, null);
+
+                verify(agendaChangePublisher).voteUpdated(ROOM_ID, response);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("투표로 안건이 결정되면 투표한 나를 행위자로 결정 기록을 남긴 뒤 표 수를 알린다")
+            void recordsResolvedByVoter() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, low);
+                givenMyVote(budget, null);
+                givenVotes(budget, vote(budget, low, jieun), vote(budget, low, me));
+                givenLatestRounds(budget, openAgenda(AgendaSubject.STAY, 2));
+
+                AgendaDetailResponse response = voteFor(budget, low, null);
+
+                InOrder order = inOrder(agendaChangePublisher);
+                order.verify(agendaChangePublisher).resolved(me, budget, low);
+                order.verify(agendaChangePublisher).voteUpdated(ROOM_ID, response);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("마지막 설문 항목이 결정되면 결정 기록 다음에 조율 완료 기록을 같은 행위자로 남긴다")
+            void recordsCoordinationCompletedAfterResolved() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 2);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                givenVotes(budget, vote(budget, low, me), vote(budget, low, jieun));
+                givenLatestRounds(
+                        budget,
+                        resolvedAgenda(AgendaSubject.STAY),
+                        resolvedAgenda(AgendaSubject.PACE));
+
+                agendaService.judge(room, me, budget, NOW);
+
+                InOrder order = inOrder(agendaChangePublisher);
+                order.verify(agendaChangePublisher).resolved(me, budget, low);
+                order.verify(agendaChangePublisher).coordinationCompleted(room, me);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("최종 확정이 동의로 결정되면 계획 확정 한 줄만 남기고 안건 결정 기록은 따로 남기지 않는다")
+            void recordsOnlyPlanFinalizedOnAgree() {
+                reviewing();
+                AgendaItem finalPlan = openAgenda(AgendaSubject.FINAL_PLAN, 2);
+                AgendaOption agree = finalOption(finalPlan, FinalPlanChoice.AGREE);
+                givenVotes(finalPlan, vote(finalPlan, agree, me), vote(finalPlan, agree, jieun));
+
+                agendaService.judge(room, me, finalPlan, NOW);
+
+                verify(agendaChangePublisher).planFinalized(room, me);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("최종 확정이 반대로 결정되면 안건 결정 기록만 남긴다")
+            void recordsResolvedOnReject() {
+                reviewing();
+                AgendaItem finalPlan = openAgenda(AgendaSubject.FINAL_PLAN, 3);
+                AgendaOption reject = finalOption(finalPlan, FinalPlanChoice.REJECT);
+                givenVotes(finalPlan, vote(finalPlan, reject, me));
+
+                agendaService.judge(room, me, finalPlan, NOW);
+
+                verify(agendaChangePublisher).resolved(me, finalPlan, reject);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("멤버가 나가 남은 표로 안건이 결정되면 나간 멤버가 아니라 시스템을 행위자로 결정 기록을 남긴다")
+            void recordsResolvedBySystemWhenMemberLeaves() {
+                RoomMember leaving = member("현우", NOW.minusDays(1));
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET, 3);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(2L);
+                given(agendaItemRepository.findAllByRoomIdAndStatus(ROOM_ID, AgendaStatus.VOTING))
+                        .willReturn(List.of(budget));
+                givenVotes(budget, vote(budget, low, me), vote(budget, low, jieun));
+                givenLatestRounds(budget, openAgenda(AgendaSubject.STAY, 2));
+
+                agendaService.memberLeft(room, leaving, NOW);
+
+                verify(agendaChangePublisher).resolved(null, budget, low);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("멤버가 나가 자격자가 0명이 된 안건은 남은 멤버가 있으면 시스템을 행위자로 미결 기록을 남긴다")
+            void recordsExpiredWhenLastVoterLeaves() {
+                RoomMember leaving = member("현우", NOW.minusDays(1));
+                AgendaItem pace = openAgenda(AgendaSubject.PACE, 1);
+                given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(1L);
+                given(agendaItemRepository.findAllByRoomIdAndStatus(ROOM_ID, AgendaStatus.VOTING))
+                        .willReturn(List.of(pace));
+
+                agendaService.memberLeft(room, leaving, NOW);
+
+                assertThat(pace.getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+                verify(agendaChangePublisher).expired(null, pace);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("기한이 지난 안건을 미결로 끝내면 시스템을 행위자로 미결 기록을 남기고 기한이 남은 안건은 남기지 않는다")
+            void recordsExpiredForOverdueAgendasOnly() {
+                AgendaItem overdue = openAgenda(AgendaSubject.BUDGET, 2);
+                AgendaItem open =
+                        withId(
+                                AgendaItem.create(
+                                        room,
+                                        AgendaSubject.STAY,
+                                        1,
+                                        "안건 제목",
+                                        2,
+                                        NOW.minusHours(1),
+                                        NOW.plusDays(5)));
+                givenOverdueCheck(overdue.getDeadlineAt(), overdue, open);
+
+                agendaService.expireOverdueAgendas(ROOM_ID);
+
+                verify(agendaChangePublisher).expired(null, overdue);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
         }
 
         @Nested
@@ -1025,7 +1170,7 @@ class AgendaServiceTest {
                 AgendaOption high = budget(budget, 1_000_000L, 1, null);
                 givenVotes(budget, vote(budget, low, me), vote(budget, high, jieun));
 
-                boolean resolved = agendaService.judge(room, budget, NOW);
+                boolean resolved = agendaService.judge(room, me, budget, NOW);
 
                 assertThat(resolved).isFalse();
                 assertThat(budget.getStatus()).isEqualTo(AgendaStatus.VOTING);
@@ -1308,6 +1453,114 @@ class AgendaServiceTest {
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.PLANNING);
                 verifyNoInteractions(agendaItemRepository, voteRepository);
             }
+
+            @Test
+            @DisplayName("D-1 집계로 설문 항목이 결정되면 시스템을 행위자로 항목마다 결정 기록을 남기고 세 항목이 끝나면 조율 완료를 남긴다")
+            void recordsFinalTallyResolutions() {
+                surveyClosed();
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem budget = openItem(AgendaSubject.BUDGET);
+                AgendaOption high = budget(budget, 1_000_000L, 0, null);
+                givenVotes(budget, vote(budget, high, me));
+                AgendaItem stay = openItem(AgendaSubject.STAY);
+                AgendaOption hotel = stayOption(stay, StayType.HOTEL, 0);
+                givenVotes(stay, vote(stay, hotel, me));
+                stay.expire();
+                // 이미 결정된 항목은 그때 기록을 남겼으므로 다시 남기지 않는다
+                givenLatest(budget, stay, resolvedPace());
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                InOrder order = inOrder(agendaChangePublisher);
+                order.verify(agendaChangePublisher).resolved(null, budget, high);
+                order.verify(agendaChangePublisher).resolved(null, stay, hotel);
+                order.verify(agendaChangePublisher).coordinationCompleted(room, null);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("D-1 집계에서 정하지 못한 투표 중 항목은 미결 기록을 남기고 방이 만료되면 조율 완료는 남기지 않는다")
+            void recordsExpiredItemWhenRoomExpires() {
+                surveyClosed();
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem budget = openItem(AgendaSubject.BUDGET);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                givenVotes(budget, vote(budget, low, me));
+                AgendaItem stay = openItem(AgendaSubject.STAY);
+                givenVotes(stay);
+                givenLatest(budget, stay, resolvedPace());
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                verify(agendaChangePublisher).resolved(null, budget, low);
+                verify(agendaChangePublisher).expired(null, stay);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("D-1 집계에서 이미 미결이던 회차를 정하지 못하면 미결 기록을 다시 남기지 않는다")
+            void skipsRecordForAlreadyExpiredItem() {
+                surveyClosed();
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem budget = openItem(AgendaSubject.BUDGET);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                givenVotes(budget, vote(budget, low, me));
+                AgendaItem stay = openItem(AgendaSubject.STAY);
+                givenVotes(stay);
+                stay.expire();
+                givenLatest(budget, stay, resolvedPace());
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                verify(agendaChangePublisher).resolved(null, budget, low);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("D-1 최종 투표가 동의로 정해지면 시스템을 행위자로 계획 확정 한 줄만 남긴다")
+            void recordsPlanFinalizedByFinalTally() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
+                AgendaOption agree =
+                        withId(AgendaOption.finalPlan(finalPlan, FinalPlanChoice.AGREE));
+                givenVotes(finalPlan, vote(finalPlan, agree, me));
+                givenLatest(finalPlan);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                verify(agendaChangePublisher).planFinalized(room, null);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("D-1 최종 투표에 표가 없으면 시스템을 행위자로 미결 기록을 남긴다")
+            void recordsFinalPlanExpiredByFinalTally() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
+                givenVotes(finalPlan);
+                givenLatest(finalPlan);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                verify(agendaChangePublisher).expired(null, finalPlan);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("마지막 멤버가 나가 이미 미결인 최종 안건은 D-1 집계에서 기록을 다시 남기지 않는다")
+            void skipsRecordForAlreadyExpiredFinalPlan() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
+                givenLockedRoomAt(D_MINUS_1);
+                AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
+                finalPlan.expire();
+                givenLatest(finalPlan);
+
+                agendaService.runFinalTally(ROOM_ID);
+
+                verifyNoInteractions(agendaChangePublisher);
+            }
         }
 
         @Nested
@@ -1473,6 +1726,49 @@ class AgendaServiceTest {
                 verifyNoInteractions(surveyResponseService);
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.SURVEYING);
             }
+
+            @Test
+            @DisplayName("설문 마감으로 투표가 열리면 열린 투표 수를 담아 설문 마감 한 줄만 남긴다")
+            void recordsSurveyClosedWithVotingCount() {
+                givenNoSurveyAgendas();
+                givenAnswers(
+                        answer(me, 1_000_000L, StayType.HOTEL, Pace.NORMAL, NOW.minusHours(2)),
+                        answer(jieun, 600_000L, StayType.SOCIAL, Pace.NORMAL, NOW.minusHours(1)));
+
+                agendaService.openSurveyAgendas(room, NOW);
+
+                verify(agendaChangePublisher).surveyClosed(room, 2);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("세 항목이 모두 만장일치면 설문 마감 다음에 조율 완료를 시스템을 행위자로 남긴다")
+            void recordsCoordinationCompletedWhenAllUnanimous() {
+                givenNoSurveyAgendas();
+                givenAnswers(
+                        answer(me, 600_000L, StayType.HOTEL, Pace.NORMAL, NOW.minusHours(2)),
+                        answer(jieun, 600_000L, StayType.HOTEL, Pace.NORMAL, NOW.minusHours(1)));
+
+                agendaService.openSurveyAgendas(room, NOW);
+
+                InOrder order = inOrder(agendaChangePublisher);
+                order.verify(agendaChangePublisher).surveyClosed(room, 0);
+                order.verify(agendaChangePublisher).coordinationCompleted(room, null);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("출발 전날 00시가 지나 안건을 열지 않아도 설문 마감은 남긴다")
+            void recordsSurveyClosedAfterDayBeforeDeparture() {
+                LocalDateTime dayBeforeDeparture = LocalDateTime.of(2027, 6, 30, 0, 0);
+                ReflectionTestUtils.setField(room, "surveyClosedAt", dayBeforeDeparture);
+                givenNoSurveyAgendas();
+
+                agendaService.openSurveyAgendas(room, dayBeforeDeparture);
+
+                verify(agendaChangePublisher).surveyClosed(room, 0);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
         }
 
         @Nested
@@ -1584,6 +1880,22 @@ class AgendaServiceTest {
                 assertThat(budget.getStatus()).isEqualTo(AgendaStatus.VOTING);
                 verify(agendaItemRepository, never())
                         .findTopByRoomIdAndSubjectOrderByRoundDesc(any(), any());
+            }
+
+            @Test
+            @DisplayName("선지를 추가하면 방 활동 기록 없이 늘어난 선지 목록을 vote.updated로 알린다")
+            void publishesVoteUpdatedAfterAdding() {
+                AgendaItem budget = openAgenda(AgendaSubject.BUDGET);
+                AgendaOption low = budget(budget, 600_000L, 0, null);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenAddable(budget, "1230000");
+                givenOptions(budget, low);
+
+                AgendaDetailResponse response = add(budget, 1_234_567L);
+
+                verify(agendaChangePublisher).voteUpdated(ROOM_ID, response);
+                verifyNoMoreInteractions(agendaChangePublisher);
             }
         }
 
@@ -1786,6 +2098,22 @@ class AgendaServiceTest {
                 assertThat(response.status()).isEqualTo(AgendaStatus.VOTING);
                 verify(agendaItemRepository, never())
                         .findTopByRoomIdAndSubjectOrderByRoundDesc(any(), any());
+            }
+
+            @Test
+            @DisplayName("선지를 지우면 방 활동 기록 없이 줄어든 선지 목록을 vote.updated로 알린다")
+            void publishesVoteUpdatedAfterDeleting() {
+                AgendaItem budget = openBudget();
+                AgendaOption mine = budget(budget, 1_200_000L, 1, me);
+                givenLockedRoomAndMember(me);
+                givenAgenda(budget);
+                givenOption(budget, mine);
+                givenOthersVoteCount(mine, 0);
+
+                AgendaDetailResponse response = delete(budget, mine);
+
+                verify(agendaChangePublisher).voteUpdated(ROOM_ID, response);
+                verifyNoMoreInteractions(agendaChangePublisher);
             }
         }
 
@@ -2034,6 +2362,28 @@ class AgendaServiceTest {
                 // 숙소 안건이라 직전 회차 추가 선지는 조회하지 않는다
                 verify(agendaOptionRepository, never()).findAllProposedByActiveMembers(any());
             }
+
+            @Test
+            @DisplayName("다음 회차를 열면 연 나를 행위자로 새 회차의 열림 기록을 남긴다")
+            void recordsOpenedNextRound() {
+                AgendaItem previous = expiredAgenda(AgendaSubject.STAY);
+                givenLockedRoomAndMember(me);
+                givenAgenda(previous);
+                givenLatestRound(previous);
+                givenSavedNextRound();
+                given(surveyResponseService.getActiveMemberResponses(ROOM_ID))
+                        .willReturn(List.of(answer(me, 600_000L)));
+                captureSavedOptions();
+
+                open(previous);
+
+                ArgumentCaptor<AgendaItem> opened = ArgumentCaptor.forClass(AgendaItem.class);
+                verify(agendaChangePublisher).opened(eq(me), opened.capture());
+                assertThat(opened.getValue()).isNotSameAs(previous);
+                assertThat(opened.getValue().getSubject()).isEqualTo(AgendaSubject.STAY);
+                assertThat(opened.getValue().getRound()).isEqualTo(2);
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
         }
 
         @Nested
@@ -2242,6 +2592,37 @@ class AgendaServiceTest {
                 assertThat(response.status()).isEqualTo(AgendaStatus.RESOLVED);
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.FINALIZED);
                 assertThat(room.getFinalizedAt()).isEqualTo(NOW);
+            }
+
+            @Test
+            @DisplayName("최종 확정 투표를 열면 연 나를 행위자로 열림 기록을 남기고 아직 결정 기록은 남기지 않는다")
+            void recordsOpenedFinalReview() {
+                givenLockedRoomAndMember(NOW);
+                givenActiveMembers(2);
+                givenPreviousFinalReview(null);
+                givenSaving();
+
+                agendaService.openFinalReview(ROOM_ID, USER_ID);
+
+                verify(agendaChangePublisher)
+                        .opened(eq(me), argThat(a -> a.getSubject() == AgendaSubject.FINAL_PLAN));
+                verifyNoMoreInteractions(agendaChangePublisher);
+            }
+
+            @Test
+            @DisplayName("혼자인 방에서 최종 확정 투표를 열면 열림 기록 다음에 계획 확정 기록을 남긴다")
+            void recordsOpenedThenFinalizedInSoloRoom() {
+                givenLockedRoomAndMember(NOW);
+                givenActiveMembers(1);
+                givenPreviousFinalReview(null);
+                givenSaving();
+
+                agendaService.openFinalReview(ROOM_ID, USER_ID);
+
+                InOrder order = inOrder(agendaChangePublisher);
+                order.verify(agendaChangePublisher).opened(eq(me), any());
+                order.verify(agendaChangePublisher).planFinalized(room, me);
+                verifyNoMoreInteractions(agendaChangePublisher);
             }
         }
 

@@ -67,6 +67,7 @@ public class AgendaService {
     private final AgendaOptionRepository agendaOptionRepository;
     private final VoteRepository voteRepository;
     private final SurveyResponseService surveyResponseService;
+    private final AgendaChangePublisher agendaChangePublisher;
     private final Clock clock;
 
     /** 방의 안건 전체 목록 (V-01). 필터 없이 모두 돌려주고 걸러 보기는 프론트가 한다. */
@@ -141,10 +142,8 @@ public class AgendaService {
             throw new BusinessException(CommonErrorCode.INVALID_STATUS);
         }
         AgendaItem agenda = getAgendaInRoom(roomId, agendaId);
-        CommentResponse response =
-                CommentResponse.from(commentService.addOnAgenda(agenda, me, request.body()));
-        // TODO SSE (커밋 후): comment.created
-        return response;
+        // comment.created SSE는 CommentService가 보낸다
+        return CommentResponse.from(commentService.addOnAgenda(agenda, me, request.body()));
     }
 
     /**
@@ -190,12 +189,11 @@ public class AgendaService {
             commentService.addOnAgenda(agenda, me, request.comment());
         }
 
-        judge(room, agenda, now);
-        // TODO change_log: 안건이 결정되면 AGENDA CONFIRM, 방 상태가 바뀌면 PLAN_ROOM UPDATE/CONFIRM (기록 방식이 정해지면
-        // 추가)
-        // TODO SSE (커밋 후): vote.updated, 결정되면 agenda.resolved, 방 상태가 바뀌면 room.status_changed
-
-        return toDetail(agenda, me);
+        // 결정되면 그 기록은 판정이 남긴다. 표 하나하나는 기록하지 않고 표 수만 알린다
+        judge(room, me, agenda, now);
+        AgendaDetailResponse detail = toDetail(agenda, me);
+        agendaChangePublisher.voteUpdated(roomId, detail);
+        return detail;
     }
 
     /**
@@ -204,10 +202,11 @@ public class AgendaService {
      * <p>방 잠금({@code RoomService.getForUpdate})을 잡은 트랜잭션 안에서, 잠금으로 읽은 방을 넘겨 부른다. 안건 결정과 방 상태 변경이 같은
      * 트랜잭션에서 일어나야 "안건은 동의로 끝났는데 방은 REVIEWING" 같은 어긋남이 남지 않는다.
      *
+     * @param actor 결정을 일으킨 멤버. 퇴장(R-06)의 결과처럼 시스템이 한 일이면 null이다. 방 활동 기록의 행위자가 된다.
      * @return 이번 호출로 안건이 결정됐으면 true
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public boolean judge(Room lockedRoom, AgendaItem agenda, LocalDateTime now) {
+    public boolean judge(Room lockedRoom, RoomMember actor, AgendaItem agenda, LocalDateTime now) {
         Optional<AgendaOption> decided =
                 agenda.decidableOption(voteRepository.findAllByAgendaItemId(agenda.getId()));
         if (decided.isEmpty()) {
@@ -215,7 +214,7 @@ public class AgendaService {
         }
         AgendaOption option = decided.get();
         agenda.resolve(option, now);
-        applyResolved(lockedRoom, agenda, option, now);
+        applyResolved(lockedRoom, actor, agenda, option, now);
         return true;
     }
 
@@ -257,9 +256,8 @@ public class AgendaService {
             }
             agenda.expire();
             applyExpired(room, agenda);
+            agendaChangePublisher.expired(null, agenda);
         }
-        // TODO change_log: AGENDA UPDATE, 최종 확정이면 PLAN_ROOM UPDATE
-        // TODO SSE (커밋 후): agenda.expired, 방 상태가 바뀌면 room.status_changed
     }
 
     /** D-1 최종 집계 대상 방을 찾는다. */
@@ -284,8 +282,6 @@ public class AgendaService {
         } else if (room.getStatus() == RoomStatus.REVIEWING) {
             tallyFinalPlan(room, now);
         }
-        // TODO change_log: AGENDA CONFIRM/UPDATE, PLAN_ROOM UPDATE/CONFIRM
-        // TODO SSE (커밋 후): agenda.resolved, agenda.expired, room.status_changed
     }
 
     // 세 항목이 모두 결정되면 PLANNING, 설문이 마감되지 않았거나 표가 0개이거나 1위가 동점인 항목이 있으면 방이 EXPIRED다
@@ -304,6 +300,7 @@ public class AgendaService {
         }
         if (allResolved) {
             room.startPlanning();
+            agendaChangePublisher.coordinationCompleted(room, null);
         } else {
             room.expire();
         }
@@ -316,10 +313,13 @@ public class AgendaService {
         Optional<AgendaOption> winner = agenda.finalTallyOption(activeMemberVotes(agenda));
         if (winner.isPresent()) {
             agenda.resolveByFinalTally(winner.get(), now);
+            agendaChangePublisher.resolved(null, agenda, winner.get());
             return true;
         }
+        // 이미 미결로 끝난 회차는 그때 기록을 남겼다
         if (agenda.getStatus() == AgendaStatus.VOTING) {
             agenda.expire();
+            agendaChangePublisher.expired(null, agenda);
         }
         return false;
     }
@@ -340,11 +340,12 @@ public class AgendaService {
         Optional<AgendaOption> winner = agenda.finalTallyOption(activeMemberVotes(agenda));
         if (winner.isPresent()) {
             agenda.resolveByFinalTally(winner.get(), now);
-            applyResolved(room, agenda, winner.get(), now);
+            applyResolved(room, null, agenda, winner.get(), now);
             return;
         }
         agenda.expire();
         applyExpired(room, agenda);
+        agendaChangePublisher.expired(null, agenda);
     }
 
     // 미결로 끝난 회차에는 나간 멤버의 표가 남아 있다. 떠난 사람의 표로 결과를 정하지 않는다
@@ -380,6 +381,8 @@ public class AgendaService {
             throw new IllegalStateException("이미 설문 안건이 열린 방입니다: roomId=" + lockedRoom.getId());
         }
         if (!AgendaItem.canOpenAt(lockedRoom, now)) {
+            // 안건은 열지 않아도 설문은 마감됐다
+            agendaChangePublisher.surveyClosed(lockedRoom, 0);
             return;
         }
 
@@ -390,7 +393,7 @@ public class AgendaService {
                         .toList();
         int totalVoter = Math.toIntExact(roomMemberService.countActiveMembers(lockedRoom.getId()));
 
-        boolean allResolved = true;
+        int votingCount = 0;
         for (AgendaSubject subject : SURVEY_SUBJECTS) {
             AgendaItem agenda =
                     agendaItemRepository.save(
@@ -405,15 +408,15 @@ public class AgendaService {
             if (options.size() == 1) {
                 agenda.resolveWithoutVote(options.getFirst(), now);
             } else {
-                allResolved = false;
+                votingCount++;
             }
         }
-        if (allResolved) {
+        // 만장일치로 바로 결정된 안건과 투표가 열린 안건을 따로 남기지 않고 설문 마감 한 줄로 묶는다
+        agendaChangePublisher.surveyClosed(lockedRoom, votingCount);
+        if (votingCount == 0) {
             lockedRoom.startPlanning();
+            agendaChangePublisher.coordinationCompleted(lockedRoom, null);
         }
-        // TODO change_log: SURVEY_CLOSED 한 줄 (만장일치 안건은 따로 남기지 않는다)
-        // TODO SSE (커밋 후): survey.closed, 투표가 열린 안건마다 agenda.opened, PLANNING이 되면
-        // room.status_changed
     }
 
     /** 설문 답에서 이 안건 주제의 값만 꺼내 선지를 만든다. 1회차라 직전 회차에서 옮길 선지는 없다. */
@@ -451,28 +454,39 @@ public class AgendaService {
             // 나간 멤버의 표가 남으면 남은 멤버끼리 합의해도 만장일치가 되지 않는다
             voteRepository.deleteByAgendaItemIdAndMemberId(agenda.getId(), member.getId());
             agenda.removeVoter();
+            // 나간 멤버가 원한 결과가 아니라 시스템이 다시 판정한 결과라 행위자를 남기지 않는다
             if (agenda.getStatus() == AgendaStatus.EXPIRED) {
                 if (activeMembersRemain) {
                     applyExpired(lockedRoom, agenda);
+                    agendaChangePublisher.expired(null, agenda);
                 }
             } else if (activeMembersRemain) {
-                judge(lockedRoom, agenda, now);
+                judge(lockedRoom, null, agenda, now);
             }
         }
     }
 
     private void applyResolved(
-            Room lockedRoom, AgendaItem agenda, AgendaOption option, LocalDateTime now) {
+            Room lockedRoom,
+            RoomMember actor,
+            AgendaItem agenda,
+            AgendaOption option,
+            LocalDateTime now) {
         if (agenda.getSubject() == AgendaSubject.FINAL_PLAN) {
             if (option.isReject()) {
                 lockedRoom.returnToPlanning();
+                agendaChangePublisher.resolved(actor, agenda, option);
             } else {
                 lockedRoom.finalizePlan(now);
+                // 동의로 끝난 최종 확정은 곧 계획 확정이라 한 줄만 남긴다
+                agendaChangePublisher.planFinalized(lockedRoom, actor);
             }
             return;
         }
+        agendaChangePublisher.resolved(actor, agenda, option);
         if (allSurveySubjectsResolved(lockedRoom.getId())) {
             lockedRoom.startPlanning();
+            agendaChangePublisher.coordinationCompleted(lockedRoom, actor);
         }
     }
 
@@ -608,9 +622,11 @@ public class AgendaService {
             // 방 잠금으로 먼저 막으므로 여기까지 오는 것은 UNIQUE(agenda_id, value)가 마지막으로 막은 경우다
             throw new BusinessException(AgendaErrorCode.OPTION_ALREADY_EXISTS);
         }
-        // TODO SSE (커밋 후): agenda.option_added. change_log는 남기지 않는다 (명세 V-07)
 
-        return toDetail(agenda, me);
+        // change_log는 남기지 않는다 (명세 V-07). 늘어난 선지는 vote.updated의 선지 목록으로 알린다 (명세 11-1)
+        AgendaDetailResponse detail = toDetail(agenda, me);
+        agendaChangePublisher.voteUpdated(roomId, detail);
+        return detail;
     }
 
     /**
@@ -650,9 +666,11 @@ public class AgendaService {
         // 표가 선지를 참조하므로 내 표를 먼저 지운다
         voteRepository.deleteByAgendaOptionIdAndMemberId(optionId, me.getId());
         agendaOptionRepository.delete(option);
-        // TODO SSE (커밋 후): agenda.option_deleted, 내 표가 있었으면 vote.updated
 
-        return toDetail(agenda, me);
+        // 줄어든 선지와 함께 지운 내 표도 vote.updated 하나로 알린다 (명세 11-1)
+        AgendaDetailResponse detail = toDetail(agenda, me);
+        agendaChangePublisher.voteUpdated(roomId, detail);
+        return detail;
     }
 
     /**
@@ -695,7 +713,7 @@ public class AgendaService {
             throw new BusinessException(AgendaErrorCode.AGENDA_ALREADY_REOPENED);
         }
         agendaOptionRepository.saveAll(nextRoundOptions(roomId, previous, next));
-        // TODO change_log(AGENDA CREATE) + SSE (커밋 후): agenda.opened
+        agendaChangePublisher.opened(me, next);
 
         return toDetail(next, me);
     }
@@ -770,11 +788,11 @@ public class AgendaService {
 
         // 1인 방이면 아래 판정에서 바로 FINALIZED가 되므로, 방을 먼저 REVIEWING으로 바꾼다
         room.startReview();
+        // 열린 기록이 계획 확정 기록보다 먼저 남도록 판정 전에 남긴다
+        agendaChangePublisher.opened(me, agenda);
         // 연 사람은 이 계획에 동의한 것으로 본다 (명세 C-01)
         voteRepository.save(Vote.create(agenda, agree, me, now));
-        judge(room, agenda, now);
-        // TODO change_log: AGENDA CREATE, PLAN_ROOM UPDATE (기록 방식이 정해지면 추가)
-        // TODO SSE (커밋 후): agenda.opened, room.status_changed
+        judge(room, me, agenda, now);
 
         return toDetail(agenda, me);
     }
