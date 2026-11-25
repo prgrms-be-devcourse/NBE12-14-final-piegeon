@@ -100,6 +100,18 @@ data "aws_iam_policy_document" "ec2_releases" {
     actions   = ["s3:GetObject"]
     resources = ["arn:aws:s3:::${var.state_bucket}/${local.releases_prefix}/*"]
   }
+  # deploy.sh는 releases/<커밋>/을 --recursive로 받아서 폴더 목록을 먼저 읽는다.
+  # 같은 버킷에 terraform 상태 파일이 있으므로 목록은 releases/ 아래만 볼 수 있게 한다
+  statement {
+    sid       = "ListReleases"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.state_bucket}"]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["${local.releases_prefix}/*"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "ec2_releases" {
