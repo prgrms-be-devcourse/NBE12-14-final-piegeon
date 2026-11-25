@@ -8,9 +8,26 @@ import type { UserResponse } from "./types";
 // 다른 사람의 변경이 왔을 때(SSE) 화면 데이터를 다시 불러오라는 신호
 const REFRESH_EVENT = "chakchak:refresh";
 
-export function requestRefresh() {
-  window.dispatchEvent(new Event(REFRESH_EVENT));
+interface RefreshDetail {
+  topics?: string[];
 }
+
+/**
+ * 화면 데이터를 다시 불러오라고 알린다.
+ *
+ * @param topics 없으면 live 데이터를 모두 다시 부른다. 있으면 topic이 없는 데이터(목록, 방 정보처럼 화면에 하나뿐인 것)와
+ *     topic이 이 안에 든 데이터만 다시 부른다. 빈 배열이면 topic이 없는 데이터만이다
+ */
+export function requestRefresh(topics?: string[]) {
+  window.dispatchEvent(new CustomEvent<RefreshDetail>(REFRESH_EVENT, { detail: { topics } }));
+}
+
+/** 카드처럼 화면에 여러 개 뜨는 데이터의 topic. 실시간 소식이 그 대상만 다시 부르게 한다 */
+export const topics = {
+  agenda: (agendaId: number) => `agenda:${agendaId}`,
+  agendaComments: (agendaId: number) => `agenda-comments:${agendaId}`,
+  placeComments: (placeId: number) => `place-comments:${placeId}`,
+};
 
 export interface ApiState<T> {
   data: T | undefined;
@@ -22,13 +39,13 @@ export interface ApiState<T> {
 
 /**
  * fetcher를 불러 결과를 들고 있는다. key가 바뀌면 다시 부르고, null이면 부르지 않는다.
- * live가 켜져 있으면 실시간 신호와 창으로 돌아왔을 때도 다시 부른다.
+ * live가 켜져 있으면 실시간 신호와 창으로 돌아왔을 때도 다시 부른다. topic을 주면 그 topic을 가리킨 신호에만 다시 부른다.
  * 로그인이 풀렸으면(401) 로그인 화면으로 보낸다.
  */
 export function useApi<T>(
   key: string | null,
   fetcher: () => Promise<T>,
-  options: { live?: boolean } = {},
+  options: { live?: boolean; topic?: string } = {},
 ): ApiState<T> {
   const [data, setData] = useState<T | undefined>(undefined);
   const [error, setError] = useState<ApiError | null>(null);
@@ -62,7 +79,12 @@ export function useApi<T>(
 
   useEffect(() => {
     if (!options.live || key === null) return;
-    const onRefresh = () => void reload();
+    const topic = options.topic;
+    const onRefresh = (e: Event) => {
+      const wanted = (e as CustomEvent<RefreshDetail>).detail?.topics;
+      if (wanted && topic && !wanted.includes(topic)) return;
+      void reload();
+    };
     const onVisible = () => {
       if (document.visibilityState === "visible") void reload();
     };
@@ -72,7 +94,7 @@ export function useApi<T>(
       window.removeEventListener(REFRESH_EVENT, onRefresh);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [options.live, key, reload]);
+  }, [options.live, options.topic, key, reload]);
 
   return { data, error, loading, reload, setData };
 }

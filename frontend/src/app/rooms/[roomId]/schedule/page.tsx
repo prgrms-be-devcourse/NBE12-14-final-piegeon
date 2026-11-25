@@ -7,7 +7,7 @@ import { useRoom } from "@/components/room";
 import { Loading, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { shortDate, weekday } from "@/lib/format";
-import { requestRefresh, useApi } from "@/lib/hooks";
+import { requestRefresh, topics, useApi } from "@/lib/hooks";
 import type { AgendaListItem, DayChangeResponse, DaySnapshot, PlaceCandidateItem, ScheduleBoardResponse, ScheduleItemResponse } from "@/lib/types";
 
 const ITEMS_PER_DAY = 10;
@@ -229,9 +229,13 @@ function FinalReview({
 /** 반대나 마감으로 끝난 지난 최종 확정 투표. 반대 이유는 그 안건의 의견으로 남아 있다 */
 function TurnedDown({ agenda }: { agenda: AgendaListItem }) {
   const { roomId } = useRoom();
-  const detail = useApi(`agenda:${roomId}:${agenda.agendaId}`, () => api.agenda(roomId, agenda.agendaId), { live: true });
+  const detail = useApi(`agenda:${roomId}:${agenda.agendaId}`, () => api.agenda(roomId, agenda.agendaId), {
+    live: true,
+    topic: topics.agenda(agenda.agendaId),
+  });
   const comments = useApi(`agenda-comments:${roomId}:${agenda.agendaId}`, () => api.agendaComments(roomId, agenda.agendaId), {
     live: true,
+    topic: topics.agendaComments(agenda.agendaId),
   });
   const rejected = agenda.status === "RESOLVED";
   const rejecters = detail.data?.options.find((o) => o.value === "REJECT")?.voters ?? [];

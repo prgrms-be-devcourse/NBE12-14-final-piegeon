@@ -5,7 +5,7 @@ import { useRoom } from "@/components/room";
 import { Avatar, Faces, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { dateTimeLabel, feedTime, remaining } from "@/lib/format";
-import { requestRefresh, useApi } from "@/lib/hooks";
+import { requestRefresh, topics, useApi } from "@/lib/hooks";
 import type { AgendaDetailResponse, AgendaListItem, CommentResponse } from "@/lib/types";
 
 const BUDGET_MAX = 99_999_999;
@@ -17,9 +17,10 @@ const BUDGET_MAX = 99_999_999;
  */
 export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latestRound?: number }) {
   const { roomId, room, myMember } = useRoom();
-  // 다른 멤버가 선지를 추가·삭제하면 표 수가 그대로라 실시간 신호(vote.updated)로 다시 불러온다
+  // 다른 멤버가 선지를 추가·삭제하면 표 수가 그대로라 실시간 신호(vote.updated)로 다시 불러온다. 이 안건의 신호에만 반응한다
   const detail = useApi(`agenda:${roomId}:${item.agendaId}`, () => api.agenda(roomId, item.agendaId), {
     live: true,
+    topic: topics.agenda(item.agendaId),
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,7 +40,8 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
     try {
       const next = await action();
       if (next) detail.setData(next);
-      requestRefresh();
+      // 이 카드는 응답으로 바꿨으니 목록 같은 화면 공통 데이터만 다시 부른다. 다른 카드는 건드리지 않는다
+      requestRefresh([]);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -230,6 +232,7 @@ function AgendaComments({ agendaId }: { agendaId: number }) {
   const { roomId, room } = useRoom();
   const comments = useApi(`agenda-comments:${roomId}:${agendaId}`, () => api.agendaComments(roomId, agendaId), {
     live: true,
+    topic: topics.agendaComments(agendaId),
   });
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
