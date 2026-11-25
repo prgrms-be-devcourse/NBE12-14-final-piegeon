@@ -10,12 +10,17 @@ import type { AgendaDetailResponse, AgendaListItem } from "@/lib/types";
 
 const BUDGET_MAX = 99_999_999;
 
-/** 안건 하나: 선택지별 표와 투표한 사람, 투표, 예산 선지 추가·삭제, 다음 회차, 댓글 */
-export function AgendaCard({ item }: { item: AgendaListItem }) {
+/**
+ * 안건 하나: 선택지별 표와 투표한 사람, 투표, 예산 선지 추가·삭제, 다음 회차, 댓글
+ *
+ * @param latestRound 같은 주제의 가장 최근 회차. 이 카드보다 크면 이미 다음 회차가 열린 지난 회차다
+ */
+export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latestRound?: number }) {
   const { roomId, room, myMember } = useRoom();
-  const detail = useApi(`agenda:${roomId}:${item.agendaId}:${item.votedCount}:${item.status}`, () =>
-    api.agenda(roomId, item.agendaId),
-  );
+  // 다른 멤버가 선지를 추가·삭제하면 표 수가 그대로라 실시간 신호(vote.updated)로 다시 불러온다
+  const detail = useApi(`agenda:${roomId}:${item.agendaId}`, () => api.agenda(roomId, item.agendaId), {
+    live: true,
+  });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -26,6 +31,7 @@ export function AgendaCard({ item }: { item: AgendaListItem }) {
   const isFinal = item.subject === "FINAL_PLAN";
   const roomAllowsVote = room.status === "SURVEYING" || room.status === "REVIEWING";
   const canVote = Boolean(a && a.status === "VOTING" && a.eligible && roomAllowsVote);
+  const reopened = latestRound !== undefined && latestRound > item.round;
 
   async function run(action: () => Promise<AgendaDetailResponse | void>) {
     setBusy(true);
@@ -190,12 +196,34 @@ export function AgendaCard({ item }: { item: AgendaListItem }) {
         </form>
       )}
 
-      {item.status === "EXPIRED" && !isFinal && room.status === "SURVEYING" && (
+      {item.status === "EXPIRED" && !isFinal && (room.status === "SURVEYING" || reopened) && (
         <div className="row">
-          <button type="button" className="btn btn-accent btn-sm" disabled={busy} onClick={() => run(() => api.nextRound(roomId, item.agendaId))}>
-            다음 회차 투표 열기
-          </button>
-          <span className="small muted">이번에는 의견이 갈려서 못 정했어요. 다시 골라 봐요</span>
+          <span className={reopened ? "tip" : undefined} data-tip={reopened ? `이미 ${latestRound}회차 투표가 열렸어요` : undefined}>
+            {reopened && (
+              <span id={`reopened-${item.agendaId}`} className="sr-only">
+                이미 {latestRound}회차 투표가 열렸어요
+              </span>
+            )}
+            <button
+              type="button"
+              className="btn btn-accent btn-sm"
+              disabled={busy || reopened}
+              aria-describedby={reopened ? `reopened-${item.agendaId}` : undefined}
+              onClick={() =>
+                // 응답은 새 회차 안건이라 이 카드에 넣지 않는다. 목록을 다시 불러와 새 카드가 생긴다
+                run(async () => {
+                  await api.nextRound(roomId, item.agendaId);
+                })
+              }
+            >
+              다음 회차 투표 열기
+            </button>
+          </span>
+          {reopened ? (
+            <span className="small muted">이 회차는 의견이 갈려서 못 정했어요</span>
+          ) : (
+            <span className="small muted">이번에는 의견이 갈려서 못 정했어요. 다시 골라 봐요</span>
+          )}
         </div>
       )}
 
