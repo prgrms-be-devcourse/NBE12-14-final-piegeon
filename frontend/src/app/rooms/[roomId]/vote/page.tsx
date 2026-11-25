@@ -13,6 +13,9 @@ export default function VotePage() {
   const list = agendas.data?.agendas ?? [];
   const open = list.filter((a) => a.status !== "RESOLVED");
   const resolved = list.filter((a) => a.status === "RESOLVED" && a.subject !== "FINAL_PLAN");
+  // 주제별 가장 최근 회차. 이보다 앞선 미결 회차는 다음 회차 버튼을 막는다
+  const latestRound = new Map<string, number>();
+  for (const a of list) latestRound.set(a.subject, Math.max(latestRound.get(a.subject) ?? 0, a.round));
 
   return (
     <>
@@ -42,7 +45,7 @@ export default function VotePage() {
       <div className="with-panel" style={{ alignItems: "stretch" }}>
         <div className="stack grow" style={{ gap: 18 }}>
           {open.map((a) => (
-            <AgendaCard key={a.agendaId} item={a} />
+            <AgendaCard key={a.agendaId} item={a} latestRound={latestRound.get(a.subject)} />
           ))}
           {agendas.data && open.length === 0 && list.length > 0 && (
             <div className="card empty">

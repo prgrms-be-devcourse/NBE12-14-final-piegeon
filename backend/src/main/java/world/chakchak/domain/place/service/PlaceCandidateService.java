@@ -417,7 +417,7 @@ public class PlaceCandidateService {
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND);
         }
-        // TODO SSE (커밋 후): comment.created
+        // comment.created SSE는 CommentService가 보낸다
         return response;
     }
 

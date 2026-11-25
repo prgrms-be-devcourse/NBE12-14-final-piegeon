@@ -104,6 +104,8 @@ class AgendaNextRoundIntegrationTest {
                             + membersOfRoom
                             + ")",
                     roomId);
+            // 다음 회차를 연 멤버가 활동 기록의 행위자로 남으므로 멤버보다 먼저 지운다
+            jdbcTemplate.update("delete from change_log where plan_room_id = ?", roomId);
             jdbcTemplate.update("delete from plan_room_member where plan_room_id = ?", roomId);
             jdbcTemplate.update("delete from plan_room where id = ?", roomId);
         }

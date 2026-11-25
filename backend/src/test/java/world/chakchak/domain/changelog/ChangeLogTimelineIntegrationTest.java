@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -227,15 +228,33 @@ class ChangeLogTimelineIntegrationTest {
                                             .orElseThrow()
                                             .getConfirmedAt())
                             .isNotNull();
-                    assertThat(
-                                    jdbcTemplate.queryForObject(
-                                            "select event_kind from change_log where plan_room_id = ?"
-                                                    + " order by id desc limit 1",
-                                            String.class,
-                                            room.getId()))
-                            .isEqualTo("MEMBER_LEFT");
-                    assertThat(reader.readEvent()).contains("event:activity");
+                    // 원인인 나감 기록이 먼저 남고, 그 퇴장으로 결정 2건·미결 1건이 된 안건의 기록이 뒤따른다
+                    List<String> kinds =
+                            jdbcTemplate.queryForList(
+                                    "select event_kind from change_log where plan_room_id = ?"
+                                            + " order by id",
+                                    String.class,
+                                    room.getId());
+                    List<String> byLeave = kinds.subList(kinds.size() - 4, kinds.size());
+                    assertThat(byLeave.getFirst()).isEqualTo("MEMBER_LEFT");
+                    assertThat(byLeave.subList(1, 4)).allMatch(kind -> kind.startsWith("AGENDA_"));
+
+                    // 나감 기록(MEMBER_LEFT)의 상세 필드 검증
+                    Map<String, Object> memberLeftLog =
+                            jdbcTemplate.queryForMap(
+                                    "select entity_type, action_status, summary from change_log"
+                                            + " where plan_room_id = ? and event_kind = 'MEMBER_LEFT'"
+                                            + " order by id desc limit 1",
+                                    room.getId());
+                    assertThat(memberLeftLog.get("entity_type")).isEqualTo("MEMBER");
+                    assertThat(memberLeftLog.get("action_status")).isEqualTo("DELETE");
+                    assertThat(memberLeftLog.get("summary")).isEqualTo("퇴장 멤버님이 나갔어요");
+
+                    assertThat(reader.readEvent()).contains("event:activity").contains("나갔어요");
                     assertThat(reader.readEvent()).contains("event:member.left");
+                    for (int i = 0; i < 3; i++) {
+                        assertThat(reader.readEvent()).contains("event:activity").contains("1회차");
+                    }
                 }
 
                 Room soloRoom = saveRoom(RoomStatus.REVIEWING);

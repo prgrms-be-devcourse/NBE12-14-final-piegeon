@@ -19,3 +19,6 @@ app:
   # 실제로 검색해 보려면 GOOGLE_PLACES_API_KEY 환경변수에 자기 키를 넣는다. 실제 키를 이 파일에 적지 않는다.
   google-places:
     api-key: ${GOOGLE_PLACES_API_KEY:local-dummy-key}
+  # 로컬에서 가입·로그인을 반복해서 시험하므로 호출 제한을 끈다
+  rate-limit:
+    enabled: false

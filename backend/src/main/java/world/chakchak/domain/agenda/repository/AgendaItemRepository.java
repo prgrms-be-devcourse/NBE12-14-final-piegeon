@@ -36,6 +36,30 @@ public interface AgendaItemRepository extends JpaRepository<AgendaItem, Long> {
     List<AgendaItem> findAllByRoomIdAndStatus(Long roomId, AgendaStatus status);
 
     /**
+     * 이 멤버가 지금 투표할 수 있는데 아직 표를 내지 않은 안건 (H-02 비접속 요약의 해야 할 일). 마감 임박 순이고, 같으면 id 순이다.
+     *
+     * <p>조건은 투표(V-03)가 받는 조건과 같다. status = VOTING이고 마감 전이어야 하고({@link AgendaItem#isOpenAt}), 안건이
+     * 열리기 전에 합류한 멤버여야 한다({@link AgendaItem#isEligible}).
+     */
+    @Query(
+            """
+            select a from AgendaItem a
+            where a.room.id = :roomId
+              and a.status = :status
+              and a.deadlineAt > :now
+              and a.createdAt >= (select m.joinedAt from RoomMember m where m.id = :memberId)
+              and not exists (
+                  select v.id from Vote v
+                  where v.agendaItem.id = a.id and v.member.id = :memberId)
+            order by a.deadlineAt asc, a.id asc
+            """)
+    List<AgendaItem> findUnvotedOpenAgendas(
+            @Param("roomId") Long roomId,
+            @Param("memberId") Long memberId,
+            @Param("status") AgendaStatus status,
+            @Param("now") LocalDateTime now);
+
+    /**
      * 마감 시각이 지난 안건이 있는 방 (13-2 마감 스케줄러).
      *
      * <p>출발일이 내일보다 뒤인 방만 찾는다. 출발 전날 00:00(D-1)이 된 방은 최종 집계가 처리한다.
