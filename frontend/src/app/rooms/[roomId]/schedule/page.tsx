@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useState } from "react";
 import { AgendaCard } from "@/components/AgendaCard";
 import { useRoom } from "@/components/room";
-import { Loading, Notice } from "@/components/ui";
+import { Avatar, Loading, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import { shortDate, weekday } from "@/lib/format";
+import { feedTime, shortDate, weekday } from "@/lib/format";
 import { requestRefresh, useApi } from "@/lib/hooks";
-import type { DayChangeResponse, DaySnapshot, PlaceCandidateItem, ScheduleBoardResponse, ScheduleItemResponse } from "@/lib/types";
+import type { AgendaListItem, DayChangeResponse, DaySnapshot, PlaceCandidateItem, ScheduleBoardResponse, ScheduleItemResponse } from "@/lib/types";
 
 const ITEMS_PER_DAY = 10;
 
@@ -26,7 +26,11 @@ export default function SchedulePage() {
   const days = board.data?.days ?? [];
   const day = days.find((d) => d.dayIndex === dayIndex) ?? days[0];
   const pool = (places.data?.candidates ?? []).filter((c) => c.stage === "CONFIRMED");
-  const finalAgenda = (agendas.data?.agendas ?? []).find((a) => a.subject === "FINAL_PLAN" && a.status === "VOTING");
+  const finals = (agendas.data?.agendas ?? []).filter((a) => a.subject === "FINAL_PLAN");
+  const finalAgenda = finals.find((a) => a.status === "VOTING");
+  // 가장 최근 최종 확정 투표가 반대나 마감으로 끝났으면, 일정을 고칠 때 그 이유를 볼 수 있게 남긴다
+  const lastFinal = finals.reduce<AgendaListItem | undefined>((m, a) => (!m || a.agendaId > m.agendaId ? a : m), undefined);
+  const turnedDown = lastFinal && lastFinal.status !== "VOTING" && lastFinal.resolvedOption?.value !== "AGREE" ? lastFinal : undefined;
 
   /** 블록을 바꾸는 요청. 성공하면 바뀐 날만 갈아 끼우고, 버전이 낡았으면 보드를 새로 불러온다 */
   async function change(action: () => Promise<DayChangeResponse | { day: DaySnapshot }>) {
@@ -64,6 +68,8 @@ export default function SchedulePage() {
           <p>하루 10칸까지 시간, 확정된 장소, 메모를 넣어요. 날짜별로 따로 확정하지 않고, 모두 동의해서 한 번에 확정해요</p>
         </div>
       </div>
+
+      {editable && turnedDown && <TurnedDown agenda={turnedDown} />}
 
       <FinalReview
         status={status}
@@ -216,6 +222,54 @@ function FinalReview({
         최종 확정 투표 열기
       </button>
       {error && <Notice kind="err">{error}</Notice>}
+    </section>
+  );
+}
+
+/** 반대나 마감으로 끝난 지난 최종 확정 투표. 반대 이유는 그 안건의 의견으로 남아 있다 */
+function TurnedDown({ agenda }: { agenda: AgendaListItem }) {
+  const { roomId } = useRoom();
+  const detail = useApi(`agenda:${roomId}:${agenda.agendaId}`, () => api.agenda(roomId, agenda.agendaId), { live: true });
+  const comments = useApi(`agenda-comments:${roomId}:${agenda.agendaId}`, () => api.agendaComments(roomId, agenda.agendaId), {
+    live: true,
+  });
+  const rejected = agenda.status === "RESOLVED";
+  const rejecters = detail.data?.options.find((o) => o.value === "REJECT")?.voters ?? [];
+  const list = comments.data?.comments ?? [];
+
+  return (
+    <section className="card" aria-labelledby="turned-down-h">
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h2 className="h3" id="turned-down-h">
+          {rejected ? "지난 최종 확정 투표에서 반대가 나왔어요" : "지난 최종 확정 투표가 모두 동의하지 못한 채 마감됐어요"}
+        </h2>
+        {rejected ? (
+          rejecters.length > 0 && <span className="tag">반대: {rejecters.map((v) => v.name).join(", ")}</span>
+        ) : (
+          <span className="tag n">마감됐어요</span>
+        )}
+      </div>
+      <p className="small muted" style={{ margin: 0 }}>
+        남긴 의견을 보고 일정을 고친 뒤, 아래에서 최종 확정 투표를 다시 열어 주세요
+      </p>
+      {comments.loading && <p className="small muted">불러오는 중이에요</p>}
+      {comments.error && <Notice kind="err">{comments.error.message}</Notice>}
+      {comments.data && list.length === 0 && <p className="small muted">남긴 의견이 없어요</p>}
+      {list.length > 0 && (
+        <div className="stack" style={{ paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+          {list.map((c) => (
+            <div key={c.commentId} className="say">
+              <Avatar name={c.name} size="s" />
+              <p>
+                <b>{c.name}</b>
+                <small>{feedTime(c.createdAt)}</small>
+                <br />
+                {c.body}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
