@@ -34,3 +34,4 @@ app:
   # 13-2 안건 마감 스케줄러. 매분 0초에 돈다.
   scheduler:
     agenda-deadline-cron: "0 * * * * *"
+    room-cleanup-cron: "0 0 3 * * *"
