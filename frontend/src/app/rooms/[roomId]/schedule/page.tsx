@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { AgendaCard } from "@/components/AgendaCard";
+import { AgendaCard, CommentList } from "@/components/AgendaCard";
 import { useRoom } from "@/components/room";
-import { Avatar, Loading, Notice } from "@/components/ui";
+import { Loading, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import { feedTime, shortDate, weekday } from "@/lib/format";
+import { shortDate, weekday } from "@/lib/format";
 import { requestRefresh, useApi } from "@/lib/hooks";
 import type { AgendaListItem, DayChangeResponse, DaySnapshot, PlaceCandidateItem, ScheduleBoardResponse, ScheduleItemResponse } from "@/lib/types";
 
@@ -257,17 +257,7 @@ function TurnedDown({ agenda }: { agenda: AgendaListItem }) {
       {comments.data && list.length === 0 && <p className="small muted">남긴 의견이 없어요</p>}
       {list.length > 0 && (
         <div className="stack" style={{ paddingTop: 14, borderTop: "1px solid var(--line)" }}>
-          {list.map((c) => (
-            <div key={c.commentId} className="say">
-              <Avatar name={c.name} size="s" />
-              <p>
-                <b>{c.name}</b>
-                <small>{feedTime(c.createdAt)}</small>
-                <br />
-                {c.body}
-              </p>
-            </div>
-          ))}
+          <CommentList comments={list} />
         </div>
       )}
     </section>

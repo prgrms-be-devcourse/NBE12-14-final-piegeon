@@ -6,7 +6,7 @@ import { Avatar, Faces, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { dateTimeLabel, feedTime, remaining } from "@/lib/format";
 import { requestRefresh, useApi } from "@/lib/hooks";
-import type { AgendaDetailResponse, AgendaListItem } from "@/lib/types";
+import type { AgendaDetailResponse, AgendaListItem, CommentResponse } from "@/lib/types";
 
 const BUDGET_MAX = 99_999_999;
 
@@ -198,32 +198,25 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
 
       {item.status === "EXPIRED" && !isFinal && (room.status === "SURVEYING" || reopened) && (
         <div className="row">
-          <span className={reopened ? "tip" : undefined} data-tip={reopened ? `이미 ${latestRound}회차 투표가 열렸어요` : undefined}>
-            {reopened && (
-              <span id={`reopened-${item.agendaId}`} className="sr-only">
-                이미 {latestRound}회차 투표가 열렸어요
-              </span>
-            )}
-            <button
-              type="button"
-              className="btn btn-accent btn-sm"
-              disabled={busy || reopened}
-              aria-describedby={reopened ? `reopened-${item.agendaId}` : undefined}
-              onClick={() =>
-                // 응답은 새 회차 안건이라 이 카드에 넣지 않는다. 목록을 다시 불러와 새 카드가 생긴다
-                run(async () => {
-                  await api.nextRound(roomId, item.agendaId);
-                })
-              }
-            >
-              다음 회차 투표 열기
-            </button>
+          <button
+            type="button"
+            className="btn btn-accent btn-sm"
+            disabled={busy || reopened}
+            aria-describedby={`round-note-${item.agendaId}`}
+            onClick={() =>
+              // 응답은 새 회차 안건이라 이 카드에 넣지 않는다. 목록을 다시 불러와 새 카드가 생긴다
+              run(async () => {
+                await api.nextRound(roomId, item.agendaId);
+              })
+            }
+          >
+            다음 회차 투표 열기
+          </button>
+          <span id={`round-note-${item.agendaId}`} className="small muted">
+            {reopened
+              ? `이 회차는 의견이 갈려서 못 정했어요. 이미 ${latestRound}회차 투표가 열렸어요`
+              : "이번에는 의견이 갈려서 못 정했어요. 다시 골라 봐요"}
           </span>
-          {reopened ? (
-            <span className="small muted">이 회차는 의견이 갈려서 못 정했어요</span>
-          ) : (
-            <span className="small muted">이번에는 의견이 갈려서 못 정했어요. 다시 골라 봐요</span>
-          )}
         </div>
       )}
 
@@ -245,17 +238,7 @@ function AgendaComments({ agendaId }: { agendaId: number }) {
 
   return (
     <div className="stack" style={{ paddingTop: 14, borderTop: "1px solid var(--line)" }}>
-      {list.map((c) => (
-        <div key={c.commentId} className="say">
-          <Avatar name={c.name} size="s" />
-          <p>
-            <b>{c.name}</b>
-            <small>{feedTime(c.createdAt)}</small>
-            <br />
-            {c.body}
-          </p>
-        </div>
-      ))}
+      <CommentList comments={list} />
       {canWrite && (
         <form
           className="row"
@@ -284,5 +267,24 @@ function AgendaComments({ agendaId }: { agendaId: number }) {
       )}
       {error && <Notice kind="err">{error}</Notice>}
     </div>
+  );
+}
+
+/** 안건 의견 목록. 같이 정하기 카드와 일정 화면의 지난 최종 확정 카드가 같이 쓴다 */
+export function CommentList({ comments }: { comments: CommentResponse[] }) {
+  return (
+    <>
+      {comments.map((c) => (
+        <div key={c.commentId} className="say">
+          <Avatar name={c.name} size="s" />
+          <p>
+            <b>{c.name}</b>
+            <small>{feedTime(c.createdAt)}</small>
+            <br />
+            {c.body}
+          </p>
+        </div>
+      ))}
+    </>
   );
 }
