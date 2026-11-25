@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.survey.dto.SubmitSurveyRequest;
 import world.chakchak.domain.survey.dto.SubmitSurveyResponse;
 import world.chakchak.domain.survey.dto.SurveyMeResponse;
+import world.chakchak.domain.survey.dto.SurveyReportResponse;
+import world.chakchak.domain.survey.service.SurveyReportService;
 import world.chakchak.domain.survey.service.SurveyResponseService;
 import world.chakchak.domain.survey.service.SurveySubmitService;
 import world.chakchak.global.response.ApiResponse;
@@ -29,6 +31,7 @@ public class SurveyController {
 
     private final SurveySubmitService surveySubmitService;
     private final SurveyResponseService surveyResponseService;
+    private final SurveyReportService surveyReportService;
 
     @Operation(
             summary = "내 설문 응답 조회",
@@ -39,6 +42,13 @@ public class SurveyController {
             @AuthenticationPrincipal LoginUser loginUser, @PathVariable Long roomId) {
         SurveyMeResponse result = surveyResponseService.getMine(roomId, loginUser.userId());
         return ResponseEntity.ok(ApiResponse.success("SURVEY_FETCHED", result));
+    }
+
+    @GetMapping("/report")
+    public ResponseEntity<ApiResponse<SurveyReportResponse>> getReport(
+            @AuthenticationPrincipal LoginUser loginUser, @PathVariable Long roomId) {
+        SurveyReportResponse response = surveyReportService.getReport(roomId, loginUser.userId());
+        return ResponseEntity.ok(ApiResponse.success("SURVEY_REPORT_FETCHED", response));
     }
 
     @Operation(
