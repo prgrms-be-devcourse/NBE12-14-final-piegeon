@@ -52,7 +52,8 @@ export function useRoomEvents(roomId: string, enabled: boolean) {
     source.addEventListener("activity", (e) => {
       // 안건의 결정·미결 마감은 그 안건 카드만. 나머지(설문 마감, 방 상태, 장소 등)는 화면 공통 데이터만 바뀐다
       const item = parse<ChangeLogItemResponse>(e);
-      if (!item) return refreshAll();
+      // 멤버 퇴장은 재연결 때 member.left 없이 이 기록으로만 오므로, 나간 멤버의 표가 빠진 모든 안건을 다시 부른다
+      if (!item || item.entityType === "MEMBER") return refreshAll();
       requestRefresh(item.entityType === "AGENDA" ? [topics.agenda(item.entityId)] : []);
     });
     // 나간 멤버의 표가 모든 안건에서 빠지므로 전부 다시 부른다

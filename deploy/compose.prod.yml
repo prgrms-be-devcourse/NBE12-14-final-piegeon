@@ -28,15 +28,66 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
       MANAGEMENT_PORT: "9090"
-    # actuator는 서버 안(127.0.0.1)에서만 본다. 헬스 확인과 나중의 Prometheus용
+      # 수집기(alloy)가 읽어 갈 로그 파일. 콘솔 로그(docker logs)는 그대로 나온다.
+      # 하루 단위와 10MB 단위로 나눠 압축하고, 3일치·합계 50MB까지만 남긴다
+      LOGGING_FILE_NAME: /logs/backend.log
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: "3"
+      LOGGING_LOGBACK_ROLLINGPOLICY_TOTAL_SIZE_CAP: 50MB
+    # actuator는 서버 안(127.0.0.1)에서만 본다. deploy.sh의 헬스 확인용. 수집기는 compose 네트워크로 읽는다
     ports:
       - "127.0.0.1:9090:9090"
+    # deploy.sh가 이 폴더를 백엔드 실행 사용자(65534) 소유로 만들어 둔다
+    volumes:
+      - ./logs:/logs
     logging:
       driver: json-file
       options:
         max-size: "20m"
         max-file: "5"
 
+  # 지표와 로그를 모아 Grafana Cloud로 보낸다. 저장, 화면, 알림은 그쪽에 있다 (설정: config.alloy).
+  # monitoring 프로필일 때만 뜬다. deploy.sh는 SSM에 GRAFANA_* 값이 모두 있을 때만 이 프로필을 켠다.
+  alloy:
+    image: grafana/alloy:v1.22.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --disable-reporting
+    environment:
+      GRAFANA_PROM_URL: ${GRAFANA_PROM_URL:-}
+      GRAFANA_PROM_USER: ${GRAFANA_PROM_USER:-}
+      GRAFANA_LOKI_URL: ${GRAFANA_LOKI_URL:-}
+      GRAFANA_LOKI_USER: ${GRAFANA_LOKI_USER:-}
+      GRAFANA_TOKEN: ${GRAFANA_TOKEN:-}
+      MONITORING_ENV: ${MONITORING_ENV:-prod}
+      # config.alloy 내용이 바뀌면 값이 달라져 컨테이너가 새로 만들어진다 (deploy.sh가 넣는다)
+      ALLOY_CONFIG_SHA: ${ALLOY_CONFIG_SHA:-}
+      # Go 런타임이 상한(mem_limit)에 닿기 전에 메모리를 정리하게 한다
+      GOMEMLIMIT: 200MiB
+    # 메모리 2GB 서버라 수집기가 백엔드를 밀어내지 못하게 상한을 둔다. 넘으면 수집기만 재시작된다
+    mem_limit: 256m
+    # root가 아닌 이미지의 alloy 사용자(473)로 돌린다. 데이터 폴더가 이 사용자 소유로 들어 있다.
+    # 포트를 밖으로 열지 않는다. Docker 소켓과 호스트 폴더도 마운트하지 않는다 (이유는 config.alloy)
+    user: "473:473"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - ./logs:/logs:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   caddy-data:
   caddy-config:
+  alloy-data:
