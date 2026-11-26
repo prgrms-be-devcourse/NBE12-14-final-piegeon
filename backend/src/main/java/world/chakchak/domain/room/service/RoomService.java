@@ -59,8 +59,7 @@ public class RoomService {
                                 () -> new BusinessException(RoomErrorCode.INVITE_CODE_NOT_FOUND));
 
         NotJoinableReason notJoinableReason = resolveNotJoinableReason(room.getId(), userId);
-        int memberCount =
-                Math.toIntExact(roomMemberRepository.countByRoom_IdAndLeftAtIsNull(room.getId()));
+        long memberCount = roomMemberRepository.countByRoom_IdAndLeftAtIsNull(room.getId());
         return InvitePreviewResponse.from(room, memberCount, notJoinableReason);
     }
 
