@@ -95,7 +95,12 @@ class SurveyReportApiIntegrationTest {
                         "{\"budget\":1000000,\"stayType\":\"HOTEL\",\"pace\":\"RELAXED\","
                                 + "\"actPrefs\":[\"FOOD\"],\"avoidNote\":\"없음\"}");
                 LoggedInMember late = joinAs(room, "늦은멤버");
-                submit(room, late, "{\"actPrefs\":[\"CULTURE\"],\"avoidNote\":\"높은 곳은 싫어요\"}");
+                // 조율 중이라 늦게 내도 세 항목을 함께 낸다. 마감 뒤 답이라 아래 분포와 만장일치에는 들어가지 않는다
+                submit(
+                        room,
+                        late,
+                        "{\"budget\":2000000,\"stayType\":\"SOCIAL\",\"pace\":\"HURRY\","
+                                + "\"actPrefs\":[\"CULTURE\"],\"avoidNote\":\"높은 곳은 싫어요\"}");
 
                 HttpResponse<String> response = get(reportPath(room.getId()), minsu.cookie());
 

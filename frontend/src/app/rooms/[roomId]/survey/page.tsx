@@ -100,8 +100,10 @@ function MySurvey() {
 
 function SurveyForm({ options, onDone }: { options: SurveyOptionsResponse; onDone: () => Promise<void> }) {
   const { roomId, room } = useRoom();
-  // 설문이 열려 있을 때만 예산, 숙소, 속도를 묻는다. 늦게 들어온 사람은 이미 정해진 것이라 빼고 낸다
-  const full = room.status === "SURVEYING" && !room.surveyClosedAt;
+  // 조율 중(SURVEYING)이면 설문 마감 뒤에도 예산, 숙소, 속도를 묻는다. 이미 투표 중인 항목은 다음 회차부터 선지에 들어간다.
+  // 계획 단계부터는 이미 정해진 것이라 빼고 낸다
+  const full = room.status === "SURVEYING";
+  const late = full && Boolean(room.surveyClosedAt);
   const { limits } = options;
   const [budget, setBudget] = useState("");
   const [stayType, setStayType] = useState<StayType | null>(null);
@@ -149,6 +151,7 @@ function SurveyForm({ options, onDone }: { options: SurveyOptionsResponse; onDon
   return (
     <form className="card" aria-label="내 답변" style={{ gap: 30 }} onSubmit={onSubmit}>
       {closedNow && <Notice kind="ok">모두 냈어요. 갈린 것은 같이 정하기에 올라왔어요.</Notice>}
+      {late && <Notice>설문은 이미 마감됐어요. 예산, 숙소, 하루 속도는 지금 투표에는 들어가지 않고, 다시 투표할 때부터 선지에 들어가요.</Notice>}
       {!full && <Notice>예산, 숙소, 하루 속도는 이미 정하고 있어서 하고 싶은 것과 피하고 싶은 것만 받아요.</Notice>}
       {full && (
         <>
