@@ -17,4 +17,8 @@ public record SignupRequest(
         @NotBlank(message = "비밀번호를 입력해 주세요.")
                 @Size(min = 8, max = 64, message = "비밀번호는 8자 이상 64자 이하로 입력해 주세요.")
                 @Pattern(regexp = "^[\\x21-\\x7E]*$", message = "비밀번호는 영문, 숫자, 특수문자만 쓸 수 있습니다.")
+                @Pattern(
+                        regexp =
+                                "^(?=.*[A-Za-z])(?=.*[0-9])(?=.*[\\x21-\\x2F\\x3A-\\x40\\x5B-\\x60\\x7B-\\x7E]).*$",
+                        message = "비밀번호는 영문, 숫자, 특수문자를 모두 포함해야 합니다.")
                 String password) {}

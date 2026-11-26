@@ -11,6 +11,8 @@ import { safeNext } from "@/lib/hooks";
 // 백엔드 SignupRequest와 같은 규칙. 서버까지 가기 전에 칸마다 먼저 알려 준다.
 const EMAIL_RULE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_CHARS = /^[\x21-\x7E]*$/;
+// 영문, 숫자, 기호를 각각 하나 이상 넣어야 한다
+const PASSWORD_MIX = /^(?=.*[A-Za-z])(?=.*[0-9])(?=.*[\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]).*$/;
 
 type Field = "name" | "email" | "password";
 type Errors = Partial<Record<Field, string>>;
@@ -27,6 +29,7 @@ function validate(name: string, email: string, password: string): Errors {
   if (!password) errors.password = "비밀번호를 입력해 주세요.";
   else if (!PASSWORD_CHARS.test(password)) errors.password = "비밀번호는 공백 없이 영문, 숫자, 기호만 쓸 수 있어요.";
   else if (password.length < 8 || password.length > 64) errors.password = "비밀번호는 8자 이상 64자 이하로 입력해 주세요.";
+  else if (!PASSWORD_MIX.test(password)) errors.password = "비밀번호에 영문, 숫자, 기호를 모두 넣어 주세요.";
   return errors;
 }
 
@@ -153,7 +156,7 @@ function SignupForm() {
             className="in"
             type="password"
             autoComplete="new-password"
-            placeholder="8자 이상"
+            placeholder="영문·숫자·기호 8자 이상"
             maxLength={64}
             value={password}
             onChange={(e) => {
@@ -167,7 +170,7 @@ function SignupForm() {
             style={shown("password") ? INVALID_INPUT : undefined}
             required
           />
-          <FieldMessage id="password-msg" error={shown("password")} help="공백 없이 영문, 숫자, 기호로 8자 이상" />
+          <FieldMessage id="password-msg" error={shown("password")} help="영문, 숫자, 기호를 모두 넣어 8자 이상" />
         </div>
         {error && <Notice kind="err">{error}</Notice>}
         <button type="submit" className="btn btn-accent btn-lg" disabled={busy}>
