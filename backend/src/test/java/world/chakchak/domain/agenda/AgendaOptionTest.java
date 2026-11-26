@@ -183,6 +183,35 @@ class AgendaOptionTest {
             }
 
             @Test
+            @DisplayName("자유 안건 선지는 적은 순서대로 두고 순서 번호를 값으로, 적은 글을 라벨로 쓴다")
+            void buildsCustomOptionsInGivenOrder() {
+                AgendaItem custom = agenda(AgendaSubject.CUSTOM);
+
+                List<AgendaOption> options =
+                        AgendaOption.customOptions(custom, List.of("빌린다", "안 빌린다", "반반"));
+
+                assertThat(values(options)).containsExactly("0", "1", "2");
+                assertThat(options)
+                        .extracting(AgendaOption::getLabel)
+                        .containsExactly("빌린다", "안 빌린다", "반반");
+                assertThat(indexes(options)).containsExactly(0, 1, 2);
+                assertThat(options).allSatisfy(o -> assertThat(o.getProposedBy()).isNull());
+            }
+
+            @Test
+            @DisplayName("자유 안건 선지를 다음 회차로 옮기면 값과 라벨이 그대로다")
+            void copiesCustomOptionToNextRound() {
+                AgendaOption option =
+                        AgendaOption.customOptions(agenda(AgendaSubject.CUSTOM), List.of("빌린다"))
+                                .getFirst();
+
+                AgendaOption copied = option.copyTo(agenda(AgendaSubject.CUSTOM), 0);
+
+                assertThat(copied.getValue()).isEqualTo("0");
+                assertThat(copied.getLabel()).isEqualTo("빌린다");
+            }
+
+            @Test
             @DisplayName("답이 없으면 직전 회차 추가 선지가 있어도 빈 목록이다")
             void returnsEmptyWithoutAnswers() {
                 AgendaOption proposed =
@@ -280,6 +309,15 @@ class AgendaOptionTest {
 
         @Nested
         class Failure {
+
+            @Test
+            @DisplayName("자유 안건이 아니면 자유 안건 선지를 만들 수 없다")
+            void rejectsCustomOptionsOnOtherSubject() {
+                assertThatThrownBy(() ->
+                                AgendaOption.customOptions(
+                                        agenda(AgendaSubject.BUDGET), List.of("빌린다", "안 빌린다")))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
 
             @Test
             @DisplayName("예산 안건이 아니면 예산 선지를 추가할 수 없다")

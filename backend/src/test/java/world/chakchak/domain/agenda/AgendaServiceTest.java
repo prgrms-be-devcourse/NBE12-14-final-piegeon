@@ -1067,9 +1067,9 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("방이 SURVEYING·REVIEWING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
+            @DisplayName("방이 SURVEYING·PLANNING·REVIEWING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
             void rejectsInvalidRoomStatus() {
-                ReflectionTestUtils.setField(room, "status", RoomStatus.PLANNING);
+                ReflectionTestUtils.setField(room, "status", RoomStatus.FINALIZED);
                 givenLockedRoomAndMember(me);
 
                 assertVoteError(
@@ -2255,8 +2255,8 @@ class AgendaServiceTest {
 
         private void givenLatestRound(AgendaItem latest) {
             given(
-                            agendaItemRepository.findTopByRoomIdAndSubjectOrderByRoundDesc(
-                                    ROOM_ID, latest.getSubject()))
+                            agendaItemRepository.findTopByRoomIdAndSubjectAndTitleOrderByRoundDesc(
+                                    ROOM_ID, latest.getSubject(), latest.getTitle()))
                     .willReturn(Optional.of(latest));
         }
 
@@ -2392,9 +2392,9 @@ class AgendaServiceTest {
         class Failure {
 
             @Test
-            @DisplayName("방이 SURVEYING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
+            @DisplayName("방이 SURVEYING·PLANNING이 아니면 INVALID_STATUS를 던지고 안건을 조회하지 않는다")
             void rejectsInvalidRoomStatus() {
-                ReflectionTestUtils.setField(room, "status", RoomStatus.PLANNING);
+                ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
                 givenLockedRoomAndMember(me);
 
                 assertError(

@@ -71,6 +71,7 @@ class AgendaItemTest {
             case STAY -> AgendaOption.stay(agenda, StayType.HOTEL, 0);
             case PACE -> AgendaOption.pace(agenda, Pace.RELAXED, 0);
             case FINAL_PLAN -> AgendaOption.finalPlan(agenda, FinalPlanChoice.AGREE);
+            case CUSTOM -> AgendaOption.customOptions(agenda, List.of("빌린다", "안 빌린다")).getFirst();
         };
     }
 
@@ -176,6 +177,28 @@ class AgendaItemTest {
             }
 
             @Test
+            @DisplayName("자유 안건은 멤버가 정한 제목으로 1회차가 열리고 마감은 지금부터 7일 뒤다")
+            void opensCustomAgenda() {
+                AgendaItem agenda = AgendaItem.openCustom(room(), "렌터카 빌릴까?", 4, NOW);
+
+                assertThat(agenda.getSubject()).isEqualTo(AgendaSubject.CUSTOM);
+                assertThat(agenda.getRound()).isEqualTo(1);
+                assertThat(agenda.getTitle()).isEqualTo("렌터카 빌릴까?");
+                assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.VOTING);
+                assertThat(agenda.getTotalVoter()).isEqualTo(4);
+                assertThat(agenda.getDeadlineAt()).isEqualTo(NOW.plusDays(7));
+            }
+
+            @Test
+            @DisplayName("출발까지 7일이 안 남았으면 자유 안건 마감을 출발 전날 00시로 줄인다")
+            void capsCustomAgendaDeadline() {
+                AgendaItem agenda =
+                        AgendaItem.openCustom(room(), "렌터카 빌릴까?", 4, D_MINUS_1.minusDays(3));
+
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
+            }
+
+            @Test
             @DisplayName("출발까지 7일이 안 남았으면 최종 확정 마감을 출발 전날 00시로 줄인다")
             void capsFinalReviewDeadline() {
                 AgendaItem agenda =
@@ -187,6 +210,14 @@ class AgendaItemTest {
 
         @Nested
         class Failure {
+
+            @Test
+            @DisplayName("출발 전날 00시가 되면 자유 안건을 열 수 없다")
+            void rejectsCustomAgendaAtDayBeforeDeparture() {
+                assertErrorCode(
+                        () -> AgendaItem.openCustom(room(), "렌터카 빌릴까?", 4, D_MINUS_1),
+                        AgendaErrorCode.AGENDA_DEADLINE_PASSED);
+            }
 
             @Test
             @DisplayName("출발 전날 00시가 되면 최종 확정 투표를 열 수 없다")
@@ -578,6 +609,15 @@ class AgendaItemTest {
 
                 assertThat(agendaUntil(deadline).isExpirableAt(deadline.plusMinutes(1))).isTrue();
             }
+
+            @Test
+            @DisplayName("자유 안건은 최종 집계가 없어 출발 전날 00:00이 지나도 마감이 지났으면 미결로 끝낼 수 있다")
+            void customExpirableAfterFinalTallyStarts() {
+                AgendaItem agenda = AgendaItem.openCustom(room(), "렌터카 빌릴까?", 3, NOW);
+
+                assertThat(agenda.getDeadlineAt()).isEqualTo(NOW.plusDays(7));
+                assertThat(agenda.isExpirableAt(D_MINUS_1.plusMinutes(1))).isTrue();
+            }
         }
 
         @Nested
@@ -905,6 +945,14 @@ class AgendaItemTest {
             }
 
             @Test
+            @DisplayName("자유 안건은 설문 마감 때 1회차로 열 수 없다")
+            void rejectsCustom() {
+                assertThatThrownBy(() ->
+                                AgendaItem.openFirstRound(room(), AgendaSubject.CUSTOM, 3, NOW))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
             @DisplayName("이미 끝난 안건은 투표 없이 결정할 수 없다")
             void rejectsResolvingClosedAgenda() {
                 AgendaItem agenda = expiredAgenda(AgendaSubject.STAY);
@@ -936,6 +984,20 @@ class AgendaItemTest {
                 assertThat(next.getTotalVoter()).isEqualTo(4);
                 assertThat(next.getDeadlineAt()).isEqualTo(NOW.plusDays(7));
                 assertThat(next.getRoom()).isSameAs(expired.getRoom());
+            }
+
+            @Test
+            @DisplayName("미결 자유 안건의 다음 회차는 같은 제목으로 회차가 1 오른다")
+            void opensCustomNextRound() {
+                AgendaItem expired = AgendaItem.openCustom(room(), "렌터카 빌릴까?", 3, NOW);
+                expired.expire();
+
+                AgendaItem next = expired.openNextRound(4, NOW);
+
+                assertThat(next.getSubject()).isEqualTo(AgendaSubject.CUSTOM);
+                assertThat(next.getRound()).isEqualTo(2);
+                assertThat(next.getTitle()).isEqualTo("렌터카 빌릴까?");
+                assertThat(next.getTotalVoter()).isEqualTo(4);
             }
 
             @Test
