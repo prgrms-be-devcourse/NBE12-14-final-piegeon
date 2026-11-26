@@ -115,6 +115,16 @@ class AgendaCustomIntegrationTest {
         return room;
     }
 
+    /** 설문이 마감돼 안건을 정하는 중인 방. 자유 안건은 이때부터 열 수 있다 */
+    private Room surveyClosedRoom() {
+        Room room = roomIn(RoomStatus.SURVEYING);
+        jdbcTemplate.update(
+                "update plan_room set survey_closed_at = ? where id = ?",
+                LocalDateTime.now(clock),
+                room.getId());
+        return room;
+    }
+
     private HttpResponse<String> openCustom(Room room, String body) throws Exception {
         return send("POST", "/api/rooms/" + room.getId() + "/agendas", body, minsuCookie);
     }
@@ -236,7 +246,7 @@ class AgendaCustomIntegrationTest {
             @Test
             @DisplayName("같은 방에 같은 제목의 자유 안건이 있으면 409 AGENDA_TITLE_DUPLICATED와 그 안건 id로 응답한다")
             void rejectsDuplicateTitle() throws Exception {
-                Room room = roomIn(RoomStatus.SURVEYING);
+                Room room = surveyClosedRoom();
                 openCustom(room, customBody(RENTAL, "빌린다", "안 빌린다"));
                 Long existingId = latest(room, RENTAL).getId();
 
@@ -252,7 +262,7 @@ class AgendaCustomIntegrationTest {
             @Test
             @DisplayName("공백을 지우면 같은 선지가 있으면 400 INVALID_INPUT으로 응답한다")
             void rejectsDuplicateOptions() throws Exception {
-                Room room = roomIn(RoomStatus.SURVEYING);
+                Room room = surveyClosedRoom();
 
                 HttpResponse<String> response =
                         openCustom(room, customBody(RENTAL, "빌린다", " 빌린다 "));
@@ -264,12 +274,40 @@ class AgendaCustomIntegrationTest {
             @Test
             @DisplayName("선지가 2개보다 적으면 400 INVALID_INPUT으로 응답한다")
             void rejectsTooFewOptions() throws Exception {
-                Room room = roomIn(RoomStatus.SURVEYING);
+                Room room = surveyClosedRoom();
 
                 HttpResponse<String> response = openCustom(room, customBody(RENTAL, "빌린다"));
 
                 assertThat(response.statusCode()).isEqualTo(400);
                 assertThat(response.body()).contains("INVALID_INPUT");
+            }
+
+            @Test
+            @DisplayName("설문이 마감되기 전에는 자유 안건을 열 수 없어 409 INVALID_STATUS로 응답한다")
+            void rejectsBeforeSurveyCloses() throws Exception {
+                Room room = roomIn(RoomStatus.SURVEYING);
+
+                HttpResponse<String> response =
+                        openCustom(room, customBody(RENTAL, "빌린다", "안 빌린다"));
+
+                assertThat(response.statusCode()).isEqualTo(409);
+                assertThat(response.body()).contains("INVALID_STATUS");
+            }
+
+            @Test
+            @DisplayName("앞뒤 공백을 지우면 비는 제목(전각 공백)은 400 INVALID_INPUT으로 응답한다")
+            void rejectsUnicodeBlankTitle() throws Exception {
+                Room room = surveyClosedRoom();
+
+                HttpResponse<String> response =
+                        openCustom(room, customBody("\u3000", "빌린다", "안 빌린다"));
+
+                assertThat(response.statusCode()).isEqualTo(400);
+                assertThat(response.body()).contains("INVALID_INPUT");
+                assertThat(
+                                agendaItemRepository.findAllByRoomIdAndStatus(
+                                        room.getId(), AgendaStatus.VOTING))
+                        .isEmpty();
             }
 
             @Test

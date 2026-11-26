@@ -47,7 +47,9 @@ public class AgendaController {
     /** V-09 자유 안건 열기 */
     @Operation(
             summary = "자유 안건 열기",
-            description = "설문 항목 밖의 주제로 안건을 연다. " + "같은 방에 같은 제목의 안건이 있으면 열 수 없다.")
+            description =
+                    "설문 항목 밖의 주제로 안건을 연다. 설문이 마감된 뒤(설문 마감 후 SURVEYING, PLANNING)에만 열 수 있다. "
+                            + "같은 방에 같은 제목의 안건이 있으면 열 수 없다.")
     @PostMapping
     public ResponseEntity<ApiResponse<AgendaDetailResponse>> openCustomAgenda(
             @PathVariable Long roomId,

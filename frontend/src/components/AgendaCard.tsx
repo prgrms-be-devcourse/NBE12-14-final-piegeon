@@ -237,7 +237,10 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
           <span id={`round-note-${item.agendaId}`} className="small muted">
             {reopened
               ? `이 회차는 의견이 갈려서 못 정했어요. 이미 ${latestRound}회차 투표가 열렸어요`
-              : "이번에는 의견이 갈려서 못 정했어요. 다시 골라 봐요"}
+              : isCustom
+                ? // 자유 안건은 최종 투표를 열어 끝났을 수도 있어 이유를 말하지 않는다
+                  "이번에는 못 정하고 끝났어요. 다시 골라 봐요"
+                : "이번에는 의견이 갈려서 못 정했어요. 다시 골라 봐요"}
           </span>
         </div>
       )}

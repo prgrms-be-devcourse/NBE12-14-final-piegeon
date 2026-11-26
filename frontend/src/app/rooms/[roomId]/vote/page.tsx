@@ -25,7 +25,8 @@ export default function VotePage() {
   const latestRound = new Map<string, number>();
   for (const a of list) latestRound.set(roundKey(a), Math.max(latestRound.get(roundKey(a)) ?? 0, a.round));
   // 설문 항목 밖의 주제는 설문 조율 중이나 일정을 짜는 중에 직접 안건으로 열 수 있다
-  const canOpenCustom = room.status === "SURVEYING" || room.status === "PLANNING";
+  // 설문이 마감돼 안건을 정하는 단계부터 연다
+  const canOpenCustom = (room.status === "SURVEYING" && Boolean(room.surveyClosedAt)) || room.status === "PLANNING";
   // 이미 맞춰진 것 중 펼쳐 본 안건. 그때 나눈 의견과 누가 뭘 골랐는지 다시 볼 수 있다
   const [viewId, setViewId] = useState<number | null>(null);
   const viewing = resolved.find((a) => a.agendaId === viewId);
@@ -110,7 +111,8 @@ export default function VotePage() {
                 <span className="stack" style={{ gap: 0 }}>
                   <b>{a.resolvedOption?.label}</b>
                   <small>
-                    {a.title.replace("을 정해주세요", "").replace("를 정해주세요", "")}
+                    {/* 설문 안건의 기본 제목만 줄인다. 자유 안건 제목은 멤버가 쓴 그대로 둔다 */}
+                    {a.subject === "CUSTOM" ? a.title : a.title.replace("을 정해주세요", "").replace("를 정해주세요", "")}
                     {a.round > 1 && `, ${a.round}회차`}
                   </small>
                 </span>

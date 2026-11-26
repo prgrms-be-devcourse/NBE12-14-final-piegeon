@@ -311,6 +311,8 @@ public class AgendaService {
             room.startPlanning();
             agendaChangePublisher.coordinationCompleted(room, null);
         } else {
+            // 닫힌 방에 투표 중인 자유 안건을 남기지 않는다. 시스템이 끝낸 것이라 행위자는 없다
+            expireVotingCustomAgendas(null, room.getId());
             room.expire();
             agendaChangePublisher.roomExpired(room);
         }
@@ -701,7 +703,8 @@ public class AgendaService {
         Room room = roomService.getForUpdate(roomId);
         LocalDateTime now = LocalDateTime.now(clock);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
-        // 명세 2-1: 설문 안건의 다음 회차는 설문 조율 구간(SURVEYING)에서만 연다. 자유 안건은 처음 열 때와 같이 SURVEYING·PLANNING이다
+        // 명세 2-1: 설문 안건의 다음 회차는 설문 조율 구간(SURVEYING)에서만 연다. 자유 안건은 SURVEYING·PLANNING이다
+        // (자유 안건은 설문 마감 뒤에만 열리므로 SURVEYING이어도 설문은 이미 마감됐다)
         if (room.getStatus() != RoomStatus.SURVEYING && room.getStatus() != RoomStatus.PLANNING) {
             throw new BusinessException(CommonErrorCode.INVALID_STATUS);
         }
@@ -788,8 +791,9 @@ public class AgendaService {
      * 설문 항목 밖의 주제로 자유 안건의 1회차를 연다 (V-09). 선지는 멤버가 적은 순서대로 두고, 연 사람의 표는 넣지 않는다.
      *
      * <ul>
-     *   <li>설문 조율(SURVEYING)과 일정 짜기(PLANNING) 단계에서만 연다. 결과는 기록으로만 남고 방 상태를 바꾸지 않는다.
-     *   <li>제목과 선지는 앞뒤 공백을 지운다. 선지가 서로 같으면 INVALID_INPUT이다.
+     *   <li>설문이 마감된 뒤 안건을 정하는 단계(설문 마감 후 SURVEYING)와 일정 짜기(PLANNING)에서만 연다. 결과는 기록으로만 남고 방 상태를 바꾸지
+     *       않는다.
+     *   <li>제목과 선지는 앞뒤 공백을 지운다. 지운 뒤 비었거나 선지가 서로 같으면 INVALID_INPUT이다.
      *   <li>같은 방에 같은 제목의 자유 안건이 있으면 AGENDA_TITLE_DUPLICATED다. 다시 정하려면 그 안건의 다음 회차(V-04)를 연다.
      * </ul>
      *
@@ -801,13 +805,19 @@ public class AgendaService {
         Room room = roomService.getForUpdate(roomId);
         LocalDateTime now = LocalDateTime.now(clock);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
-        if (room.getStatus() != RoomStatus.SURVEYING && room.getStatus() != RoomStatus.PLANNING) {
+        // 설문 마감 전에는 열지 않는다. 설문 0건으로 방이 만료될 때 투표 중인 자유 안건이 남지 않게 한다
+        boolean resolving =
+                room.getStatus() == RoomStatus.SURVEYING && room.getSurveyClosedAt() != null;
+        if (!resolving && room.getStatus() != RoomStatus.PLANNING) {
             throw new BusinessException(CommonErrorCode.INVALID_STATUS);
         }
 
         String title = request.title().strip();
         List<String> labels = request.options().stream().map(String::strip).toList();
-        if (new HashSet<>(labels).size() != labels.size()) {
+        // @NotBlank는 trim() 기준이라 전각 공백(U+3000)만 있는 값이 통과한다. strip()한 뒤 다시 확인한다
+        if (title.isEmpty()
+                || labels.stream().anyMatch(String::isEmpty)
+                || new HashSet<>(labels).size() != labels.size()) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT);
         }
         agendaItemRepository
