@@ -8,8 +8,46 @@ import { Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { safeNext } from "@/lib/hooks";
 
-// 백엔드 규칙: 8~64자, 공백 없는 영문·숫자·기호
-const PASSWORD_RULE = /^[\x21-\x7E]{8,64}$/;
+// 백엔드 SignupRequest와 같은 규칙. 서버까지 가기 전에 칸마다 먼저 알려 준다.
+const EMAIL_RULE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_CHARS = /^[\x21-\x7E]*$/;
+
+type Field = "name" | "email" | "password";
+type Errors = Partial<Record<Field, string>>;
+
+function validate(name: string, email: string, password: string): Errors {
+  const errors: Errors = {};
+  const n = name.trim();
+  const m = email.trim();
+  if (!n) errors.name = "이름을 입력해 주세요.";
+  else if (n.length > 50) errors.name = "이름은 50자 이하로 입력해 주세요.";
+  if (!m) errors.email = "이메일을 입력해 주세요.";
+  else if (m.length > 255) errors.email = "이메일은 255자 이하로 입력해 주세요.";
+  else if (!EMAIL_RULE.test(m)) errors.email = "이메일 형식이 아니에요. 예: name@example.com";
+  if (!password) errors.password = "비밀번호를 입력해 주세요.";
+  else if (!PASSWORD_CHARS.test(password)) errors.password = "비밀번호는 공백 없이 영문, 숫자, 기호만 쓸 수 있어요.";
+  else if (password.length < 8 || password.length > 64) errors.password = "비밀번호는 8자 이상 64자 이하로 입력해 주세요.";
+  return errors;
+}
+
+const FIELD_ORDER: Field[] = ["name", "email", "password"];
+
+const INVALID_INPUT: React.CSSProperties = { borderColor: "var(--accent-strong)" };
+
+function FieldMessage({ id, error, help }: { id: string; error?: string; help?: string }) {
+  if (error) {
+    return (
+      <span id={id} className="help" role="alert" style={{ color: "var(--accent-strong)" }}>
+        {error}
+      </span>
+    );
+  }
+  return help ? (
+    <span id={id} className="help">
+      {help}
+    </span>
+  ) : null;
+}
 
 function SignupForm() {
   const router = useRouter();
@@ -20,11 +58,19 @@ function SignupForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 한 번 벗어난 칸만 에러를 보여 준다. 가입하기를 누르면 모든 칸을 보여 준다.
+  const [touched, setTouched] = useState<Partial<Record<Field, boolean>>>({});
+
+  const errors = validate(name, email, password);
+  const shown = (f: Field) => (touched[f] ? errors[f] : undefined);
+  const touch = (f: Field) => setTouched((t) => ({ ...t, [f]: true }));
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!PASSWORD_RULE.test(password)) {
-      setError("비밀번호는 공백 없이 영문, 숫자, 기호로 8자 이상 써 주세요.");
+    setTouched({ name: true, email: true, password: true });
+    const first = FIELD_ORDER.find((f) => errors[f]);
+    if (first) {
+      document.getElementById(first)?.focus();
       return;
     }
     setBusy(true);
@@ -62,7 +108,7 @@ function SignupForm() {
           이메일로 가입해요
         </p>
       </div>
-      <form onSubmit={onSubmit} className="stack" style={{ gap: 16 }}>
+      <form onSubmit={onSubmit} className="stack" style={{ gap: 16 }} noValidate>
         <div className="f">
           <label htmlFor="name">이름</label>
           <input
@@ -73,9 +119,13 @@ function SignupForm() {
             maxLength={50}
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onBlur={() => touch("name")}
+            aria-invalid={!!shown("name")}
+            aria-describedby="name-msg"
+            style={shown("name") ? INVALID_INPUT : undefined}
             required
           />
-          <span className="help">여행방에서 이 이름과 첫 글자가 보여요</span>
+          <FieldMessage id="name-msg" error={shown("name")} help="여행방에서 이 이름과 첫 글자가 보여요" />
         </div>
         <div className="f">
           <label htmlFor="email">이메일</label>
@@ -88,8 +138,13 @@ function SignupForm() {
             maxLength={255}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onBlur={() => touch("email")}
+            aria-invalid={!!shown("email")}
+            aria-describedby="email-msg"
+            style={shown("email") ? INVALID_INPUT : undefined}
             required
           />
+          <FieldMessage id="email-msg" error={shown("email")} />
         </div>
         <div className="f">
           <label htmlFor="password">비밀번호</label>
@@ -101,10 +156,18 @@ function SignupForm() {
             placeholder="8자 이상"
             maxLength={64}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              // 비밀번호는 치는 동안 바로 규칙을 알려 준다
+              if (e.target.value) touch("password");
+            }}
+            onBlur={() => touch("password")}
+            aria-invalid={!!shown("password")}
+            aria-describedby="password-msg"
+            style={shown("password") ? INVALID_INPUT : undefined}
             required
           />
-          <span className="help">공백 없이 영문, 숫자, 기호로 8자 이상</span>
+          <FieldMessage id="password-msg" error={shown("password")} help="공백 없이 영문, 숫자, 기호로 8자 이상" />
         </div>
         {error && <Notice kind="err">{error}</Notice>}
         <button type="submit" className="btn btn-accent btn-lg" disabled={busy}>
