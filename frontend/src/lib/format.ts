@@ -129,3 +129,10 @@ export function won(amount: number): string {
 export function initial(name: string): string {
   return Array.from(name.trim())[0] ?? "?";
 }
+
+/** 이름 뒤에 을/를을 붙인다. 받침이 있으면 "을", 없으면 "를". 한글로 끝나지 않으면 "을(를)" */
+export function withObject(word: string): string {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  if (code < 0 || code > 11171) return `${word}을(를)`;
+  return `${word}${code % 28 === 0 ? "를" : "을"}`;
+}

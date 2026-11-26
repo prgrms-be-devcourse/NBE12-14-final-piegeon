@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { useRoom } from "@/components/room";
 import { Avatar, Faces, Loading, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import { feedTime } from "@/lib/format";
+import { feedTime, withObject } from "@/lib/format";
 import { requestRefresh, topics, useApi } from "@/lib/hooks";
 import type { PlaceCandidateItem, PlaceDetailResponse, PlaceSearchItem, PlaceStage } from "@/lib/types";
 
@@ -220,6 +221,7 @@ function PlacePanel({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [photoFailed, setPhotoFailed] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   const d: PlaceDetailResponse | undefined = detail.data;
   const editable = room.status === "PLANNING" && item.stage !== "CONFIRMED";
@@ -240,7 +242,19 @@ function PlacePanel({
     }
   }
 
-  function react(value: "WANT" | "NOPE") {
+  async function react(value: "WANT" | "NOPE") {
+    // 다 같이 원하는 곳에서 내 '가고 싶어요'를 지우거나 바꾸면 한 단계 내려가 확정할 수 없게 된다
+    if (
+      item.stage === "FULL" &&
+      mine === "WANT" &&
+      !(await confirm({
+        title: mine === value ? "'가고 싶어요'를 지울까요?" : "'별로예요'로 바꿀까요?",
+        body: "지금은 모두 가고 싶어하는 곳이에요. 바꾸면 '다 같이 가고 싶어요'에서 빠지고, 다시 모두 누를 때까지 확정할 수 없어요.",
+        confirmLabel: mine === value ? "지우기" : "바꾸기",
+      }))
+    ) {
+      return;
+    }
     void run(
       () => (mine === value ? api.cancelReaction(roomId, item.placeId) : api.react(roomId, item.placeId, value)),
       (next) => {
@@ -284,10 +298,10 @@ function PlacePanel({
           <section className="stack" aria-label="내 표시" style={{ gap: 8 }}>
             <h3 className="h3">나는 여기</h3>
             <div className="row">
-              <button type="button" className="chip" aria-pressed={mine === "WANT"} disabled={busy || !myMember} onClick={() => react("WANT")}>
+              <button type="button" className="chip" aria-pressed={mine === "WANT"} disabled={busy || !myMember} onClick={() => void react("WANT")}>
                 가고 싶어요
               </button>
-              <button type="button" className="chip" aria-pressed={mine === "NOPE"} disabled={busy || !myMember} onClick={() => react("NOPE")}>
+              <button type="button" className="chip" aria-pressed={mine === "NOPE"} disabled={busy || !myMember} onClick={() => void react("NOPE")}>
                 별로예요
               </button>
             </div>
@@ -316,7 +330,22 @@ function PlacePanel({
         {room.status === "PLANNING" && item.stage === "FULL" && (
           <div className="notice ok stack" style={{ gap: 8 }}>
             <span>모두 가고 싶어해요. 확정하면 일정에 넣을 수 있어요</span>
-            <button type="button" className="btn btn-accent" disabled={busy} onClick={() => run(() => api.confirmPlace(roomId, item.placeId), onChanged)}>
+            <button
+              type="button"
+              className="btn btn-accent"
+              disabled={busy}
+              onClick={async () => {
+                // 확정을 되돌리는 API가 없고, 확정된 곳은 표시를 바꾸거나 지울 수 없다
+                const ok = await confirm({
+                  title: `${withObject(item.name)} 확정할까요?`,
+                  body: "확정하면 일정에 넣을 수 있어요.",
+                  notes: ["확정은 되돌릴 수 없어요. 확정한 뒤에는 표시를 바꾸거나 후보에서 지울 수 없어요."],
+                  confirmLabel: "확정하기",
+                });
+                if (!ok) return;
+                void run(() => api.confirmPlace(roomId, item.placeId), onChanged);
+              }}
+            >
               확정하기
             </button>
           </div>
@@ -348,8 +377,16 @@ function PlacePanel({
             className="btn btn-danger btn-sm"
             style={{ alignSelf: "flex-start" }}
             disabled={busy}
-            onClick={() => {
-              if (!window.confirm(`${item.name}을(를) 후보에서 지울까요? 표시와 댓글도 함께 지워져요.`)) return;
+            onClick={async () => {
+              // 방 멤버 누구나 지울 수 있어서, 다른 친구가 올린 곳이면 그 사실을 같이 알린다
+              const others = item.suggestedBy.memberId !== myMember?.memberId;
+              const ok = await confirm({
+                title: `${withObject(item.name)} 후보에서 지울까요?`,
+                body: "친구들이 남긴 표시와 댓글도 함께 지워져요.",
+                notes: others ? [`${item.suggestedBy.name}님이 올린 곳이에요.`] : undefined,
+                confirmLabel: "지우기",
+              });
+              if (!ok) return;
               void run(() => api.deletePlace(roomId, item.placeId), onDeleted);
             }}
           >
@@ -381,6 +418,7 @@ function PlacePanel({
           </button>
         </form>
       )}
+      {dialog}
     </aside>
   );
 }
