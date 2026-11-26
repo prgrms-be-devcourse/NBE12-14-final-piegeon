@@ -22,6 +22,13 @@ management:
     web:
       exposure:
         include: health,prometheus
+  # 응답 시간 목표(SLO)를 재기 위한 기준선. API마다 이 시간 안에 끝난 요청 수를 따로 센다.
+  # 일반 API는 0.5초, Google을 부르는 API(장소 검색, 장소 후보 등록, 장소 사진)는 1~3초 중에서
+  # 실제 값을 보고 고른다. 어느 API에 어느 기준선을 쓸지는 Grafana 쿼리에서 정한다.
+  metrics:
+    distribution:
+      slo:
+        http.server.requests: 500ms,1s,2s,3s
 
 # Google Places (장소 검색 P-01, 장소 확인 P-02). api-key는 프로필별 파일에서 환경변수로 받는다.
 app:
