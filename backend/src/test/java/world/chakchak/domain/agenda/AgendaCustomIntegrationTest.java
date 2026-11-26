@@ -311,6 +311,21 @@ class AgendaCustomIntegrationTest {
             }
 
             @Test
+            @DisplayName("앞뒤 공백을 지우면 비는 선지(전각 공백)는 400 INVALID_INPUT으로 응답한다")
+            void rejectsUnicodeBlankOption() throws Exception {
+                Room room = surveyClosedRoom();
+
+                HttpResponse<String> response = openCustom(room, customBody(RENTAL, "빌린다", "　"));
+
+                assertThat(response.statusCode()).isEqualTo(400);
+                assertThat(response.body()).contains("INVALID_INPUT");
+                assertThat(
+                                agendaItemRepository.findAllByRoomIdAndStatus(
+                                        room.getId(), AgendaStatus.VOTING))
+                        .isEmpty();
+            }
+
+            @Test
             @DisplayName("최종 확정 투표 중인 방에서는 자유 안건을 열 수 없어 409 INVALID_STATUS로 응답한다")
             void rejectsWhileReviewing() throws Exception {
                 Room room = roomIn(RoomStatus.REVIEWING);

@@ -24,8 +24,7 @@ export default function VotePage() {
   // 주제별 가장 최근 회차. 이보다 앞선 미결 회차는 다음 회차 버튼을 막는다
   const latestRound = new Map<string, number>();
   for (const a of list) latestRound.set(roundKey(a), Math.max(latestRound.get(roundKey(a)) ?? 0, a.round));
-  // 설문 항목 밖의 주제는 설문 조율 중이나 일정을 짜는 중에 직접 안건으로 열 수 있다
-  // 설문이 마감돼 안건을 정하는 단계부터 연다
+  // 설문 항목 밖의 주제는 설문이 마감된 뒤(안건을 정하는 중이거나 일정을 짜는 중)부터 직접 안건으로 열 수 있다
   const canOpenCustom = (room.status === "SURVEYING" && Boolean(room.surveyClosedAt)) || room.status === "PLANNING";
   // 이미 맞춰진 것 중 펼쳐 본 안건. 그때 나눈 의견과 누가 뭘 골랐는지 다시 볼 수 있다
   const [viewId, setViewId] = useState<number | null>(null);
