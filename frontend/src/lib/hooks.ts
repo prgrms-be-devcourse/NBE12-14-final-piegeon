@@ -53,11 +53,15 @@ export function useApi<T>(
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
   const toLogin = useLoginRedirect();
+  // 실시간 소식이 연달아 오면 요청이 겹친다. 응답은 보낸 순서대로 오지 않으므로, 가장 나중에 보낸 요청의 응답만 화면에 둔다
+  const latestRequest = useRef(0);
 
   const reload = useCallback(async () => {
     if (key === null) return;
+    const request = ++latestRequest.current;
     try {
       const next = await fetcherRef.current();
+      if (request !== latestRequest.current) return;
       setData(next);
       setError(null);
     } catch (e) {
@@ -65,11 +69,20 @@ export function useApi<T>(
         toLogin();
         return;
       }
+      if (request !== latestRequest.current) return;
       setError(e instanceof ApiError ? e : new ApiError(0, "UNKNOWN", "불러오지 못했어요."));
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
   }, [key, toLogin]);
+
+  // 응답으로 받은 값을 직접 넣을 때도, 그 전에 보낸 요청이 늦게 와서 덮어쓰지 않게 한다
+  const replaceData = useCallback((next: T) => {
+    latestRequest.current++;
+    setData(next);
+    setError(null);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     setLoading(key !== null);
@@ -96,7 +109,7 @@ export function useApi<T>(
     };
   }, [options.live, options.topic, key, reload]);
 
-  return { data, error, loading, reload, setData };
+  return { data, error, loading, reload, setData: replaceData };
 }
 
 /** 지금 주소를 기억해 두고 로그인 화면으로 보낸다. 로그인하면 이 주소로 돌아온다 */

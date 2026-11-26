@@ -62,7 +62,7 @@ public class AgendaItem extends BaseEntity {
 
     /** 투표 자격자 수. 자격자가 나가면 1씩 줄어든다. */
     @Column(name = "total_voter", nullable = false)
-    private int totalVoter;
+    private long totalVoter;
 
     @Column(name = "deadline_at", nullable = false)
     private LocalDateTime deadlineAt;
@@ -79,7 +79,7 @@ public class AgendaItem extends BaseEntity {
             AgendaSubject subject,
             int round,
             String title,
-            int totalVoter,
+            long totalVoter,
             LocalDateTime now,
             LocalDateTime deadlineAt) {
         // D-1이 됐거나 지났으면 안건을 만들지 않는다. 만들면 마감이 D-1로 줄어 만들자마자 투표할 수 없는 안건이 된다.
@@ -114,7 +114,7 @@ public class AgendaItem extends BaseEntity {
             AgendaSubject subject,
             int round,
             String title,
-            int totalVoter,
+            long totalVoter,
             LocalDateTime now,
             LocalDateTime deadlineAt) {
         return new AgendaItem(room, subject, round, title, totalVoter, now, deadlineAt);
@@ -129,7 +129,7 @@ public class AgendaItem extends BaseEntity {
      * @param surveyClosedAt 설문 마감 시각. 안건을 여는 지금 시각이기도 하다
      */
     public static AgendaItem openFirstRound(
-            Room room, AgendaSubject subject, int totalVoter, LocalDateTime surveyClosedAt) {
+            Room room, AgendaSubject subject, long totalVoter, LocalDateTime surveyClosedAt) {
         return create(
                 room,
                 subject,
@@ -315,7 +315,7 @@ public class AgendaItem extends BaseEntity {
      * 다시 열 때마다 1씩 오르며, 이전 회차를 읽어야 하므로 service가 정한다.
      */
     public static AgendaItem openFinalReview(
-            Room room, int round, int totalVoter, LocalDateTime now) {
+            Room room, int round, long totalVoter, LocalDateTime now) {
         return create(
                 room,
                 AgendaSubject.FINAL_PLAN,
@@ -362,8 +362,8 @@ public class AgendaItem extends BaseEntity {
      * 확인한다.
      */
     // 출발일은 room에서 직접 꺼내므로 startDate 인자를 없앴다. service가 다른 날짜를 넘길 여지가 사라진다.
-    public AgendaItem openNextRound(int totalVoter, LocalDateTime now) {
-        if (!subject.isReopenable() || status != AgendaStatus.EXPIRED) {
+    public AgendaItem openNextRound(long totalVoter, LocalDateTime now) {
+        if (!subject.isSurvey() || status != AgendaStatus.EXPIRED) {
             throw new BusinessException(AgendaErrorCode.AGENDA_NOT_REOPENABLE);
         }
         // 다음 회차도 create로 만들어 D-1 이후 생성 금지와 D-1 상한을 같은 규칙으로 적용한다.

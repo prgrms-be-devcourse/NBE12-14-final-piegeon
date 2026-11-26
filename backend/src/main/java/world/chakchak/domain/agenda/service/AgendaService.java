@@ -401,7 +401,7 @@ public class AgendaService {
                 surveyResponseService.getActiveMemberResponses(lockedRoom.getId()).stream()
                         .filter(answer -> !answer.getSubmittedAt().isAfter(closedAt))
                         .toList();
-        int totalVoter = Math.toIntExact(roomMemberService.countActiveMembers(lockedRoom.getId()));
+        long totalVoter = roomMemberService.countActiveMembers(lockedRoom.getId());
 
         int votingCount = 0;
         for (AgendaSubject subject : SURVEY_SUBJECTS) {
@@ -725,9 +725,7 @@ public class AgendaService {
                     AgendaErrorCode.AGENDA_ALREADY_REOPENED, Map.of("agendaId", latest.getId()));
         }
 
-        AgendaItem next =
-                previous.openNextRound(
-                        Math.toIntExact(roomMemberService.countActiveMembers(roomId)), now);
+        AgendaItem next = previous.openNextRound(roomMemberService.countActiveMembers(roomId), now);
         try {
             agendaItemRepository.saveAndFlush(next);
         } catch (DataIntegrityViolationException e) {
@@ -877,10 +875,7 @@ public class AgendaService {
         AgendaItem agenda =
                 agendaItemRepository.save(
                         AgendaItem.openFinalReview(
-                                room,
-                                round,
-                                Math.toIntExact(roomMemberService.countActiveMembers(roomId)),
-                                now));
+                                room, round, roomMemberService.countActiveMembers(roomId), now));
         AgendaOption agree = AgendaOption.finalPlan(agenda, FinalPlanChoice.AGREE);
         agendaOptionRepository.saveAll(
                 List.of(agree, AgendaOption.finalPlan(agenda, FinalPlanChoice.REJECT)));

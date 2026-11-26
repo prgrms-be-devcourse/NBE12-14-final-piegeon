@@ -11,13 +11,13 @@ public record InvitePreviewResponse(
         LocalDate startDate,
         LocalDate endDate,
         RoomStatus status,
-        int memberCount,
+        long memberCount,
         boolean joinable,
         NotJoinableReason notJoinableReason,
         boolean surveyRequired) {
 
     public static InvitePreviewResponse from(
-            Room room, int memberCount, NotJoinableReason notJoinableReason) {
+            Room room, long memberCount, NotJoinableReason notJoinableReason) {
         return new InvitePreviewResponse(
                 room.getId(),
                 room.getName(),
