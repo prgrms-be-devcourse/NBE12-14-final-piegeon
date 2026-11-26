@@ -3,6 +3,7 @@ package world.chakchak.domain.agenda.service;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -18,6 +19,7 @@ import world.chakchak.domain.agenda.dto.AddOptionRequest;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse.OptionResult;
 import world.chakchak.domain.agenda.dto.AgendaListResponse;
+import world.chakchak.domain.agenda.dto.CreateAgendaRequest;
 import world.chakchak.domain.agenda.dto.MemberRef;
 import world.chakchak.domain.agenda.dto.OptionRef;
 import world.chakchak.domain.agenda.dto.VoteRequest;
@@ -47,7 +49,7 @@ import world.chakchak.global.error.CommonErrorCode;
 
 /**
  * 안건 조회(V-01 목록, V-02 상세), 투표(V-03), 안건 코멘트(V-05 목록, V-06 작성), 다음 회차 열기(V-04), 예산 선지 추가·삭제(V-07,
- * V-08), 최종 확정 투표 열기(C-01), 7-1 만장일치 판정.
+ * V-08), 자유 안건 열기(V-09), 최종 확정 투표 열기(C-01), 7-1 만장일치 판정.
  *
  * <p>조회는 방 잠금을 잡지 않는다. 투표, 다음 회차 열기, 선지 추가·삭제는 방 잠금을 첫 쿼리로 잡는다. 판정은 방 잠금을 잡은 호출자의 트랜잭션 안에서만 부를 수
  * 있다.
@@ -157,12 +159,19 @@ public class AgendaService {
         // 잠금을 기다린 뒤의 시각으로 마감을 판단하고 기록한다. 잠금 전에 구하면 기다린 사이에 지난 마감을 놓친다
         LocalDateTime now = LocalDateTime.now(clock);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
-        // 명세 2-1: 투표는 설문 안건을 정하는 SURVEYING과 최종 확정 투표 중인 REVIEWING에서만 받는다
-        if (room.getStatus() != RoomStatus.SURVEYING && room.getStatus() != RoomStatus.REVIEWING) {
+        // 명세 2-1: 투표는 설문 안건을 정하는 SURVEYING과 최종 확정 투표 중인 REVIEWING에서 받는다.
+        // 자유 안건은 일정을 짜는 PLANNING에서도 열리므로 그때도 받는다 (V-09)
+        RoomStatus status = room.getStatus();
+        if (status != RoomStatus.SURVEYING
+                && status != RoomStatus.REVIEWING
+                && status != RoomStatus.PLANNING) {
             throw new BusinessException(CommonErrorCode.INVALID_STATUS);
         }
 
         AgendaItem agenda = getAgendaInRoom(roomId, agendaId);
+        if (status == RoomStatus.PLANNING && agenda.getSubject() != AgendaSubject.CUSTOM) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
         if (!agenda.isOpenAt(now)) {
             throw new BusinessException(AgendaErrorCode.AGENDA_CLOSED);
         }
@@ -435,7 +444,8 @@ public class AgendaService {
             case PACE ->
                     AgendaOption.paceOptions(
                             agenda, answers.stream().map(SurveyResponse::getPace).toList());
-            case FINAL_PLAN -> throw new IllegalStateException("최종 확정은 설문 안건이 아닙니다.");
+            case FINAL_PLAN, CUSTOM ->
+                    throw new IllegalStateException(agenda.getSubject() + "는 설문 안건이 아닙니다.");
         };
     }
 
@@ -473,6 +483,11 @@ public class AgendaService {
             AgendaItem agenda,
             AgendaOption option,
             LocalDateTime now) {
+        // 자유 안건의 결과는 기록만 남긴다. 설문 조율 완료(5-2)나 방 상태와는 상관없다
+        if (agenda.getSubject() == AgendaSubject.CUSTOM) {
+            agendaChangePublisher.resolved(actor, agenda, option);
+            return;
+        }
         if (agenda.getSubject() == AgendaSubject.FINAL_PLAN) {
             if (option.isReject()) {
                 lockedRoom.returnToPlanning();
@@ -675,29 +690,35 @@ public class AgendaService {
     }
 
     /**
-     * 미결(EXPIRED)로 끝난 설문 안건의 다음 회차를 연다 (V-04). 자동으로 열리지 않고 멤버가 직접 연다.
+     * 미결(EXPIRED)로 끝난 설문 안건이나 자유 안건의 다음 회차를 연다 (V-04). 자동으로 열리지 않고 멤버가 직접 연다.
      *
-     * <p>투표 자격자는 지금 방에 남은 멤버 전원이다. 선지는 남은 멤버의 설문 답과 직전 회차에 남은 멤버가 추가한 예산 선지로 다시 만든다. 남은 멤버 중 이 항목에
-     * 답한 사람이 없으면 직전 회차 선지를 그대로 옮긴다. 두 명이 동시에 눌러도 방 잠금으로 한 명씩 처리되어 두 번째는 AGENDA_ALREADY_REOPENED가
-     * 된다.
+     * <p>투표 자격자는 지금 방에 남은 멤버 전원이다. 설문 안건의 선지는 남은 멤버의 설문 답과 직전 회차에 남은 멤버가 추가한 예산 선지로 다시 만든다. 남은 멤버 중
+     * 이 항목에 답한 사람이 없으면 직전 회차 선지를 그대로 옮긴다. 자유 안건은 직전 회차 선지를 그대로 옮긴다. 두 명이 동시에 눌러도 방 잠금으로 한 명씩 처리되어 두
+     * 번째는 AGENDA_ALREADY_REOPENED가 된다.
      */
     @Transactional
     public AgendaDetailResponse openNextRound(Long roomId, Long agendaId, Long userId) {
         Room room = roomService.getForUpdate(roomId);
         LocalDateTime now = LocalDateTime.now(clock);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
-        // 명세 2-1: 다음 회차는 설문 조율 구간(SURVEYING)에서만 연다
-        if (room.getStatus() != RoomStatus.SURVEYING) {
+        // 명세 2-1: 설문 안건의 다음 회차는 설문 조율 구간(SURVEYING)에서만 연다. 자유 안건은 처음 열 때와 같이 SURVEYING·PLANNING이다
+        if (room.getStatus() != RoomStatus.SURVEYING && room.getStatus() != RoomStatus.PLANNING) {
             throw new BusinessException(CommonErrorCode.INVALID_STATUS);
         }
 
         AgendaItem previous = getAgendaInRoom(roomId, agendaId);
-        if (!previous.getSubject().isSurvey() || previous.getStatus() != AgendaStatus.EXPIRED) {
+        if (room.getStatus() == RoomStatus.PLANNING
+                && previous.getSubject() != AgendaSubject.CUSTOM) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+        if (!previous.getSubject().isReopenable() || previous.getStatus() != AgendaStatus.EXPIRED) {
             throw new BusinessException(AgendaErrorCode.AGENDA_NOT_REOPENABLE);
         }
+        // 자유 안건은 subject가 모두 CUSTOM이라 제목까지 봐야 같은 주제의 최신 회차를 찾는다
         AgendaItem latest =
                 agendaItemRepository
-                        .findTopByRoomIdAndSubjectOrderByRoundDesc(roomId, previous.getSubject())
+                        .findTopByRoomIdAndSubjectAndTitleOrderByRoundDesc(
+                                roomId, previous.getSubject(), previous.getTitle())
                         .orElse(previous);
         if (!latest.getId().equals(previous.getId())) {
             throw new BusinessException(
@@ -710,7 +731,7 @@ public class AgendaService {
         try {
             agendaItemRepository.saveAndFlush(next);
         } catch (DataIntegrityViolationException e) {
-            // 방 잠금으로 먼저 막으므로 여기까지 오는 것은 UNIQUE(plan_room_id, subject, round)가 마지막으로 막은 경우다
+            // 방 잠금으로 먼저 막으므로 여기까지 오는 것은 UNIQUE(plan_room_id, subject, title, round)가 마지막으로 막은 경우다
             throw new BusinessException(AgendaErrorCode.AGENDA_ALREADY_REOPENED);
         }
         agendaOptionRepository.saveAll(nextRoundOptions(roomId, previous, next));
@@ -720,6 +741,10 @@ public class AgendaService {
     }
 
     private List<AgendaOption> nextRoundOptions(Long roomId, AgendaItem previous, AgendaItem next) {
+        // 자유 안건은 설문과 상관없이 멤버가 적은 선지라 그대로 옮긴다
+        if (next.getSubject() == AgendaSubject.CUSTOM) {
+            return copyOptions(previous, next);
+        }
         // 직전 회차에 남은 멤버가 추가한 예산 선지는 올린 사람을 유지해 옮긴다
         List<AgendaOption> carried =
                 previous.getSubject() == AgendaSubject.BUDGET
@@ -741,12 +766,18 @@ public class AgendaService {
                     case PACE ->
                             AgendaOption.paceOptions(
                                     next, answers.stream().map(SurveyResponse::getPace).toList());
-                    case FINAL_PLAN -> throw new IllegalStateException("최종 확정 안건은 다음 회차로 열지 않습니다.");
+                    case FINAL_PLAN, CUSTOM ->
+                            throw new IllegalStateException(
+                                    next.getSubject() + " 안건의 선지는 설문 답으로 만들지 않습니다.");
                 };
         if (!built.isEmpty()) {
             return built;
         }
         // 남은 멤버 중 이 항목에 답한 사람이 없다. 투표를 이어갈 수 있게 직전 회차 선지를 그대로 옮긴다
+        return copyOptions(previous, next);
+    }
+
+    private List<AgendaOption> copyOptions(AgendaItem previous, AgendaItem next) {
         List<AgendaOption> previousOptions =
                 agendaOptionRepository.findAllByAgendaItemIdOrderByDisplayIndexAsc(
                         previous.getId());
@@ -756,10 +787,77 @@ public class AgendaService {
     }
 
     /**
+     * 설문 항목 밖의 주제로 자유 안건의 1회차를 연다 (V-09). 선지는 멤버가 적은 순서대로 두고, 연 사람의 표는 넣지 않는다.
+     *
+     * <ul>
+     *   <li>설문 조율(SURVEYING)과 일정 짜기(PLANNING) 단계에서만 연다. 결과는 기록으로만 남고 방 상태를 바꾸지 않는다.
+     *   <li>제목과 선지는 앞뒤 공백을 지운다. 선지가 서로 같으면 INVALID_INPUT이다.
+     *   <li>같은 방에 같은 제목의 자유 안건이 있으면 AGENDA_TITLE_DUPLICATED다. 다시 정하려면 그 안건의 다음 회차(V-04)를 연다.
+     * </ul>
+     *
+     * <p>두 명이 같은 제목으로 동시에 열어도 방 잠금으로 한 명씩 처리되어 두 번째는 AGENDA_TITLE_DUPLICATED가 된다.
+     */
+    @Transactional
+    public AgendaDetailResponse openCustomAgenda(
+            Long roomId, Long userId, CreateAgendaRequest request) {
+        Room room = roomService.getForUpdate(roomId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        RoomMember me = roomMemberService.getActiveMember(roomId, userId);
+        if (room.getStatus() != RoomStatus.SURVEYING && room.getStatus() != RoomStatus.PLANNING) {
+            throw new BusinessException(CommonErrorCode.INVALID_STATUS);
+        }
+
+        String title = request.title().strip();
+        List<String> labels = request.options().stream().map(String::strip).toList();
+        if (new HashSet<>(labels).size() != labels.size()) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        agendaItemRepository
+                .findTopByRoomIdAndSubjectAndTitleOrderByRoundDesc(
+                        roomId, AgendaSubject.CUSTOM, title)
+                .ifPresent(existing -> {
+                    throw new BusinessException(
+                            AgendaErrorCode.AGENDA_TITLE_DUPLICATED,
+                            Map.of("agendaId", existing.getId()));
+                });
+
+        AgendaItem agenda =
+                AgendaItem.openCustom(
+                        room,
+                        title,
+                        Math.toIntExact(roomMemberService.countActiveMembers(roomId)),
+                        now);
+        try {
+            agendaItemRepository.saveAndFlush(agenda);
+        } catch (DataIntegrityViolationException e) {
+            // 방 잠금과 위 조회로 먼저 막으므로 여기까지 오는 것은 UNIQUE(plan_room_id, subject, title, round)가 마지막으로 막은
+            // 경우다
+            throw new BusinessException(AgendaErrorCode.AGENDA_TITLE_DUPLICATED);
+        }
+        agendaOptionRepository.saveAll(AgendaOption.customOptions(agenda, labels));
+        agendaChangePublisher.opened(me, agenda);
+
+        return toDetail(agenda, me);
+    }
+
+    // 미결 기록이 최종 확정 열림 기록보다 먼저 남는다. 최종 투표를 연 멤버가 원인이라 행위자로 남긴다
+    private void expireVotingCustomAgendas(RoomMember actor, Long roomId) {
+        agendaItemRepository.findAllByRoomIdAndStatus(roomId, AgendaStatus.VOTING).stream()
+                .filter(agenda -> agenda.getSubject() == AgendaSubject.CUSTOM)
+                .forEach(agenda -> {
+                    agenda.expire();
+                    agendaChangePublisher.expired(actor, agenda);
+                });
+    }
+
+    /**
      * 최종 확정 투표를 연다 (C-01). FINAL_PLAN 안건과 동의·반대 선지를 만들고, 연 사람의 동의 표를 넣고, 방을 REVIEWING으로 바꿔 보드를 잠근다.
      *
      * <p>방이 PLANNING이 되는 길은 설문 3항목이 모두 결정됐을 때(5-2)뿐이라, PLANNING인지만 보면 "설문 항목이 모두 결정됨" 조건도 충족된다.
      * 반대·미결로 PLANNING에 돌아온 뒤 다시 열면 다음 회차가 된다. 활동 멤버가 연 사람 혼자면 그 동의 표로 바로 만장일치가 되어 FINALIZED까지 간다.
+     *
+     * <p>최종 투표는 계획을 다 정했다는 뜻이라 자유 안건(V-09)과 함께 진행하지 않는다. 투표 중인 자유 안건은 여기서 미결로 끝내고, 반대로 PLANNING에
+     * 돌아오면 다음 회차(V-04)로 다시 연다. PLANNING 방에는 투표 중인 설문 안건이 없어 자유 안건만 걸린다.
      */
     @Transactional
     public AgendaDetailResponse openFinalReview(Long roomId, Long userId) {
@@ -786,6 +884,8 @@ public class AgendaService {
         AgendaOption agree = AgendaOption.finalPlan(agenda, FinalPlanChoice.AGREE);
         agendaOptionRepository.saveAll(
                 List.of(agree, AgendaOption.finalPlan(agenda, FinalPlanChoice.REJECT)));
+        // 최종 확정 안건을 만든 뒤에 끝낸다. D-1이 지나 안건을 못 열면 그 전에 예외가 나서 자유 안건은 그대로 남는다
+        expireVotingCustomAgendas(me, roomId);
 
         // 1인 방이면 아래 판정에서 바로 FINALIZED가 되므로, 방을 먼저 REVIEWING으로 바꾼다
         room.startReview();
