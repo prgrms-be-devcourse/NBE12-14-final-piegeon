@@ -219,7 +219,7 @@ public class ChangeLogStreamService {
         }
 
         private synchronized void replace() {
-            send(SseEmitter.event().name("stream.replaced"));
+            send(SseEmitter.event().name("stream.replaced").data(""));
             emitter.complete();
         }
 
