@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AgendaCard, CommentList } from "@/components/AgendaCard";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { useRoom } from "@/components/room";
@@ -199,7 +199,13 @@ function FinalReview({
   const { roomId } = useRoom();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const { confirm, dialog } = useConfirm();
+  const { confirm, dialog, cancel } = useConfirm();
+
+  // 확인창이 떠 있는 동안 다른 멤버가 먼저 투표를 열면 화면이 투표 중으로 바뀌어 확인창이 안 보이게 된다.
+  // 이때 닫아 두지 않으면, 반대가 나와 다시 일정을 고치는 화면으로 돌아올 때 예전 확인창이 저절로 다시 뜬다
+  useEffect(() => {
+    if (status !== "PLANNING") cancel();
+  }, [status, cancel]);
 
   if (status === "REVIEWING" && finalAgenda) {
     return (
