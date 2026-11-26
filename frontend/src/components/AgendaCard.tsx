@@ -13,7 +13,7 @@ const BUDGET_MAX = 99_999_999;
 /**
  * 안건 하나: 선택지별 표와 투표한 사람, 투표, 예산 선지 추가·삭제, 다음 회차, 댓글
  *
- * @param latestRound 같은 주제의 가장 최근 회차. 이 카드보다 크면 이미 다음 회차가 열린 지난 회차다
+ * @param latestRound 같은 주제(자유 안건은 같은 제목)의 가장 최근 회차. 이 카드보다 크면 이미 다음 회차가 열린 지난 회차다
  */
 export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latestRound?: number }) {
   const { roomId, room, myMember } = useRoom();
@@ -30,7 +30,11 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
 
   const a: AgendaDetailResponse | undefined = detail.data;
   const isFinal = item.subject === "FINAL_PLAN";
-  const roomAllowsVote = room.status === "SURVEYING" || room.status === "REVIEWING";
+  const isCustom = item.subject === "CUSTOM";
+  // 자유 안건은 일정을 짜는 중(PLANNING)에도 투표하고 다음 회차를 열 수 있다
+  const roomAllowsVote =
+    room.status === "SURVEYING" || room.status === "REVIEWING" || (isCustom && room.status === "PLANNING");
+  const roomAllowsReopen = room.status === "SURVEYING" || (isCustom && room.status === "PLANNING");
   const canVote = Boolean(a && a.status === "VOTING" && a.eligible && roomAllowsVote);
   const reopened = latestRound !== undefined && latestRound > item.round;
 
@@ -214,7 +218,7 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
         </form>
       )}
 
-      {item.status === "EXPIRED" && !isFinal && (room.status === "SURVEYING" || reopened) && (
+      {item.status === "EXPIRED" && !isFinal && (roomAllowsReopen || reopened) && (
         <div className="row">
           <button
             type="button"

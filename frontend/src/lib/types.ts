@@ -132,7 +132,8 @@ export interface SurveyMeResponse {
 }
 
 // ---------- 안건(같이 정하기) ----------
-export type AgendaSubject = "BUDGET" | "STAY" | "PACE" | "FINAL_PLAN";
+// CUSTOM은 멤버가 직접 연 자유 안건이다. 주제 이름이 title이고, 같은 방에서 title이 겹치지 않는다
+export type AgendaSubject = "BUDGET" | "STAY" | "PACE" | "FINAL_PLAN" | "CUSTOM";
 export type AgendaStatus = "VOTING" | "RESOLVED" | "EXPIRED";
 
 export interface MemberRef {
@@ -158,6 +159,11 @@ export interface AgendaListItem {
   eligible: boolean;
   myOptionId: number | null;
   resolvedOption: OptionRef | null;
+}
+
+export interface CreateAgendaRequest {
+  title: string;
+  options: string[];
 }
 
 export interface AgendaListResponse {

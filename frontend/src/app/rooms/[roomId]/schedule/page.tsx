@@ -74,6 +74,9 @@ export default function SchedulePage() {
       <FinalReview
         status={status}
         finalAgenda={finalAgenda ?? null}
+        openCustomTitles={(agendas.data?.agendas ?? [])
+          .filter((a) => a.subject === "CUSTOM" && a.status === "VOTING")
+          .map((a) => a.title)}
         onOpened={async () => {
           await reloadRoom();
           await agendas.reload();
@@ -168,10 +171,13 @@ export default function SchedulePage() {
 function FinalReview({
   status,
   finalAgenda,
+  openCustomTitles,
   onOpened,
 }: {
   status: string;
   finalAgenda: import("@/lib/types").AgendaListItem | null;
+  /** 아직 투표 중인 자유 안건 제목. 최종 투표를 열면 이 안건들은 못 정한 채로 끝난다 */
+  openCustomTitles: string[];
   onOpened: () => Promise<void>;
 }) {
   const { roomId } = useRoom();
@@ -205,7 +211,13 @@ function FinalReview({
         className="btn btn-accent"
         disabled={busy}
         onClick={async () => {
-          if (!window.confirm("최종 확정 투표를 열까요? 투표 중에는 일정을 고칠 수 없어요.")) return;
+          const unresolved =
+            openCustomTitles.length > 0
+              ? `\n\n아직 정하지 못한 안건이 ${openCustomTitles.length}개 있어요.\n${openCustomTitles
+                  .map((t) => `- ${t}`)
+                  .join("\n")}\n최종 투표를 열면 이 안건들은 못 정한 채로 끝나요.`
+              : "";
+          if (!window.confirm(`최종 확정 투표를 열까요? 투표 중에는 일정을 고칠 수 없어요.${unresolved}`)) return;
           setBusy(true);
           setError(null);
           try {

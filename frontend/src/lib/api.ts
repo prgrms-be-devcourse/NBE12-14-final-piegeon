@@ -3,6 +3,7 @@ import type {
   AddItemResponse,
   AgendaDetailResponse,
   AgendaListResponse,
+  CreateAgendaRequest,
   ApiEnvelope,
   ChangeLogPageResponse,
   CommentListResponse,
@@ -116,6 +117,8 @@ export const api = {
 
   // 같이 정하기
   agendas: (roomId: number | string) => get<AgendaListResponse>(`${room(roomId)}/agendas`),
+  createAgenda: (roomId: number | string, req: CreateAgendaRequest) =>
+    post<AgendaDetailResponse>(`${room(roomId)}/agendas`, req),
   agenda: (roomId: number | string, agendaId: number) =>
     get<AgendaDetailResponse>(`${room(roomId)}/agendas/${agendaId}`),
   vote: (roomId: number | string, agendaId: number, optionId: number, comment?: string) =>
