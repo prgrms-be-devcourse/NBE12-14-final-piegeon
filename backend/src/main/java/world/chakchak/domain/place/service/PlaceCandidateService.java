@@ -18,7 +18,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import world.chakchak.domain.changelog.entity.ActionStatus;
 import world.chakchak.domain.changelog.entity.EntityType;
 import world.chakchak.domain.changelog.entity.EventKind;
+import world.chakchak.domain.changelog.event.RoomEvent;
 import world.chakchak.domain.changelog.service.ChangeLogService;
+import world.chakchak.domain.comment.dto.CommentCreatedEvent;
 import world.chakchak.domain.comment.dto.CommentListResponse;
 import world.chakchak.domain.comment.dto.CommentRequest;
 import world.chakchak.domain.comment.dto.CommentResponse;
@@ -26,6 +28,7 @@ import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.NotFullyAgreedData;
+import world.chakchak.domain.place.dto.PlaceAgreementChangedEvent;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
@@ -157,9 +160,15 @@ public class PlaceCandidateService {
         placeReactionRepository.save(
                 PlaceReaction.create(candidate, member, PlaceReactionType.WANT));
 
-        // TODO change_log PLACE_REGISTERED 기록 (PR #32에서 ChangeLogService가 빠짐. 기록 방식이 다시 정해지면 추가)
-
-        // TODO 커밋 후 SSE place.registered (data는 이 메서드의 응답과 같은 객체)
+        // 예: "광장시장: 후보로 올라왔어요". 기록이 남으면 커밋 뒤 activity로 방 전원에게 간다
+        changeLogService.record(
+                room,
+                member,
+                EntityType.PLACE_CANDIDATE,
+                candidate.getId(),
+                EventKind.PLACE_REGISTERED,
+                ActionStatus.CREATE,
+                candidate.getName() + ": 후보로 올라왔어요");
 
         // 칸 계산용 인원도 잠금 안에서 센다. 잠금 밖에서 세면 그 사이 들어오거나 나간 사람이 반영되지 않는다.
         long activeMemberCount = roomMemberService.countActiveMembers(roomId);
@@ -418,7 +427,13 @@ public class PlaceCandidateService {
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND);
         }
-        // TODO SSE (커밋 후): comment.created
+        // 기록은 남기지 않고 소식만 보낸다. 커밋된 뒤에 나간다 (ChangeLogStreamListener)
+        eventPublisher.publishEvent(
+                new RoomEvent(
+                        roomId,
+                        null,
+                        "comment.created",
+                        new CommentCreatedEvent(null, candidate.getId(), response)));
         return response;
     }
 
@@ -524,7 +539,14 @@ public class PlaceCandidateService {
                             + " → "
                             + detail.stage().getLabel());
         }
-        // TODO 커밋 후 SSE place.reaction_changed (보드 카드 갱신용. 명세에 data 모양이 정해지면 추가)
+        // 칸이 그대로여도 가고 싶어요 수는 바뀌었을 수 있다. 기록 없이 소식만 보내서 다른 사람 보드를 새로 그리게 한다
+        eventPublisher.publishEvent(
+                new RoomEvent(
+                        room.getId(),
+                        null,
+                        "place.agreement_changed",
+                        new PlaceAgreementChangedEvent(
+                                candidate.getId(), detail.stage(), detail.agreeCount())));
         return detail;
     }
 
