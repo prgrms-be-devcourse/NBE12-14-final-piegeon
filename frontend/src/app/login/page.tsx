@@ -25,7 +25,8 @@ function validate(email: string, password: string): Errors {
 }
 
 const FIELD_ORDER: Field[] = ["email", "password"];
-const INVALID_INPUT: React.CSSProperties = { borderColor: "var(--accent-strong)" };
+// 입력칸 테두리는 box-shadow로 그리므로 에러 색도 box-shadow로 바꾼다
+const INVALID_INPUT: React.CSSProperties = { boxShadow: "inset 0 0 0 1.5px var(--accent-strong)" };
 
 function FieldError({ id, error }: { id: string; error?: string }) {
   return error ? (
