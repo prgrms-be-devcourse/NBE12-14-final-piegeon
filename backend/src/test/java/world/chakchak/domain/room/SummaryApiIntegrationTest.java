@@ -26,6 +26,8 @@ import world.chakchak.domain.changelog.entity.ChangeLog;
 import world.chakchak.domain.changelog.entity.EntityType;
 import world.chakchak.domain.changelog.entity.EventKind;
 import world.chakchak.domain.changelog.repository.ChangeLogRepository;
+import world.chakchak.domain.place.entity.PlaceCandidate;
+import world.chakchak.domain.place.repository.PlaceCandidateRepository;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomMember;
 import world.chakchak.domain.room.entity.RoomStatus;
@@ -44,6 +46,7 @@ class SummaryApiIntegrationTest {
     @Autowired private RoomRepository roomRepository;
     @Autowired private RoomMemberRepository roomMemberRepository;
     @Autowired private ChangeLogRepository changeLogRepository;
+    @Autowired private PlaceCandidateRepository placeCandidateRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
@@ -210,17 +213,30 @@ class SummaryApiIntegrationTest {
     }
 
     private void saveChange(Room room, RoomMember actor, EventKind kind, String summary) {
+        boolean placeRegistered = kind == EventKind.PLACE_REGISTERED;
         changeLogRepository.save(
                 ChangeLog.create(
                         room,
                         actor,
-                        kind == EventKind.PLACE_REGISTERED
-                                ? EntityType.PLACE_CANDIDATE
-                                : EntityType.AGENDA,
-                        1L,
+                        placeRegistered ? EntityType.PLACE_CANDIDATE : EntityType.AGENDA,
+                        // 지워진 장소의 등록 기록은 요약에서 빠지므로, 실제 후보를 저장하고 그 id로 남긴다
+                        placeRegistered ? savePlace(room, actor, summary).getId() : 1L,
                         kind,
                         ActionStatus.CREATE,
                         summary));
+    }
+
+    private PlaceCandidate savePlace(Room room, RoomMember suggestedBy, String name) {
+        return placeCandidateRepository.saveAndFlush(
+                PlaceCandidate.create(
+                        room,
+                        "place-" + UUID.randomUUID(),
+                        name,
+                        "market",
+                        "부산",
+                        "https://maps.google.com/?cid=1",
+                        null,
+                        suggestedBy));
     }
 
     private String uniqueEmail() {

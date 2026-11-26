@@ -58,7 +58,7 @@ export function useRoomEvents(roomId: string, enabled: boolean) {
     });
     // 나간 멤버의 표가 모든 안건에서 빠지므로 전부 다시 부른다
     source.addEventListener("member.left", refreshAll);
-    // 표 수, 코멘트, 방 만료는 기록이 없는 일시 이벤트라 activity로 오지 않는다
+    // 표 수, 코멘트, 가고 싶어요 수, 방 만료는 기록이 없는 일시 이벤트라 activity로 오지 않는다
     source.addEventListener("vote.updated", (e) => {
       const data = parse<{ agendaId: number }>(e);
       requestRefresh(data ? [topics.agenda(data.agendaId)] : undefined);
@@ -69,6 +69,8 @@ export function useRoomEvents(roomId: string, enabled: boolean) {
       else if (data?.placeId != null) requestRefresh([topics.placeComments(data.placeId)]);
       else refreshAll();
     });
+    // 가고 싶어요 수는 장소 보드(화면 공통 데이터)만 바꾸므로 안건 카드는 다시 부르지 않는다
+    source.addEventListener("place.agreement_changed", () => requestRefresh([]));
     source.addEventListener("room.status_changed", refreshAll);
     source.addEventListener("resync.required", refreshAll);
     return () => source.close();

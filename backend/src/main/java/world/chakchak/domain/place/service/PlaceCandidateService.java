@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -17,6 +18,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import world.chakchak.domain.changelog.entity.ActionStatus;
 import world.chakchak.domain.changelog.entity.EntityType;
 import world.chakchak.domain.changelog.entity.EventKind;
+import world.chakchak.domain.changelog.event.RoomEvent;
 import world.chakchak.domain.changelog.service.ChangeLogService;
 import world.chakchak.domain.comment.dto.CommentListResponse;
 import world.chakchak.domain.comment.dto.CommentRequest;
@@ -37,6 +39,7 @@ import world.chakchak.domain.place.entity.PlaceCandidate;
 import world.chakchak.domain.place.entity.PlaceReaction;
 import world.chakchak.domain.place.entity.PlaceReactionType;
 import world.chakchak.domain.place.errorcode.PlaceErrorCode;
+import world.chakchak.domain.place.event.PlaceAgreementChangedEvent;
 import world.chakchak.domain.place.repository.PlaceCandidateRepository;
 import world.chakchak.domain.place.repository.PlaceReactionRepository;
 import world.chakchak.domain.room.entity.Room;
@@ -55,6 +58,8 @@ import world.chakchak.global.error.CommonErrorCode;
 @RequiredArgsConstructor
 public class PlaceCandidateService {
 
+    static final String PLACE_AGREEMENT_CHANGED = "place.agreement_changed";
+
     // 여행 하루에 올릴 수 있는 후보 수 (한도 = 여행 일수 x 10)
     private static final int CANDIDATES_PER_DAY = 10;
 
@@ -72,6 +77,8 @@ public class PlaceCandidateService {
     private final PlaceReactionRepository placeReactionRepository;
     private final CommentService commentService;
     private final ChangeLogService changeLogService;
+    // 변경 기록에 남기지 않는 실시간 소식(반응)을 보낸다. 커밋된 뒤에 SSE로 나간다 (ChangeLogStreamListener)
+    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -154,9 +161,15 @@ public class PlaceCandidateService {
         placeReactionRepository.save(
                 PlaceReaction.create(candidate, member, PlaceReactionType.WANT));
 
-        // TODO change_log PLACE_REGISTERED 기록 (PR #32에서 ChangeLogService가 빠짐. 기록 방식이 다시 정해지면 추가)
-
-        // TODO 커밋 후 SSE place.registered (data는 이 메서드의 응답과 같은 객체)
+        // 예: "광장시장: 후보로 올라왔어요". 기록이 남으면 커밋 뒤 activity로 방 전원에게 간다
+        changeLogService.record(
+                room,
+                member,
+                EntityType.PLACE_CANDIDATE,
+                candidate.getId(),
+                EventKind.PLACE_REGISTERED,
+                ActionStatus.CREATE,
+                candidate.getName() + ": 후보로 올라왔어요");
 
         // 칸 계산용 인원도 잠금 안에서 센다. 잠금 밖에서 세면 그 사이 들어오거나 나간 사람이 반영되지 않는다.
         long activeMemberCount = roomMemberService.countActiveMembers(roomId);
@@ -239,15 +252,17 @@ public class PlaceCandidateService {
         Room room = roomService.getForUpdate(roomId);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
         PlaceCandidate candidate = getReactableCandidate(room, placeId);
+        Optional<PlaceReaction> mine =
+                placeReactionRepository.findByPlaceCandidateAndMember(candidate, me);
+        // 같은 버튼을 다시 보냈다. 바뀐 게 없으니 이력도 소식도 남기지 않는다
+        if (mine.isPresent() && mine.get().getReaction() == reaction) {
+            return toDetail(roomId, candidate);
+        }
         PlaceStage before = currentStage(candidate, roomId);
 
-        placeReactionRepository
-                .findByPlaceCandidateAndMember(candidate, me)
-                .ifPresentOrElse(
-                        mine -> mine.change(reaction),
-                        () ->
-                                placeReactionRepository.save(
-                                        PlaceReaction.create(candidate, me, reaction)));
+        mine.ifPresentOrElse(
+                existing -> existing.change(reaction),
+                () -> placeReactionRepository.save(PlaceReaction.create(candidate, me, reaction)));
 
         return detailAfterChange(room, me, candidate, before);
     }
@@ -262,11 +277,15 @@ public class PlaceCandidateService {
         Room room = roomService.getForUpdate(roomId);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
         PlaceCandidate candidate = getReactableCandidate(room, placeId);
+        Optional<PlaceReaction> mine =
+                placeReactionRepository.findByPlaceCandidateAndMember(candidate, me);
+        // 누른 게 없다. 바뀐 게 없으니 이력도 소식도 남기지 않는다
+        if (mine.isEmpty()) {
+            return toDetail(roomId, candidate);
+        }
         PlaceStage before = currentStage(candidate, roomId);
 
-        placeReactionRepository
-                .findByPlaceCandidateAndMember(candidate, me)
-                .ifPresent(placeReactionRepository::delete);
+        placeReactionRepository.delete(mine.get());
 
         return detailAfterChange(room, me, candidate, before);
     }
@@ -316,7 +335,6 @@ public class PlaceCandidateService {
                 EventKind.PLACE_CONFIRMED,
                 ActionStatus.CONFIRM,
                 candidate.getName() + ": 확정됐어요");
-        // TODO 커밋 후 SSE place.confirmed (data는 PlaceConfirmedEvent(placeId, confirmedAt))
         return new PlaceConfirmResponse(candidate.getId(), candidate.getConfirmedAt());
     }
 
@@ -353,7 +371,6 @@ public class PlaceCandidateService {
                 EventKind.PLACE_DELETED,
                 ActionStatus.DELETE,
                 candidate.getName() + ": 삭제됐어요");
-        // TODO 커밋 후 SSE place.deleted (data는 placeId)
     }
 
     /**
@@ -503,7 +520,7 @@ public class PlaceCandidateService {
                 candidate.isConfirmed(), wantCount, roomMemberService.countActiveMembers(roomId));
     }
 
-    // 바뀐 반응으로 상세를 다시 만들고, 칸이 바뀌었으면 변경 이력을 남긴다.
+    // 반응이 실제로 바뀐 뒤에만 부른다. 바뀐 반응으로 상세를 다시 만들고, 칸이 바뀌었으면 변경 이력을 남긴다.
     // 같은 트랜잭션 안이라 방금 바꾼 반응이 상세에 그대로 보인다
     private PlaceDetailResponse detailAfterChange(
             Room room, RoomMember me, PlaceCandidate candidate, PlaceStage before) {
@@ -523,7 +540,14 @@ public class PlaceCandidateService {
                             + " → "
                             + detail.stage().getLabel());
         }
-        // TODO 커밋 후 SSE place.reaction_changed (보드 카드 갱신용. 명세에 data 모양이 정해지면 추가)
+        // 칸이 그대로여도 가고 싶어요 수는 바뀌었을 수 있다. 기록 없이 소식만 보내서 다른 사람 보드를 새로 그리게 한다
+        eventPublisher.publishEvent(
+                new RoomEvent(
+                        room.getId(),
+                        null,
+                        PLACE_AGREEMENT_CHANGED,
+                        new PlaceAgreementChangedEvent(
+                                candidate.getId(), detail.stage(), detail.agreeCount())));
         return detail;
     }
 

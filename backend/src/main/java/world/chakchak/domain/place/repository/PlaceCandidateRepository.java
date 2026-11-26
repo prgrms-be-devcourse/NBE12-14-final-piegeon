@@ -33,6 +33,14 @@ public interface PlaceCandidateRepository extends JpaRepository<PlaceCandidate, 
     List<PlaceCandidate> findAllByRoom_IdAndGooglePlaceIdIn(
             Long roomId, Collection<String> googlePlaceIds);
 
+    /**
+     * 주어진 id 중 아직 남아 있는 후보의 id. 비접속 요약에서 그 사이 지워진 장소를 빼는 데 쓴다. (H-02)
+     *
+     * <p>id만 필요해서 엔티티를 읽지 않고 IN 쿼리 한 번으로 확인한다.
+     */
+    @Query("select candidate.id from PlaceCandidate candidate where candidate.id in :ids")
+    List<Long> findExistingIds(@Param("ids") Collection<Long> ids);
+
     /** 이 방의 후보. 없거나 다른 방의 후보면 빈 값이라 PLACE_CANDIDATE_NOT_FOUND로 막는다 (P-08, P-09) */
     Optional<PlaceCandidate> findByIdAndRoom_Id(Long id, Long roomId);
 

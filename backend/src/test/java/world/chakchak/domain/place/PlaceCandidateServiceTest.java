@@ -25,10 +25,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import world.chakchak.IntegrationTest;
+import world.chakchak.domain.changelog.event.RoomEvent;
 import world.chakchak.domain.comment.dto.CommentRequest;
+import world.chakchak.domain.comment.event.CommentCreatedEvent;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.NotFullyAgreedData;
@@ -46,6 +50,7 @@ import world.chakchak.domain.place.entity.PlaceCandidate;
 import world.chakchak.domain.place.entity.PlaceReaction;
 import world.chakchak.domain.place.entity.PlaceReactionType;
 import world.chakchak.domain.place.errorcode.PlaceErrorCode;
+import world.chakchak.domain.place.event.PlaceAgreementChangedEvent;
 import world.chakchak.domain.place.repository.PlaceCandidateRepository;
 import world.chakchak.domain.place.repository.PlaceReactionRepository;
 import world.chakchak.domain.place.service.PlaceCandidateService;
@@ -67,6 +72,7 @@ import world.chakchak.global.error.CommonErrorCode;
  * <p>Google 조회만 가짜로 바꾸고 register를 그대로 부른다. 그래야 트랜잭션이 실제로 열리는지, 멤버의 user를 트랜잭션 안에서 읽는지까지 함께 확인된다.
  */
 @IntegrationTest
+@RecordApplicationEvents
 class PlaceCandidateServiceTest {
 
     @Autowired private PlaceCandidateService placeCandidateService;
@@ -78,6 +84,8 @@ class PlaceCandidateServiceTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private Clock clock;
     @Autowired private PlatformTransactionManager transactionManager;
+    // 서비스가 보낸 실시간 소식(RoomEvent). 테스트마다 비워진다
+    @Autowired private ApplicationEvents applicationEvents;
 
     // 다른 트랜잭션이 잠금이나 저장한 줄을 쥐고 있는 시간
     private static final long HOLD_MILLIS = 500;
@@ -1390,6 +1398,148 @@ class PlaceCandidateServiceTest {
     // 사진 없이 등록된 장소로 만든다
     private void removePhoto(long placeId) {
         jdbcTemplate.update("UPDATE place_candidate SET photo_name = NULL WHERE id = ?", placeId);
+    }
+
+    @Nested
+    class RealtimeEvents {
+
+        @Test
+        @DisplayName("후보를 올리면 '광장시장: 후보로 올라왔어요' 변경 이력이 남고 activity로 나간다")
+        void registerRecordsChangeLog() {
+            Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+            RoomMember minsu = saveMember(room, "민수");
+
+            register(minsu, "place-1");
+
+            assertThat(registerLogs(room)).containsExactly("광장시장: 후보로 올라왔어요");
+            assertThat(roomEvents("activity")).hasSize(1);
+            assertThat(roomEvents("activity").getFirst().changeLogId()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("칸이 그대로인 반응도 place.agreement_changed를 기록 id 없이 보낸다")
+        void reactSendsAgreementChanged() {
+            Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+            RoomMember minsu = saveMember(room, "민수");
+            RoomMember jiyoung = saveMember(room, "지영");
+            RoomMember hoon = saveMember(room, "훈");
+            long placeId = register(minsu, "place-1").placeId();
+            press(jiyoung, placeId, PlaceReactionType.NOPE);
+            applicationEvents.clear();
+
+            press(hoon, placeId, PlaceReactionType.NOPE);
+
+            List<RoomEvent> events = roomEvents("place.agreement_changed");
+            assertThat(events).hasSize(1);
+            assertThat(events.getFirst().roomId()).isEqualTo(room.getId());
+            assertThat(events.getFirst().changeLogId()).isNull();
+            assertThat(events.getFirst().data())
+                    .isEqualTo(new PlaceAgreementChangedEvent(placeId, PlaceStage.COMPLEMENT, 1));
+            assertThat(stageLogs(room)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("반응을 취소해도 place.agreement_changed를 보낸다")
+        void cancelSendsAgreementChanged() {
+            Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+            RoomMember minsu = saveMember(room, "민수");
+            RoomMember jiyoung = saveMember(room, "지영");
+            long placeId = register(minsu, "place-1").placeId();
+            press(jiyoung, placeId, PlaceReactionType.WANT);
+            applicationEvents.clear();
+
+            cancel(jiyoung, placeId);
+
+            assertThat(roomEvents("place.agreement_changed"))
+                    .extracting(RoomEvent::data)
+                    .containsExactly(
+                            new PlaceAgreementChangedEvent(placeId, PlaceStage.COMPLEMENT, 1));
+        }
+
+        @Test
+        @DisplayName("같은 반응을 다시 보내면 place.agreement_changed를 보내지 않는다")
+        void sameReactionAgainSendsNothing() {
+            Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+            RoomMember minsu = saveMember(room, "민수");
+            RoomMember jiyoung = saveMember(room, "지영");
+            long placeId = register(minsu, "place-1").placeId();
+            press(jiyoung, placeId, PlaceReactionType.NOPE);
+            applicationEvents.clear();
+
+            PlaceDetailResponse detail = press(jiyoung, placeId, PlaceReactionType.NOPE);
+
+            assertThat(roomEvents("place.agreement_changed")).isEmpty();
+            assertThat(detail.agreeCount()).isEqualTo(1);
+            assertThat(detail.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+        }
+
+        @Test
+        @DisplayName("누른 반응이 없는데 취소하면 place.agreement_changed를 보내지 않는다")
+        void cancelWithoutReactionSendsNothing() {
+            Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+            RoomMember minsu = saveMember(room, "민수");
+            RoomMember jiyoung = saveMember(room, "지영");
+            long placeId = register(minsu, "place-1").placeId();
+            applicationEvents.clear();
+
+            PlaceDetailResponse detail = cancel(jiyoung, placeId);
+
+            assertThat(roomEvents("place.agreement_changed")).isEmpty();
+            assertThat(detail.agreeCount()).isEqualTo(1);
+            assertThat(detail.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+        }
+
+        @Test
+        @DisplayName("장소 코멘트를 남기면 comment.created를 기록 id 없이 보낸다")
+        void commentSendsCommentCreated() {
+            Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+            RoomMember minsu = saveMember(room, "민수");
+            long placeId = register(minsu, "place-1").placeId();
+            applicationEvents.clear();
+
+            comment(minsu, placeId, "여기 줄 길어요");
+
+            List<RoomEvent> events = roomEvents("comment.created");
+            assertThat(events).hasSize(1);
+            assertThat(events.getFirst().changeLogId()).isNull();
+            CommentCreatedEvent data = (CommentCreatedEvent) events.getFirst().data();
+            assertThat(data.agendaId()).isNull();
+            assertThat(data.placeId()).isEqualTo(placeId);
+            assertThat(data.comment().body()).isEqualTo("여기 줄 길어요");
+            assertThat(data.comment().memberId()).isEqualTo(minsu.getId());
+        }
+
+        @Test
+        @DisplayName("코멘트가 거절되면 comment.created를 보내지 않는다")
+        void rejectedCommentSendsNothing() {
+            Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+            RoomMember minsu = saveMember(room, "민수");
+            long placeId = register(minsu, "place-1").placeId();
+            jdbcTemplate.update(
+                    "UPDATE plan_room SET status = 'FINALIZED' WHERE id = ?", room.getId());
+            applicationEvents.clear();
+
+            assertThatThrownBy(() -> comment(minsu, placeId, "늦은 코멘트"))
+                    .isInstanceOf(BusinessException.class);
+
+            assertThat(roomEvents("comment.created")).isEmpty();
+        }
+
+        // 이름이 같은 RoomEvent만, 보낸 순서대로
+        private List<RoomEvent> roomEvents(String name) {
+            return applicationEvents.stream(RoomEvent.class)
+                    .filter(event -> event.name().equals(name))
+                    .toList();
+        }
+
+        // 이 방의 등록 이력 문구, 남긴 순서대로
+        private List<String> registerLogs(Room room) {
+            return jdbcTemplate.queryForList(
+                    "SELECT summary FROM change_log WHERE plan_room_id = ?"
+                            + " AND event_kind = 'PLACE_REGISTERED' ORDER BY id",
+                    String.class,
+                    room.getId());
+        }
     }
 
     private static void sleep(long millis) {
