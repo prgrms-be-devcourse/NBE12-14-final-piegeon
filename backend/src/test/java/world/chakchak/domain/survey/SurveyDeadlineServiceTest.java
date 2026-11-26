@@ -21,6 +21,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import world.chakchak.domain.agenda.service.AgendaChangePublisher;
 import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.domain.room.entity.Room;
 import world.chakchak.domain.room.entity.RoomStatus;
@@ -42,6 +43,7 @@ class SurveyDeadlineServiceTest {
     @Mock private RoomMemberService roomMemberService;
     @Mock private SurveyResponseService surveyResponseService;
     @Mock private AgendaService agendaService;
+    @Mock private AgendaChangePublisher agendaChangePublisher;
     @Mock private Clock clock;
 
     @InjectMocks private SurveyDeadlineService surveyDeadlineService;
@@ -108,10 +110,11 @@ class SurveyDeadlineServiceTest {
 
                 assertThat(room.getSurveyClosedAt()).isEqualTo(deadline);
                 verify(agendaService).openSurveyAgendas(room, deadline);
+                verify(agendaChangePublisher, never()).roomExpired(any());
             }
 
             @Test
-            @DisplayName("의견 마감이 지났는데 제출이 0건이면 방이 EXPIRED가 되고 안건을 열지 않는다")
+            @DisplayName("의견 마감이 지났는데 제출이 0건이면 방이 EXPIRED가 되고 안건을 열지 않고 방 상태 변경을 알린다")
             void expiresRoomWithoutResponses() {
                 givenLockedRoomAt(room.getOpinionDeadlineAt());
                 given(roomMemberService.countActiveMembers(ROOM_ID)).willReturn(2L);
@@ -122,6 +125,7 @@ class SurveyDeadlineServiceTest {
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.EXPIRED);
                 assertThat(room.getSurveyClosedAt()).isNull();
                 verifyNoInteractions(agendaService);
+                verify(agendaChangePublisher).roomExpired(room);
             }
         }
 
@@ -152,6 +156,17 @@ class SurveyDeadlineServiceTest {
                 surveyDeadlineService.closeOverdueSurvey(ROOM_ID);
 
                 verify(agendaService, never()).openSurveyAgendas(any(), any());
+            }
+
+            @Test
+            @DisplayName("잠금을 기다리는 사이 방이 이미 만료됐으면 방 상태 변경을 다시 알리지 않는다")
+            void doesNotNotifyAgainWhenAlreadyExpired() {
+                ReflectionTestUtils.setField(room, "status", RoomStatus.EXPIRED);
+                givenLockedRoomAt(room.getOpinionDeadlineAt());
+
+                surveyDeadlineService.closeOverdueSurvey(ROOM_ID);
+
+                verifyNoInteractions(agendaService, agendaChangePublisher);
             }
         }
     }
