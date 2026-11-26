@@ -821,10 +821,7 @@ public class AgendaService {
 
         AgendaItem agenda =
                 AgendaItem.openCustom(
-                        room,
-                        title,
-                        Math.toIntExact(roomMemberService.countActiveMembers(roomId)),
-                        now);
+                        room, title, roomMemberService.countActiveMembers(roomId), now);
         try {
             agendaItemRepository.saveAndFlush(agenda);
         } catch (DataIntegrityViolationException e) {

@@ -335,7 +335,7 @@ public class AgendaItem extends BaseEntity {
      * @param title 주제 이름. 같은 방의 자유 안건끼리 겹치지 않고, 열린 뒤에는 바꾸지 않는다
      */
     public static AgendaItem openCustom(
-            Room room, String title, int totalVoter, LocalDateTime now) {
+            Room room, String title, long totalVoter, LocalDateTime now) {
         return create(
                 room, AgendaSubject.CUSTOM, 1, title, totalVoter, now, now.plusDays(VOTING_DAYS));
     }
@@ -363,7 +363,7 @@ public class AgendaItem extends BaseEntity {
      */
     // 출발일은 room에서 직접 꺼내므로 startDate 인자를 없앴다. service가 다른 날짜를 넘길 여지가 사라진다.
     public AgendaItem openNextRound(long totalVoter, LocalDateTime now) {
-        if (!subject.isSurvey() || status != AgendaStatus.EXPIRED) {
+        if (!subject.isReopenable() || status != AgendaStatus.EXPIRED) {
             throw new BusinessException(AgendaErrorCode.AGENDA_NOT_REOPENABLE);
         }
         // 다음 회차도 create로 만들어 D-1 이후 생성 금지와 D-1 상한을 같은 규칙으로 적용한다.
