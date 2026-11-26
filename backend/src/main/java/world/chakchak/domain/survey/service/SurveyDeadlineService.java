@@ -7,8 +7,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import world.chakchak.domain.agenda.entity.AgendaItem;
+import world.chakchak.domain.agenda.service.AgendaChangePublisher;
 import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.domain.room.entity.Room;
+import world.chakchak.domain.room.entity.RoomStatus;
 import world.chakchak.domain.room.service.RoomMemberService;
 import world.chakchak.domain.room.service.RoomService;
 
@@ -21,6 +23,7 @@ public class SurveyDeadlineService {
     private final RoomMemberService roomMemberService;
     private final SurveyResponseService surveyResponseService;
     private final AgendaService agendaService;
+    private final AgendaChangePublisher agendaChangePublisher;
     private final Clock clock;
 
     /** 의견 마감이 지났는데 설문이 마감되지 않은 방을 찾는다. */
@@ -40,6 +43,7 @@ public class SurveyDeadlineService {
         if (!AgendaItem.canOpenAt(room, now)) {
             return;
         }
+        boolean wasSurveying = room.getStatus() == RoomStatus.SURVEYING;
         boolean closed =
                 room.closeSurveyIfReady(
                         roomMemberService.countActiveMembers(roomId),
@@ -47,6 +51,10 @@ public class SurveyDeadlineService {
                         now);
         if (closed) {
             agendaService.openSurveyAgendas(room, now);
+        }
+        // 제출이 0건이라 이번에 방이 만료됐다. 알리지 않으면 열려 있는 화면은 다시 불러오기 전까지 설문 중으로 보인다
+        if (wasSurveying && room.getStatus() == RoomStatus.EXPIRED) {
+            agendaChangePublisher.roomExpired(room);
         }
     }
 }
