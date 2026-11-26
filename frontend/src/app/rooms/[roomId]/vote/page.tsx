@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { AgendaCard } from "@/components/AgendaCard";
 import { useRoom } from "@/components/room";
 import { Loading, Notice } from "@/components/ui";
@@ -16,6 +17,15 @@ export default function VotePage() {
   // 주제별 가장 최근 회차. 이보다 앞선 미결 회차는 다음 회차 버튼을 막는다
   const latestRound = new Map<string, number>();
   for (const a of list) latestRound.set(a.subject, Math.max(latestRound.get(a.subject) ?? 0, a.round));
+  // 이미 맞춰진 것 중 펼쳐 본 안건. 그때 나눈 의견과 누가 뭘 골랐는지 다시 볼 수 있다
+  const [viewId, setViewId] = useState<number | null>(null);
+  const viewing = resolved.find((a) => a.agendaId === viewId);
+  const viewRef = useRef<HTMLDivElement>(null);
+
+  // 좁은 화면에서는 목록이 아래에 있어 펼친 카드가 화면 밖에 뜨므로 그쪽으로 옮긴다
+  useEffect(() => {
+    if (viewId !== null) viewRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [viewId]);
 
   return (
     <>
@@ -44,6 +54,17 @@ export default function VotePage() {
       )}
       <div className="with-panel" style={{ alignItems: "stretch" }}>
         <div className="stack grow" style={{ gap: 18 }}>
+          {viewing && (
+            <div ref={viewRef} className="stack" style={{ gap: 8 }}>
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <span className="small muted">이미 맞춰진 것 다시 보기</span>
+                <button type="button" className="btn btn-ghost" onClick={() => setViewId(null)}>
+                  닫기
+                </button>
+              </div>
+              <AgendaCard key={viewing.agendaId} item={viewing} />
+            </div>
+          )}
           {open.map((a) => (
             <AgendaCard key={a.agendaId} item={a} latestRound={latestRound.get(a.subject)} />
           ))}
@@ -63,14 +84,27 @@ export default function VotePage() {
             <h2 className="h3" id="ok-h">
               이미 맞춰진 것
             </h2>
+            <p className="small muted" style={{ margin: 0 }}>
+              누르면 그때 나눈 의견과 누가 뭘 골랐는지 볼 수 있어요
+            </p>
             {resolved.map((a) => (
-              <div key={a.agendaId} className="row" style={{ flexWrap: "nowrap", gap: 12 }}>
+              <button
+                key={a.agendaId}
+                type="button"
+                className="tile"
+                style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 12 }}
+                aria-pressed={viewId === a.agendaId}
+                onClick={() => setViewId(viewId === a.agendaId ? null : a.agendaId)}
+              >
                 <span className="stamp">착</span>
                 <span className="stack" style={{ gap: 0 }}>
                   <b>{a.resolvedOption?.label}</b>
-                  <span className="small muted">{a.title.replace("을 정해주세요", "").replace("를 정해주세요", "")}</span>
+                  <small>
+                    {a.title.replace("을 정해주세요", "").replace("를 정해주세요", "")}
+                    {a.round > 1 && `, ${a.round}회차`}
+                  </small>
                 </span>
-              </div>
+              </button>
             ))}
           </aside>
         )}

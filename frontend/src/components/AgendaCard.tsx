@@ -5,7 +5,7 @@ import { useRoom } from "@/components/room";
 import { Avatar, Faces, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { dateTimeLabel, feedTime, remaining } from "@/lib/format";
-import { requestRefresh, useApi } from "@/lib/hooks";
+import { requestRefresh, topics, useApi } from "@/lib/hooks";
 import type { AgendaDetailResponse, AgendaListItem, CommentResponse } from "@/lib/types";
 
 const BUDGET_MAX = 99_999_999;
@@ -17,9 +17,10 @@ const BUDGET_MAX = 99_999_999;
  */
 export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latestRound?: number }) {
   const { roomId, room, myMember } = useRoom();
-  // 다른 멤버가 선지를 추가·삭제하면 표 수가 그대로라 실시간 신호(vote.updated)로 다시 불러온다
+  // 다른 멤버가 선지를 추가·삭제하면 표 수가 그대로라 실시간 신호(vote.updated)로 다시 불러온다. 이 안건의 신호에만 반응한다
   const detail = useApi(`agenda:${roomId}:${item.agendaId}`, () => api.agenda(roomId, item.agendaId), {
     live: true,
+    topic: topics.agenda(item.agendaId),
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,7 +40,8 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
     try {
       const next = await action();
       if (next) detail.setData(next);
-      requestRefresh();
+      // 이 카드는 응답으로 바꿨으니 목록 같은 화면 공통 데이터만 다시 부른다. 다른 카드는 건드리지 않는다
+      requestRefresh([]);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -56,6 +58,14 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
   }
 
   const rejectOption = a?.options.find((o) => o.value === "REJECT");
+  // 예산은 멤버가 추가한 선지가 뒤에 붙어 섞이므로 금액순으로 보여 준다. value가 원 단위 금액이다
+  const options = a
+    ? item.subject === "BUDGET"
+      ? [...a.options].sort((x, y) => Number(x.value) - Number(y.value))
+      : a.options
+    : [];
+  // 설문 답이 하나뿐이라 투표 없이 바로 정해진 안건
+  const bySurvey = item.status === "RESOLVED" && a !== undefined && a.options.every((o) => o.voteCount === 0);
 
   return (
     <section className="card" aria-labelledby={`agenda-${item.agendaId}`}>
@@ -79,10 +89,12 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
         </p>
       )}
 
+      {bySurvey && <p className="small muted">설문에서 모두 같은 답을 골라 투표 없이 정해졌어요</p>}
+
       {detail.loading && <p className="small muted">불러오는 중이에요</p>}
       {a && (
         <div className="opts">
-          {a.options.map((o) => {
+          {options.map((o) => {
             const mine = a.myOptionId === o.optionId;
             const ownOption = o.proposedBy && myMember && o.proposedBy.memberId === myMember.memberId;
             return (
@@ -102,7 +114,13 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
                     </span>
                   </span>
                   <span className="k">
-                    {mine ? "내 표" : o.voters.length === 0 ? "아직 아무도 안 골랐어요" : `${o.voters.map((v) => v.name).join(", ")}`}
+                    {mine
+                      ? "내 표"
+                      : o.voters.length > 0
+                        ? o.voters.map((v) => v.name).join(", ")
+                        : a.status === "VOTING"
+                          ? "아직 아무도 안 골랐어요"
+                          : "고른 사람이 없어요"}
                     {o.proposedBy && `, ${o.proposedBy.name}님이 추가`}
                   </span>
                 </button>
@@ -221,15 +239,17 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
       )}
 
       {error && <Notice kind="err">{error}</Notice>}
-      <AgendaComments agendaId={item.agendaId} />
+      <AgendaComments agendaId={item.agendaId} closed={item.status !== "VOTING"} />
     </section>
   );
 }
 
-function AgendaComments({ agendaId }: { agendaId: number }) {
+/** @param closed 투표가 끝난(정해졌거나 못 정하고 마감된) 안건이면 지난 의견은 보여 주되 새 의견은 받지 않는다. 이어서 할 이야기는 다음 회차에서 한다 */
+function AgendaComments({ agendaId, closed }: { agendaId: number; closed: boolean }) {
   const { roomId, room } = useRoom();
   const comments = useApi(`agenda-comments:${roomId}:${agendaId}`, () => api.agendaComments(roomId, agendaId), {
     live: true,
+    topic: topics.agendaComments(agendaId),
   });
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -259,8 +279,16 @@ function AgendaComments({ agendaId }: { agendaId: number }) {
           <label htmlFor={`c-${agendaId}`} className="sr-only">
             의견 남기기
           </label>
-          <input id={`c-${agendaId}`} className="in grow" maxLength={500} placeholder="의견 남기기" value={body} onChange={(e) => setBody(e.target.value)} />
-          <button type="submit" className="btn btn-accent" disabled={!body.trim()}>
+          <input
+            id={`c-${agendaId}`}
+            className="in grow"
+            maxLength={500}
+            placeholder={closed ? "끝난 안건에는 의견을 남길 수 없어요" : "의견 남기기"}
+            disabled={closed}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+          <button type="submit" className="btn btn-accent" disabled={closed || !body.trim()}>
             남기기
           </button>
         </form>
