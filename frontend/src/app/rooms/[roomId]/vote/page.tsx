@@ -62,7 +62,7 @@ export default function VotePage() {
                   닫기
                 </button>
               </div>
-              <AgendaCard item={viewing} />
+              <AgendaCard key={viewing.agendaId} item={viewing} />
             </div>
           )}
           {open.map((a) => (

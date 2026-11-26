@@ -239,13 +239,13 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
       )}
 
       {error && <Notice kind="err">{error}</Notice>}
-      <AgendaComments agendaId={item.agendaId} resolved={item.status === "RESOLVED"} />
+      <AgendaComments agendaId={item.agendaId} closed={item.status !== "VOTING"} />
     </section>
   );
 }
 
-/** @param resolved 정해진 안건이면 지난 의견은 보여 주되 새 의견은 받지 않는다 */
-function AgendaComments({ agendaId, resolved }: { agendaId: number; resolved: boolean }) {
+/** @param closed 투표가 끝난(정해졌거나 못 정하고 마감된) 안건이면 지난 의견은 보여 주되 새 의견은 받지 않는다. 이어서 할 이야기는 다음 회차에서 한다 */
+function AgendaComments({ agendaId, closed }: { agendaId: number; closed: boolean }) {
   const { roomId, room } = useRoom();
   const comments = useApi(`agenda-comments:${roomId}:${agendaId}`, () => api.agendaComments(roomId, agendaId), {
     live: true,
@@ -283,12 +283,12 @@ function AgendaComments({ agendaId, resolved }: { agendaId: number; resolved: bo
             id={`c-${agendaId}`}
             className="in grow"
             maxLength={500}
-            placeholder={resolved ? "정해진 안건에는 의견을 남길 수 없어요" : "의견 남기기"}
-            disabled={resolved}
+            placeholder={closed ? "끝난 안건에는 의견을 남길 수 없어요" : "의견 남기기"}
+            disabled={closed}
             value={body}
             onChange={(e) => setBody(e.target.value)}
           />
-          <button type="submit" className="btn btn-accent" disabled={resolved || !body.trim()}>
+          <button type="submit" className="btn btn-accent" disabled={closed || !body.trim()}>
             남기기
           </button>
         </form>
