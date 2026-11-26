@@ -8,9 +8,9 @@ public record SurveyOptionsResponse(
     public record Option(String value, String label) {}
 
     public record Limits(
-            int budgetMin,
-            int budgetMax,
-            int actPrefsMin,
-            int actPrefsMax,
-            int avoidNoteMaxLength) {}
+            long budgetMin,
+            long budgetMax,
+            long actPrefsMin,
+            long actPrefsMax,
+            long avoidNoteMaxLength) {}
 }

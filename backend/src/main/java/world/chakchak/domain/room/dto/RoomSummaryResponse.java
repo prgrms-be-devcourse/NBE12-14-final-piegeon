@@ -11,7 +11,7 @@ public record RoomSummaryResponse(
         LocalDate startDate,
         LocalDate endDate,
         RoomStatus status,
-        int memberCount,
+        long memberCount,
         LocalDateTime opinionDeadlineAt,
         boolean mySurveySubmitted) {
 
@@ -32,7 +32,7 @@ public record RoomSummaryResponse(
                 startDate,
                 endDate,
                 status,
-                Math.toIntExact(memberCount),
+                memberCount,
                 opinionDeadlineAt,
                 surveyResponseCount > 0);
     }
