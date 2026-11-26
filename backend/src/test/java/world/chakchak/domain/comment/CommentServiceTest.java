@@ -3,6 +3,7 @@ package world.chakchak.domain.comment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -13,14 +14,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 import world.chakchak.domain.agenda.entity.AgendaItem;
 import world.chakchak.domain.agenda.entity.AgendaSubject;
+import world.chakchak.domain.changelog.event.RoomEvent;
 import world.chakchak.domain.comment.dto.CommentResponse;
 import world.chakchak.domain.comment.entity.Comment;
+import world.chakchak.domain.comment.event.CommentCreatedEvent;
 import world.chakchak.domain.comment.repository.CommentRepository;
 import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.place.entity.PlaceCandidate;
@@ -34,8 +39,10 @@ class CommentServiceTest {
 
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final LocalDateTime NOW = LocalDateTime.of(2027, 6, 1, 12, 0);
+    private static final Long ROOM_ID = 1L;
 
     @Mock private CommentRepository commentRepository;
+    @Mock private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks private CommentService commentService;
 
@@ -106,7 +113,94 @@ class CommentServiceTest {
                 assertThat(saved.getAgendaItem()).isNull();
                 assertThat(saved.getBody()).isEqualTo("줄이 길대요");
             }
+
+            @Test
+            @DisplayName("안건 코멘트를 남기면 작성자의 방에 comment.created를 id 없이 보내고 data에 안건 id와 코멘트를 담는다")
+            void publishesAgendaCommentCreated() {
+                Clock clock = Clock.fixed(NOW.atZone(SEOUL).toInstant(), SEOUL);
+                Room room = roomWithId(RoomStatus.SURVEYING, clock);
+                RoomMember member =
+                        RoomMember.create(room, User.create("a@example.com", "민수", "hash"), clock);
+                AgendaItem agenda =
+                        AgendaItem.create(
+                                room, AgendaSubject.BUDGET, 1, "예산", 2, NOW, NOW.plusDays(3));
+                ReflectionTestUtils.setField(agenda, "id", 5L);
+                given(commentRepository.save(any(Comment.class)))
+                        .willAnswer(invocation -> withId(invocation.getArgument(0), 30L));
+
+                commentService.addOnAgenda(agenda, member, "100만원은 부담돼요");
+
+                RoomEvent event = publishedEvent();
+                assertThat(event.roomId()).isEqualTo(ROOM_ID);
+                assertThat(event.changeLogId()).isNull();
+                assertThat(event.name()).isEqualTo("comment.created");
+                assertThat(event.data())
+                        .isInstanceOfSatisfying(
+                                CommentCreatedEvent.class,
+                                data -> {
+                                    assertThat(data.agendaId()).isEqualTo(5L);
+                                    assertThat(data.placeId()).isNull();
+                                    assertThat(data.comment().commentId()).isEqualTo(30L);
+                                    assertThat(data.comment().name()).isEqualTo("민수");
+                                    assertThat(data.comment().body()).isEqualTo("100만원은 부담돼요");
+                                });
+            }
+
+            @Test
+            @DisplayName("장소 코멘트를 남기면 작성자의 방에 comment.created를 id 없이 보내고 data에 장소 id와 코멘트를 담는다")
+            void publishesPlaceCommentCreated() {
+                Clock clock = Clock.fixed(NOW.atZone(SEOUL).toInstant(), SEOUL);
+                Room room = roomWithId(RoomStatus.PLANNING, clock);
+                RoomMember member =
+                        RoomMember.create(room, User.create("a@example.com", "민수", "hash"), clock);
+                PlaceCandidate place = place(room, member);
+                ReflectionTestUtils.setField(place, "id", 7L);
+                given(commentRepository.save(any(Comment.class)))
+                        .willAnswer(invocation -> withId(invocation.getArgument(0), 31L));
+
+                commentService.addOnPlace(place, member, "줄이 길대요");
+
+                RoomEvent event = publishedEvent();
+                assertThat(event.roomId()).isEqualTo(ROOM_ID);
+                assertThat(event.changeLogId()).isNull();
+                assertThat(event.name()).isEqualTo("comment.created");
+                assertThat(event.data())
+                        .isInstanceOfSatisfying(
+                                CommentCreatedEvent.class,
+                                data -> {
+                                    assertThat(data.agendaId()).isNull();
+                                    assertThat(data.placeId()).isEqualTo(7L);
+                                    assertThat(data.comment().commentId()).isEqualTo(31L);
+                                    assertThat(data.comment().body()).isEqualTo("줄이 길대요");
+                                });
+            }
         }
+    }
+
+    private static Room roomWithId(RoomStatus status, Clock clock) {
+        Room room =
+                Room.create(
+                        "여름 여행",
+                        "부산",
+                        LocalDate.of(2027, 7, 1),
+                        LocalDate.of(2027, 7, 3),
+                        "ABCD1234",
+                        status,
+                        clock);
+        ReflectionTestUtils.setField(room, "id", ROOM_ID);
+        return room;
+    }
+
+    // 저장하면 DB가 id를 채우므로 테스트에서는 직접 넣는다
+    private static Comment withId(Comment comment, Long id) {
+        ReflectionTestUtils.setField(comment, "id", id);
+        return comment;
+    }
+
+    private RoomEvent publishedEvent() {
+        ArgumentCaptor<RoomEvent> captor = ArgumentCaptor.forClass(RoomEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        return captor.getValue();
     }
 
     private static PlaceCandidate place(Room room, RoomMember member) {

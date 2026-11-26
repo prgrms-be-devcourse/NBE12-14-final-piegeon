@@ -36,6 +36,21 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     @Query("select r from Room r where r.id = :id")
     Optional<Room> findByIdForUpdate(@Param("id") Long id);
 
+    @Query(
+            """
+            select room.id from Room room
+            where (room.opinionDeadlineAt is not null
+                   and room.opinionDeadlineAt <= :opinionCutoff
+                   and not exists (
+                       select response.id from SurveyResponse response
+                       where response.roomMember.room.id = room.id
+                   ))
+               or room.endDate < :endDateCutoff
+            """)
+    List<Long> findRoomIdsExpiredForCleanup(
+            @Param("opinionCutoff") LocalDateTime opinionCutoff,
+            @Param("endDateCutoff") LocalDate endDateCutoff);
+
     /**
      * 의견 마감이 지났는데 설문이 아직 마감되지 않은 방 (13-1).
      *

@@ -74,7 +74,7 @@ jobs:
         run: |
           DEST="s3://${{ vars.DEPLOY_BUCKET }}/releases/${GITHUB_SHA}"
           aws s3 cp --only-show-errors backend-image.tar.gz "$DEST/backend-image.tar.gz"
-          for f in compose.prod.yml Caddyfile deploy.sh; do
+          for f in compose.prod.yml Caddyfile config.alloy deploy.sh; do
             aws s3 cp --only-show-errors "deploy/$f" "$DEST/$f"
           done
 

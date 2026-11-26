@@ -20,7 +20,6 @@ import world.chakchak.domain.changelog.entity.EntityType;
 import world.chakchak.domain.changelog.entity.EventKind;
 import world.chakchak.domain.changelog.event.RoomEvent;
 import world.chakchak.domain.changelog.service.ChangeLogService;
-import world.chakchak.domain.comment.dto.CommentCreatedEvent;
 import world.chakchak.domain.comment.dto.CommentListResponse;
 import world.chakchak.domain.comment.dto.CommentRequest;
 import world.chakchak.domain.comment.dto.CommentResponse;
@@ -427,13 +426,7 @@ public class PlaceCandidateService {
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(PlaceErrorCode.PLACE_CANDIDATE_NOT_FOUND);
         }
-        // 기록은 남기지 않고 소식만 보낸다. 커밋된 뒤에 나간다 (ChangeLogStreamListener)
-        eventPublisher.publishEvent(
-                new RoomEvent(
-                        roomId,
-                        null,
-                        "comment.created",
-                        new CommentCreatedEvent(null, candidate.getId(), response)));
+        // comment.created SSE는 CommentService가 보낸다
         return response;
     }
 

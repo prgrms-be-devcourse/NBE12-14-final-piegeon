@@ -42,6 +42,10 @@ export function useRoomEvents(roomId: string, enabled: boolean) {
     const refresh = () => requestRefresh();
     source.addEventListener("activity", refresh);
     source.addEventListener("member.left", refresh);
+    // 표 수, 코멘트, 방 만료는 기록이 없는 일시 이벤트라 activity로 오지 않는다
+    source.addEventListener("vote.updated", refresh);
+    source.addEventListener("comment.created", refresh);
+    source.addEventListener("room.status_changed", refresh);
     source.addEventListener("resync.required", refresh);
     // 변경 기록에 남지 않는 소식: 가고 싶어요 수, 새 코멘트
     source.addEventListener("place.agreement_changed", refresh);

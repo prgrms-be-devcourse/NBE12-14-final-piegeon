@@ -72,6 +72,10 @@ public class RoomService {
                         .orElseThrow(
                                 () -> new BusinessException(RoomErrorCode.INVITE_CODE_NOT_FOUND));
 
+        if (room.getStatus() == RoomStatus.EXPIRED) {
+            throw new BusinessException(RoomErrorCode.ROOM_EXPIRED);
+        }
+
         roomMemberRepository
                 .findByRoom_IdAndUser_Id(room.getId(), userId)
                 .ifPresent(existingMember -> {
