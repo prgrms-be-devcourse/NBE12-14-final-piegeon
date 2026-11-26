@@ -68,7 +68,7 @@ public class ChangeLogStreamService {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }
         if (evictedConnection[0] != null) {
-            evictedConnection[0].complete();
+            evictedConnection[0].replace();
         }
         emitter.onCompletion(() -> remove(connection));
         emitter.onTimeout(() -> remove(connection));
@@ -215,6 +215,11 @@ public class ChangeLogStreamService {
         }
 
         private synchronized void complete() {
+            emitter.complete();
+        }
+
+        private synchronized void replace() {
+            send(SseEmitter.event().name("stream.replaced").data(""));
             emitter.complete();
         }
 

@@ -49,6 +49,13 @@ export function useRoomEvents(roomId: string, enabled: boolean) {
     if (!enabled || typeof EventSource === "undefined") return;
     const source = new EventSource(`/api/rooms/${roomId}/events`);
     const refreshAll = () => requestRefresh();
+
+    // 연결 종료 이벤트
+    source.addEventListener("stream.replaced", () => {
+      source.close();
+    });
+
+    // 데이터 갱신 이벤트
     source.addEventListener("activity", (e) => {
       // 안건의 결정·미결 마감은 그 안건 카드만. 나머지(설문 마감, 방 상태, 장소 등)는 화면 공통 데이터만 바뀐다
       const item = parse<ChangeLogItemResponse>(e);
