@@ -27,7 +27,6 @@ import world.chakchak.domain.comment.service.CommentService;
 import world.chakchak.domain.place.dto.GooglePlace;
 import world.chakchak.domain.place.dto.MemberRef;
 import world.chakchak.domain.place.dto.NotFullyAgreedData;
-import world.chakchak.domain.place.dto.PlaceAgreementChangedEvent;
 import world.chakchak.domain.place.dto.PlaceAlreadyRegisteredData;
 import world.chakchak.domain.place.dto.PlaceBoardResponse;
 import world.chakchak.domain.place.dto.PlaceCandidateItem;
@@ -40,6 +39,7 @@ import world.chakchak.domain.place.entity.PlaceCandidate;
 import world.chakchak.domain.place.entity.PlaceReaction;
 import world.chakchak.domain.place.entity.PlaceReactionType;
 import world.chakchak.domain.place.errorcode.PlaceErrorCode;
+import world.chakchak.domain.place.event.PlaceAgreementChangedEvent;
 import world.chakchak.domain.place.repository.PlaceCandidateRepository;
 import world.chakchak.domain.place.repository.PlaceReactionRepository;
 import world.chakchak.domain.room.entity.Room;
@@ -58,6 +58,8 @@ import world.chakchak.global.error.CommonErrorCode;
 @RequiredArgsConstructor
 public class PlaceCandidateService {
 
+    static final String PLACE_AGREEMENT_CHANGED = "place.agreement_changed";
+
     // 여행 하루에 올릴 수 있는 후보 수 (한도 = 여행 일수 x 10)
     private static final int CANDIDATES_PER_DAY = 10;
 
@@ -75,7 +77,7 @@ public class PlaceCandidateService {
     private final PlaceReactionRepository placeReactionRepository;
     private final CommentService commentService;
     private final ChangeLogService changeLogService;
-    // 변경 기록에 남기지 않는 실시간 소식(반응, 코멘트)을 보낸다. 커밋된 뒤에 SSE로 나간다 (ChangeLogStreamListener)
+    // 변경 기록에 남기지 않는 실시간 소식(반응)을 보낸다. 커밋된 뒤에 SSE로 나간다 (ChangeLogStreamListener)
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
@@ -537,7 +539,7 @@ public class PlaceCandidateService {
                 new RoomEvent(
                         room.getId(),
                         null,
-                        "place.agreement_changed",
+                        PLACE_AGREEMENT_CHANGED,
                         new PlaceAgreementChangedEvent(
                                 candidate.getId(), detail.stage(), detail.agreeCount())));
         return detail;
