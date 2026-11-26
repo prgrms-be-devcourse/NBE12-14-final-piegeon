@@ -94,7 +94,7 @@ public class RoomSummaryService {
             }
         }
 
-        // 보드 변경은 개별 문구 대신 변경이 있었던 일차별 건수로 요약한다.
+        // 보드 변경은 개별 문구 대신, 변경이 기록된 날짜(createdAt)별 건수로 요약한다. 여행의 일차(dayIndex) 기준이 아니다.
         if (counts.containsKey(EventKind.SCHEDULE_CHANGED)) {
             Map<LocalDate, Long> perDay = new LinkedHashMap<>();
             changes.stream()

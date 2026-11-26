@@ -21,7 +21,10 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import world.chakchak.global.response.ApiResponse;
 
 /**
- * 예외를 공통 응답(ApiResponse)의 실패 형식으로 바꾸는 한 곳. 4xx는 스택트레이스 없이 warn으로, 5xx는 스택트레이스와 함께 error로 로그를 남긴다.
+ * 예외를 공통 응답(ApiResponse)의 실패 형식으로 바꾸는 한 곳.
+ *
+ * <p>BusinessException과 입력·요청 오류는 응답 상태 코드와 상관없이 스택트레이스 없이 warn으로 남긴다. 그래서 502인 PLACES_API_ERROR도
+ * warn이다. 처리하지 못한 예외와 인증 처리 중 오류만 스택트레이스와 함께 error로 남긴다.
  */
 @Slf4j
 @RestControllerAdvice
