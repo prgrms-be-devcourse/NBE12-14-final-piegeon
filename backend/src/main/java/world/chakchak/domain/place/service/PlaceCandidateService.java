@@ -252,15 +252,17 @@ public class PlaceCandidateService {
         Room room = roomService.getForUpdate(roomId);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
         PlaceCandidate candidate = getReactableCandidate(room, placeId);
+        Optional<PlaceReaction> mine =
+                placeReactionRepository.findByPlaceCandidateAndMember(candidate, me);
+        // 같은 버튼을 다시 보냈다. 바뀐 게 없으니 이력도 소식도 남기지 않는다
+        if (mine.isPresent() && mine.get().getReaction() == reaction) {
+            return toDetail(roomId, candidate);
+        }
         PlaceStage before = currentStage(candidate, roomId);
 
-        placeReactionRepository
-                .findByPlaceCandidateAndMember(candidate, me)
-                .ifPresentOrElse(
-                        mine -> mine.change(reaction),
-                        () ->
-                                placeReactionRepository.save(
-                                        PlaceReaction.create(candidate, me, reaction)));
+        mine.ifPresentOrElse(
+                existing -> existing.change(reaction),
+                () -> placeReactionRepository.save(PlaceReaction.create(candidate, me, reaction)));
 
         return detailAfterChange(room, me, candidate, before);
     }
@@ -275,11 +277,15 @@ public class PlaceCandidateService {
         Room room = roomService.getForUpdate(roomId);
         RoomMember me = roomMemberService.getActiveMember(roomId, userId);
         PlaceCandidate candidate = getReactableCandidate(room, placeId);
+        Optional<PlaceReaction> mine =
+                placeReactionRepository.findByPlaceCandidateAndMember(candidate, me);
+        // 누른 게 없다. 바뀐 게 없으니 이력도 소식도 남기지 않는다
+        if (mine.isEmpty()) {
+            return toDetail(roomId, candidate);
+        }
         PlaceStage before = currentStage(candidate, roomId);
 
-        placeReactionRepository
-                .findByPlaceCandidateAndMember(candidate, me)
-                .ifPresent(placeReactionRepository::delete);
+        placeReactionRepository.delete(mine.get());
 
         return detailAfterChange(room, me, candidate, before);
     }
@@ -514,7 +520,7 @@ public class PlaceCandidateService {
                 candidate.isConfirmed(), wantCount, roomMemberService.countActiveMembers(roomId));
     }
 
-    // 바뀐 반응으로 상세를 다시 만들고, 칸이 바뀌었으면 변경 이력을 남긴다.
+    // 반응이 실제로 바뀐 뒤에만 부른다. 바뀐 반응으로 상세를 다시 만들고, 칸이 바뀌었으면 변경 이력을 남긴다.
     // 같은 트랜잭션 안이라 방금 바꾼 반응이 상세에 그대로 보인다
     private PlaceDetailResponse detailAfterChange(
             Room room, RoomMember me, PlaceCandidate candidate, PlaceStage before) {

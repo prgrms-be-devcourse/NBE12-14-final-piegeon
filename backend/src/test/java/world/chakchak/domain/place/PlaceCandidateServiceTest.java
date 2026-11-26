@@ -1457,6 +1457,39 @@ class PlaceCandidateServiceTest {
         }
 
         @Test
+        @DisplayName("같은 반응을 다시 보내면 place.agreement_changed를 보내지 않는다")
+        void sameReactionAgainSendsNothing() {
+            Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+            RoomMember minsu = saveMember(room, "민수");
+            RoomMember jiyoung = saveMember(room, "지영");
+            long placeId = register(minsu, "place-1").placeId();
+            press(jiyoung, placeId, PlaceReactionType.NOPE);
+            applicationEvents.clear();
+
+            PlaceDetailResponse detail = press(jiyoung, placeId, PlaceReactionType.NOPE);
+
+            assertThat(roomEvents("place.agreement_changed")).isEmpty();
+            assertThat(detail.agreeCount()).isEqualTo(1);
+            assertThat(detail.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+        }
+
+        @Test
+        @DisplayName("누른 반응이 없는데 취소하면 place.agreement_changed를 보내지 않는다")
+        void cancelWithoutReactionSendsNothing() {
+            Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+            RoomMember minsu = saveMember(room, "민수");
+            RoomMember jiyoung = saveMember(room, "지영");
+            long placeId = register(minsu, "place-1").placeId();
+            applicationEvents.clear();
+
+            PlaceDetailResponse detail = cancel(jiyoung, placeId);
+
+            assertThat(roomEvents("place.agreement_changed")).isEmpty();
+            assertThat(detail.agreeCount()).isEqualTo(1);
+            assertThat(detail.stage()).isEqualTo(PlaceStage.COMPLEMENT);
+        }
+
+        @Test
         @DisplayName("장소 코멘트를 남기면 comment.created를 기록 id 없이 보낸다")
         void commentSendsCommentCreated() {
             Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
