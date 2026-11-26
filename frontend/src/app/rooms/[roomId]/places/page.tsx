@@ -5,7 +5,7 @@ import { useRoom } from "@/components/room";
 import { Avatar, Faces, Loading, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { feedTime } from "@/lib/format";
-import { requestRefresh, useApi } from "@/lib/hooks";
+import { requestRefresh, topics, useApi } from "@/lib/hooks";
 import type { PlaceCandidateItem, PlaceDetailResponse, PlaceSearchItem, PlaceStage } from "@/lib/types";
 
 const COLUMNS: { stage: PlaceStage; title: string; desc: string }[] = [
@@ -212,7 +212,10 @@ function PlacePanel({
   const detail = useApi(`place:${roomId}:${item.placeId}:${item.agreeCount}:${item.nopeCount}:${item.stage}`, () =>
     api.place(roomId, item.placeId),
   );
-  const comments = useApi(`place-comments:${roomId}:${item.placeId}`, () => api.placeComments(roomId, item.placeId), { live: true });
+  const comments = useApi(`place-comments:${roomId}:${item.placeId}`, () => api.placeComments(roomId, item.placeId), {
+    live: true,
+    topic: topics.placeComments(item.placeId),
+  });
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
