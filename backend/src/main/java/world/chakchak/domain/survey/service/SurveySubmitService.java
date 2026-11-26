@@ -39,9 +39,9 @@ public class SurveySubmitService {
             throw new BusinessException(SurveySubmitErrorCode.ALREADY_SUBMITTED);
         }
 
+        // 조율 중(SURVEYING)이면 설문 마감 뒤에도 예산·숙소·이동 강도를 받는다. 지금 회차에는 넣지 않고 다음 회차(V-04) 선지에 쓴다
         boolean surveying = room.getStatus() == RoomStatus.SURVEYING;
-        boolean collectingPreferences = surveying && room.getSurveyClosedAt() == null;
-        if (collectingPreferences
+        if (surveying
                 && (request.budget() == null
                         || request.stayType() == null
                         || request.pace() == null)) {
@@ -74,8 +74,7 @@ public class SurveySubmitService {
             }
         }
 
-        SubmitSurveyResponse saved =
-                surveyResponseService.save(member, request, collectingPreferences);
+        SubmitSurveyResponse saved = surveyResponseService.save(member, request, surveying);
         if (surveying && !afterDeadline && room.getSurveyClosedAt() == null) {
             LocalDateTime closeAt = LocalDateTime.now(clock);
             if (closeAt.isBefore(saved.submittedAt())) {

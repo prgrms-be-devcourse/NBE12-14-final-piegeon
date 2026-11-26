@@ -130,6 +130,57 @@ class SurveySubmitApiIntegrationTest {
         assertThat(missingAvoidNote.body()).contains("INVALID_INPUT");
     }
 
+    @Test
+    @DisplayName("설문이 마감된 뒤 조율 중에 낸 설문도 예산·숙소·이동 강도를 저장해 다음 회차 선지에 쓸 수 있게 한다")
+    void keepsPreferencesSubmittedAfterSurveyClosedWhileSurveying() throws Exception {
+        Fixture fixture = fixture();
+        String second = authenticatedCookie("second");
+        assertThat(post(joinPath(fixture.inviteCode()), "", second).statusCode()).isEqualTo(200);
+        // 숙소가 갈려 설문이 마감돼도 방은 조율 중(SURVEYING)에 머문다
+        assertThat(post(surveyPath(fixture.roomId()), SURVEY_BODY, fixture.cookie()).statusCode())
+                .isEqualTo(201);
+        HttpResponse<String> closing =
+                post(
+                        surveyPath(fixture.roomId()),
+                        "{\"budget\":10000,\"stayType\":\"PERSONAL\",\"pace\":\"NORMAL\","
+                                + "\"actPrefs\":[\"FOOD\"],\"avoidNote\":\"없어요\"}",
+                        second);
+        assertThat(
+                        objectMapper
+                                .readTree(closing.body())
+                                .path("data")
+                                .path("surveyClosed")
+                                .asBoolean())
+                .isTrue();
+
+        String late = authenticatedCookie("late");
+        assertThat(post(joinPath(fixture.inviteCode()), "", late).statusCode()).isEqualTo(200);
+
+        HttpResponse<String> withoutPreferences =
+                post(
+                        surveyPath(fixture.roomId()),
+                        "{\"actPrefs\":[\"FOOD\"],\"avoidNote\":\"없어요\"}",
+                        late);
+        assertThat(withoutPreferences.statusCode()).isEqualTo(400);
+        assertThat(withoutPreferences.body()).contains("INVALID_INPUT");
+
+        HttpResponse<String> submitted =
+                post(
+                        surveyPath(fixture.roomId()),
+                        "{\"budget\":20000,\"stayType\":\"SOCIAL\",\"pace\":\"HURRY\","
+                                + "\"actPrefs\":[\"NATURE\"],\"avoidNote\":\"없어요\"}",
+                        late);
+        assertThat(submitted.statusCode()).isEqualTo(201);
+
+        JsonNode mine =
+                objectMapper
+                        .readTree(get(surveyPath(fixture.roomId()) + "/me", late).body())
+                        .path("data");
+        assertThat(mine.path("budget").asLong()).isEqualTo(20000);
+        assertThat(mine.path("stayType").path("value").asText()).isEqualTo("SOCIAL");
+        assertThat(mine.path("pace").path("value").asText()).isEqualTo("HURRY");
+    }
+
     private Fixture fixture() throws Exception {
         String email = "survey-submit-" + UUID.randomUUID() + "@test.com";
         String cookie = authenticatedCookie(email);
@@ -145,7 +196,7 @@ class SurveySubmitApiIntegrationTest {
         JsonNode data = objectMapper.readTree(created.body()).path("data");
         long roomId = data.has("roomId") ? data.path("roomId").asLong() : data.path("id").asLong();
         assertThat(roomId).isPositive();
-        return new Fixture(roomId, cookie);
+        return new Fixture(roomId, cookie, data.path("inviteCode").asText());
     }
 
     private String authenticatedCookie(String suffix) throws Exception {
@@ -175,9 +226,22 @@ class SurveySubmitApiIntegrationTest {
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    private HttpResponse<String> get(String path, String cookie) throws Exception {
+        HttpRequest request =
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                        .header("Cookie", cookie)
+                        .GET()
+                        .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static String joinPath(String inviteCode) {
+        return "/api/rooms/invites/" + inviteCode + "/join";
+    }
+
     private static String surveyPath(long roomId) {
         return "/api/rooms/" + roomId + "/survey";
     }
 
-    private record Fixture(long roomId, String cookie) {}
+    private record Fixture(long roomId, String cookie, String inviteCode) {}
 }
