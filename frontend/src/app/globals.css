@@ -516,3 +516,33 @@ textarea.in { height: auto; padding: 12px 16px; resize: vertical; line-height: 1
   .pass-top, .pass-days { padding-left: 20px; padding-right: 20px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* 확인창. 브라우저 기본 확인창 대신 쓴다 (components/ConfirmDialog) */
+dialog.confirm {
+  border: 0; padding: 0; margin: auto;
+  width: min(400px, calc(100vw - 32px));
+  border-radius: 22px; background: var(--surface); color: var(--ink);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
+}
+dialog.confirm::backdrop { background: rgba(12, 12, 15, 0.42); backdrop-filter: blur(3px); }
+dialog.confirm[open] { animation: cf-pop 0.18s ease-out; }
+@keyframes cf-pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
+.cf-in { padding: 26px 24px 20px; display: flex; flex-direction: column; gap: 10px; }
+.cf-title { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.4; word-break: keep-all; text-wrap: balance; }
+.cf-body { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.6; word-break: keep-all; text-wrap: pretty; }
+/* 꼭 알아야 할 점. 따로 칸을 만들지 않고 포인트 컬러 글씨로만 강조해 창과 한 덩어리로 보이게 한다 */
+.cf-notes {
+  list-style: none; margin: 0; padding: 0;
+  color: var(--accent); font-size: 15px; font-weight: 600; line-height: 1.6;
+  display: flex; flex-direction: column; gap: 4px;
+  word-break: keep-all; text-wrap: pretty;
+}
+.cf-acts { display: flex; gap: 8px; margin-top: 14px; }
+.cf-acts .btn { flex: 1; }
+@media (prefers-reduced-motion: reduce) { dialog.confirm[open] { animation: none; } }
+/* 최종 확정 투표를 열 때 보여 주는 일차 요약. 빈 날만 포인트 컬러 */
+.cf-days { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); gap: 6px; margin-top: 4px; }
+.cf-day { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; border-radius: 12px; background: var(--sunk); }
+.cf-day b { font-size: 13px; }
+.cf-day span { font-size: 12px; color: var(--ink-2); }
+.cf-day.cf-empty span { color: var(--accent); font-weight: 600; }

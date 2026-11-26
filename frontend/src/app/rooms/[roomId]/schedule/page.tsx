@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useState } from "react";
 import { AgendaCard, CommentList } from "@/components/AgendaCard";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { useRoom } from "@/components/room";
 import { Loading, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import { shortDate, weekday } from "@/lib/format";
+import { shortDate, weekday, withObject } from "@/lib/format";
 import { requestRefresh, topics, useApi } from "@/lib/hooks";
 import type { AgendaListItem, DayChangeResponse, DaySnapshot, PlaceCandidateItem, ScheduleBoardResponse, ScheduleItemResponse } from "@/lib/types";
 
@@ -20,6 +21,7 @@ export default function SchedulePage() {
   const [dayIndex, setDayIndex] = useState(1);
   const [notice, setNotice] = useState<{ kind: "err" | "warn" | "ok"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   const status = board.data?.roomStatus ?? room.status;
   const editable = status === "PLANNING";
@@ -32,9 +34,12 @@ export default function SchedulePage() {
   const lastFinal = finals.reduce<AgendaListItem | undefined>((m, a) => (!m || a.agendaId > m.agendaId ? a : m), undefined);
   const turnedDown = lastFinal && lastFinal.status !== "VOTING" && lastFinal.resolvedOption?.value !== "AGREE" ? lastFinal : undefined;
 
-  /** 블록을 바꾸는 요청. 성공하면 바뀐 날만 갈아 끼우고, 버전이 낡았으면 보드를 새로 불러온다 */
-  async function change(action: () => Promise<DayChangeResponse | { day: DaySnapshot }>) {
-    if (!board.data) return;
+  /**
+   * 블록을 바꾸는 요청. 성공하면 바뀐 날만 갈아 끼우고, 버전이 낡았으면 보드를 새로 불러온다.
+   * 성공했는지 돌려줘서, 실패했을 때 입력한 시간·메모를 지우지 않게 한다
+   */
+  async function change(action: () => Promise<DayChangeResponse | { day: DaySnapshot }>): Promise<boolean> {
+    if (!board.data) return false;
     setBusy(true);
     setNotice(null);
     try {
@@ -48,6 +53,7 @@ export default function SchedulePage() {
         setNotice({ kind: "warn", text: "이 블록의 시간이 앞뒤 블록과 순서가 맞지 않아요. 저장은 됐어요." });
       }
       requestRefresh();
+      return true;
     } catch (e) {
       if (e instanceof ApiError && e.code === "SCHEDULE_VERSION_CONFLICT") {
         await board.reload();
@@ -55,6 +61,7 @@ export default function SchedulePage() {
       } else {
         setNotice({ kind: "err", text: errorMessage(e) });
       }
+      return false;
     } finally {
       setBusy(false);
     }
@@ -74,6 +81,8 @@ export default function SchedulePage() {
       <FinalReview
         status={status}
         finalAgenda={finalAgenda ?? null}
+        dayCounts={days.map((d) => ({ dayIndex: d.dayIndex, count: d.items.length }))}
+        solo={room.members.length === 1}
         onOpened={async () => {
           await reloadRoom();
           await agendas.reload();
@@ -131,8 +140,13 @@ export default function SchedulePage() {
                   onUp={() => change(() => api.moveItem(roomId, it.itemId, i >= 2 ? day.items[i - 2].itemId : null, day.version))}
                   onDown={() => change(() => api.moveItem(roomId, it.itemId, day.items[i + 1].itemId, day.version))}
                   onSave={(time, memo) => change(() => api.updateItem(roomId, it.itemId, time, memo, day.version))}
-                  onDelete={() => {
-                    if (!window.confirm(`${it.name}을(를) 이 날에서 뺄까요?`)) return;
+                  onDelete={async () => {
+                    const ok = await confirm({
+                      title: `${withObject(it.name)} ${day.dayIndex}일차에서 뺄까요?`,
+                      body: "장소는 확정된 곳에 그대로 남아서 다시 넣을 수 있어요.",
+                      confirmLabel: "빼기",
+                    });
+                    if (!ok) return;
                     void change(() => api.deleteItem(roomId, it.itemId, day.version));
                   }}
                 />
@@ -152,6 +166,8 @@ export default function SchedulePage() {
         </>
       )}
 
+      {dialog}
+
       {editable && places.data && pool.length === 0 && (
         <div className="card empty">
           <b>넣을 수 있는 곳이 아직 없어요</b>
@@ -168,15 +184,22 @@ export default function SchedulePage() {
 function FinalReview({
   status,
   finalAgenda,
+  dayCounts,
+  solo,
   onOpened,
 }: {
   status: string;
   finalAgenda: import("@/lib/types").AgendaListItem | null;
+  /** 아무것도 넣지 않은 날의 일차. 서버는 빈 날이 있어도 투표를 열어 준다 */
+  dayCounts: { dayIndex: number; count: number }[];
+  /** 활동 멤버가 나 혼자인지. 혼자면 여는 사람의 동의만으로 바로 확정된다 */
+  solo: boolean;
   onOpened: () => Promise<void>;
 }) {
   const { roomId } = useRoom();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   if (status === "REVIEWING" && finalAgenda) {
     return (
@@ -205,7 +228,28 @@ function FinalReview({
         className="btn btn-accent"
         disabled={busy}
         onClick={async () => {
-          if (!window.confirm("최종 확정 투표를 열까요? 투표 중에는 일정을 고칠 수 없어요.")) return;
+          // 투표를 연 사람은 서버가 동의로 넣는다. 그래서 혼자인 방은 열자마자 확정된다
+          const notes = solo ? ["지금 방에 나 혼자라서 열자마자 일정이 확정돼요. 확정하면 되돌릴 수 없어요."] : [];
+          // 서버는 빈 날이 있어도 투표를 열어 준다. 빈 날이 있으면 일차별로 몇 곳 넣었는지 보여 줘서 열기 전에 알아채게 한다
+          const hasEmptyDay = dayCounts.some((d) => d.count === 0);
+          const ok = await confirm({
+            title: "최종 확정 투표를 열까요?",
+            body: "투표 중에는 일정을 고칠 수 없어요. 투표를 연 나는 동의한 걸로 들어가요.",
+            notes,
+            extra:
+              hasEmptyDay ? (
+                <div className="cf-days" aria-label="일차별로 넣은 곳">
+                  {dayCounts.map((d) => (
+                    <span key={d.dayIndex} className={d.count === 0 ? "cf-day cf-empty" : "cf-day"}>
+                      <b>{d.dayIndex}일차</b>
+                      <span>{d.count === 0 ? "비어 있음" : `${d.count}곳`}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : undefined,
+            confirmLabel: solo ? "열고 확정하기" : "투표 열기",
+          });
+          if (!ok) return;
           setBusy(true);
           setError(null);
           try {
@@ -222,6 +266,7 @@ function FinalReview({
         최종 확정 투표 열기
       </button>
       {error && <Notice kind="err">{error}</Notice>}
+      {dialog}
     </section>
   );
 }
@@ -286,7 +331,7 @@ function Slot({
   canDown: boolean;
   onUp: () => void;
   onDown: () => void;
-  onSave: (time: string | null, memo: string | null) => Promise<void>;
+  onSave: (time: string | null, memo: string | null) => Promise<boolean>;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -299,8 +344,8 @@ function Slot({
         className="slot"
         onSubmit={async (e) => {
           e.preventDefault();
-          await onSave(time || null, memo.trim() || null);
-          setEditing(false);
+          // 실패하면 고치던 창을 그대로 둬서 같은 값으로 다시 저장할 수 있게 한다
+          if (await onSave(time || null, memo.trim() || null)) setEditing(false);
         }}
       >
         <div className="stack grow" style={{ gap: 8 }}>
@@ -373,7 +418,7 @@ function AddItem({
   day: DaySnapshot;
   pool: PlaceCandidateItem[];
   busy: boolean;
-  onAdd: (placeId: number, afterItemId: number | null, time: string | null, memo: string | null) => Promise<void>;
+  onAdd: (placeId: number, afterItemId: number | null, time: string | null, memo: string | null) => Promise<boolean>;
 }) {
   const [placeId, setPlaceId] = useState("");
   // "end"면 맨 뒤, "start"면 맨 앞, 숫자면 그 블록 뒤
@@ -394,7 +439,8 @@ function AddItem({
         if (!placeId) return;
         const last = day.items[day.items.length - 1];
         const afterItemId = after === "start" ? null : after === "end" ? (last?.itemId ?? null) : Number(after);
-        await onAdd(Number(placeId), afterItemId, time || null, memo.trim() || null);
+        // 실패하면 고른 장소와 입력한 시간·메모를 남겨 둔다
+        if (!(await onAdd(Number(placeId), afterItemId, time || null, memo.trim() || null))) return;
         setPlaceId("");
         setTime("");
         setMemo("");
