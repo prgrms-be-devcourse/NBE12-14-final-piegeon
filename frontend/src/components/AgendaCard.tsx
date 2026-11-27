@@ -1,14 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { useRoom } from "@/components/room";
 import { Avatar, Faces, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
-import { dateTimeLabel, feedTime, remaining } from "@/lib/format";
+import { addDays, dateTimeLabel, feedTime, nowKst, remaining } from "@/lib/format";
 import { requestRefresh, topics, useApi } from "@/lib/hooks";
 import type { AgendaDetailResponse, AgendaListItem, CommentResponse } from "@/lib/types";
 
 const BUDGET_MAX = 99_999_999;
+// 서버(AgendaItem.VOTING_DAYS)와 같다. 다음 회차는 지금부터 7일 뒤에 마감하고, 출발일 0시보다 늦으면 출발일 0시로 줄인다
+const NEXT_ROUND_VOTING_DAYS = 7;
+
+/** 다음 회차를 지금 열면 언제 마감되는지. 서버가 정하는 값을 미리 보여 주려고 같은 규칙으로 계산한다 */
+function nextRoundDeadline(startDate: string): string {
+  const now = nowKst();
+  const candidate = `${addDays(now.slice(0, 10), NEXT_ROUND_VOTING_DAYS)}T${now.slice(11)}`;
+  const departure = `${startDate}T00:00:00`;
+  return candidate < departure ? candidate : departure;
+}
 
 /**
  * 안건 하나: 선택지별 표와 투표한 사람, 투표, 예산 선지 추가·삭제, 다음 회차, 댓글
@@ -27,6 +38,7 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [amount, setAmount] = useState("");
+  const { confirm, dialog, cancel } = useConfirm();
 
   const a: AgendaDetailResponse | undefined = detail.data;
   const isFinal = item.subject === "FINAL_PLAN";
@@ -37,6 +49,14 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
   const roomAllowsReopen = room.status === "SURVEYING" || (isCustom && room.status === "PLANNING");
   const canVote = Boolean(a && a.status === "VOTING" && a.eligible && roomAllowsVote);
   const reopened = latestRound !== undefined && latestRound > item.round;
+  const isSurveySubject = item.subject === "BUDGET" || item.subject === "STAY" || item.subject === "PACE";
+  // 마감이 출발일 0시로 줄어든 안건은 마감 때 미결로 끝나지 않고 출발일 0시 최종 집계로 정해진다
+  const endsAtDeparture = item.deadlineAt.startsWith(`${room.startDate}T00:00`);
+
+  // 확인창이 떠 있는 동안 다른 멤버의 표로 안건이 끝나면 물어보던 일이 의미 없어져 닫는다
+  useEffect(() => {
+    if (a && a.status !== "VOTING") cancel();
+  }, [a, cancel]);
 
   async function run(action: () => Promise<AgendaDetailResponse | void>) {
     setBusy(true);
@@ -53,12 +73,57 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
     }
   }
 
-  function vote(optionId: number, value: string) {
+  async function vote(optionId: number, value: string) {
     if (isFinal && value === "REJECT") {
       setRejectOpen(true);
       return;
     }
+    // 내 표로 모두 같은 걸 고르게 되면 그 자리에서 정해져 되돌릴 수 없어 먼저 묻는다
+    const option = a?.options.find((o) => o.optionId === optionId);
+    if (option && a && a.myOptionId !== optionId && option.voteCount === a.totalVoter - 1) {
+      const ok = await confirm(
+        isFinal
+          ? {
+              title: "동의할까요?",
+              body: "마지막 동의라서 누르면 바로 일정이 확정돼요",
+              notes: ["확정된 뒤에는 장소와 일정을 고칠 수 없어요"],
+              confirmLabel: "동의하고 확정하기",
+            }
+          : {
+              title: "마지막 표예요",
+              body: `${option.label}에 투표하면 모두 같은 걸 골라서 바로 정해져요`,
+              notes: ["정해진 뒤에는 표를 바꿀 수 없어요"],
+              confirmLabel: "고르고 정하기",
+            },
+      );
+      if (!ok) return;
+    }
     void run(() => api.vote(roomId, item.agendaId, optionId));
+  }
+
+  async function deleteOption(optionId: number, label: string, mine: boolean) {
+    const ok = await confirm({
+      title: `${label} 선지를 지울까요?`,
+      body: "지운 선지는 되돌릴 수 없어요",
+      notes: mine ? ["이 선지에 넣은 내 표도 같이 지워져요. 다른 선지에 다시 투표해 주세요"] : undefined,
+      confirmLabel: "지우기",
+    });
+    if (!ok) return;
+    void run(() => api.deleteOption(roomId, item.agendaId, optionId));
+  }
+
+  async function openNextRound() {
+    const ok = await confirm({
+      title: `${item.round + 1}회차 투표를 열까요?`,
+      body: `모두 처음부터 다시 골라요. ${dateTimeLabel(nextRoundDeadline(room.startDate))}까지 정해야 해요`,
+      notes: ["이번 회차의 표는 다음 회차로 넘어가지 않아요"],
+      confirmLabel: "다음 회차 열기",
+    });
+    if (!ok) return;
+    // 응답은 새 회차 안건이라 이 카드에 넣지 않는다. 목록을 다시 불러와 새 카드가 생긴다
+    void run(async () => {
+      await api.nextRound(roomId, item.agendaId);
+    });
   }
 
   const rejectOption = a?.options.find((o) => o.value === "REJECT");
@@ -88,7 +153,14 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
       </div>
       {item.status === "VOTING" && (
         <p className="small muted">
-          {dateTimeLabel(item.deadlineAt)}까지 {isFinal ? "모두 동의하면 일정이 확정돼요" : "모두 같은 걸 고르면 정해져요"}
+          {dateTimeLabel(item.deadlineAt)}까지{" "}
+          {isFinal
+            ? "모두 동의하면 바로 확정되고, 장소와 일정을 고칠 수 없어요. 한 명이라도 반대하면 투표가 바로 끝나요"
+            : "모두 같은 걸 고르면 마지막 표가 들어오는 순간 정해지고, 그 뒤에는 바꿀 수 없어요"}
+          {isSurveySubject &&
+            (endsAtDeparture
+              ? ". 출발일 0시까지 못 정하면 가장 많이 고른 걸로 정해지고, 동점이거나 표가 없으면 방이 닫혀요"
+              : ". 마감까지 못 정하면 다음 회차를 열어 다시 골라요")}
           {!item.eligible && ". 안건이 열린 뒤에 들어와서 이번 투표에는 참여할 수 없어요"}
         </p>
       )}
@@ -108,7 +180,7 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
                   className="opt grow"
                   aria-pressed={mine}
                   disabled={!canVote || busy}
-                  onClick={() => vote(o.optionId, o.value)}
+                  onClick={() => void vote(o.optionId, o.value)}
                 >
                   <span className="nm">{o.label}</span>
                   <span className="who">
@@ -134,7 +206,7 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
                     className="btn btn-ghost btn-sm"
                     style={{ position: "absolute", top: 6, right: 6 }}
                     disabled={busy}
-                    onClick={() => run(() => api.deleteOption(roomId, item.agendaId, o.optionId))}
+                    onClick={() => deleteOption(o.optionId, o.label, mine)}
                     aria-label={`${o.label} 선지 지우기`}
                   >
                     지우기
@@ -149,9 +221,16 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
       {rejectOpen && rejectOption && (
         <form
           className="stack"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             if (!rejectReason.trim()) return;
+            const ok = await confirm({
+              title: "반대할까요?",
+              body: "반대하면 최종 투표가 바로 끝나고 모두 일정 짜기로 돌아가요",
+              notes: ["다른 사람이 이미 동의했어도 확정되지 않아요. 일정을 고친 뒤 최종 투표를 다시 열어야 해요"],
+              confirmLabel: "반대하기",
+            });
+            if (!ok) return;
             void run(async () => {
               const res = await api.vote(roomId, item.agendaId, rejectOption.optionId, rejectReason.trim());
               setRejectOpen(false);
@@ -225,12 +304,7 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
             className="btn btn-accent btn-sm"
             disabled={busy || reopened}
             aria-describedby={`round-note-${item.agendaId}`}
-            onClick={() =>
-              // 응답은 새 회차 안건이라 이 카드에 넣지 않는다. 목록을 다시 불러와 새 카드가 생긴다
-              run(async () => {
-                await api.nextRound(roomId, item.agendaId);
-              })
-            }
+            onClick={() => void openNextRound()}
           >
             다음 회차 투표 열기
           </button>
@@ -247,6 +321,7 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
 
       {error && <Notice kind="err">{error}</Notice>}
       <AgendaComments agendaId={item.agendaId} closed={item.status !== "VOTING"} />
+      {dialog}
     </section>
   );
 }
