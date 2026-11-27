@@ -2,6 +2,7 @@ package world.chakchak.domain.place;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
@@ -326,6 +327,35 @@ class PlaceCandidateServiceTest {
                 assertThat(card.nopedBy()).isEmpty();
                 assertThat(card.suggestedBy()).isEqualTo(new MemberRef(minsu.getId(), "민수"));
                 assertThat(card.confirmedAt()).isNull();
+            }
+
+            @Test
+            @DisplayName("카드에 장소 종류가 담기고, 분류표에 없는 종류면 null이다")
+            void fillsCategory() {
+                Room room = saveRoom(LocalDate.of(2027, 7, 1), LocalDate.of(2027, 7, 3));
+                RoomMember minsu = saveMember(room, "민수");
+                // 등록되는 장소의 종류는 market이다
+                PlaceCandidateItem market = register(minsu, "place-1");
+                PlaceCandidateItem unknown = register(minsu, "place-2");
+                jdbcTemplate.update(
+                        "UPDATE place_candidate SET place_type = 'castle' WHERE id = ?",
+                        unknown.placeId());
+
+                PlaceBoardResponse board = getBoard(minsu);
+
+                // 등록 응답에도 같은 모양으로 온다
+                assertThat(market.category())
+                        .isEqualTo(
+                                new PlaceDetailResponse.CategoryLabel(
+                                        PlaceCategory.SHOPPING, "쇼핑·투어"));
+                assertThat(board.candidates())
+                        .extracting(PlaceCandidateItem::placeId, PlaceCandidateItem::category)
+                        .containsExactlyInAnyOrder(
+                                tuple(
+                                        market.placeId(),
+                                        new PlaceDetailResponse.CategoryLabel(
+                                                PlaceCategory.SHOPPING, "쇼핑·투어")),
+                                tuple(unknown.placeId(), null));
             }
 
             @Test

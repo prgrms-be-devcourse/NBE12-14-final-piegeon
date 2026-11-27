@@ -182,6 +182,8 @@ public class PlaceCandidateService {
                 candidate.getName(),
                 candidate.getAddress(),
                 candidate.getPlaceType(),
+                PlaceDetailResponse.CategoryLabel.of(
+                        PlaceCategory.fromGoogleType(candidate.getPlaceType())),
                 PlaceStage.of(false, 1, activeMemberCount),
                 1,
                 List.of(me),
@@ -587,6 +589,8 @@ public class PlaceCandidateService {
                 candidate.getName(),
                 candidate.getAddress(),
                 candidate.getPlaceType(),
+                PlaceDetailResponse.CategoryLabel.of(
+                        PlaceCategory.fromGoogleType(candidate.getPlaceType())),
                 PlaceStage.of(candidate.isConfirmed(), agreedBy.size(), activeMemberCount),
                 agreedBy.size(),
                 agreedBy,
