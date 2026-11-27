@@ -241,11 +241,11 @@ public class AgendaService {
         }
     }
 
-    /** 마감 시각이 지난 투표 중 안건이 있는 방을 찾는다 (13-2). 출발 전날 00:00(D-1)이 된 방은 최종 집계 대상이라 뺀다. */
+    /** 마감 시각이 지난 투표 중 안건이 있는 방을 찾는다 (13-2). 출발일 00:00(D-DAY)이 된 방은 최종 집계 대상이라 뺀다. */
     public List<Long> findRoomIdsWithOverdueAgendas() {
         LocalDateTime now = LocalDateTime.now(clock);
         return agendaItemRepository.findRoomIdsWithOverdueAgendas(
-                AgendaStatus.VOTING, now, now.toLocalDate().plusDays(1));
+                AgendaStatus.VOTING, now, now.toLocalDate());
     }
 
     /**
@@ -269,13 +269,13 @@ public class AgendaService {
         }
     }
 
-    /** D-1 최종 집계 대상 방을 찾는다. */
+    /** D-DAY 최종 집계 대상 방을 찾는다. */
     public List<Long> findRoomIdsAtFinalTally() {
         return roomService.findRoomIdsAtFinalTally(LocalDateTime.now(clock));
     }
 
     /**
-     * 출발 전날 00:00(D-1)이 된 방의 남은 안건을 활동 멤버가 낸 표로 결정한다.
+     * 출발일 00:00(D-DAY)이 된 방의 남은 안건을 활동 멤버가 낸 표로 결정한다.
      *
      * <p>집계가 끝나면 방이 PLANNING·FINALIZED·EXPIRED로 바뀌어 같은 방을 다시 처리하지 않는다.
      */
@@ -374,8 +374,8 @@ public class AgendaService {
      * <ul>
      *   <li>선지는 마감 전에 낸 설문 답으로 만든다 (명세 6-1). 선지가 하나뿐이면 만장일치라 투표 없이 바로 결정한다.
      *   <li>세 항목이 모두 만장일치면 방을 바로 PLANNING으로 넘긴다 (5-2).
-     *   <li>출발 전날 00:00(D-1)이 지났으면 안건을 열지 않는다. 퇴장·설문 제출 요청까지 실패시키지 않으려는 것이고, 그 방은 D-1 최종 집계(13-3)가
-     *       처리한다.
+     *   <li>출발일 00:00(D-DAY)이 지났으면 안건을 열지 않는다. 퇴장·설문 제출 요청까지 실패시키지 않으려는 것이고, 그 방은 D-DAY 최종
+     *       집계(13-3)가 처리한다.
      * </ul>
      *
      * <p>퇴장(R-06)에서는 {@link #memberLeft} 다음에 불러야 한다. 먼저 부르면 방금 연 안건에서 나간 멤버를 자격자로 보고 total_voter를 한
@@ -886,7 +886,7 @@ public class AgendaService {
         AgendaOption agree = AgendaOption.finalPlan(agenda, FinalPlanChoice.AGREE);
         agendaOptionRepository.saveAll(
                 List.of(agree, AgendaOption.finalPlan(agenda, FinalPlanChoice.REJECT)));
-        // 최종 확정 안건을 만든 뒤에 끝낸다. D-1이 지나 안건을 못 열면 그 전에 예외가 나서 자유 안건은 그대로 남는다
+        // 최종 확정 안건을 만든 뒤에 끝낸다. D-DAY가 지나 안건을 못 열면 그 전에 예외가 나서 자유 안건은 그대로 남는다
         expireVotingCustomAgendas(me, roomId);
 
         // 1인 방이면 아래 판정에서 바로 FINALIZED가 되므로, 방을 먼저 REVIEWING으로 바꾼다

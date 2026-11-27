@@ -29,7 +29,7 @@ service와 엔티티는 [`BusinessException`](error/BusinessException.java)만 �
 
 ### 현재 시각은 `Clock`으로만 구한다
 
-[`ClockConfig`](config/ClockConfig.java)가 `Asia/Seoul` 시간대의 `Clock`을 빈으로 만든다. 코드는 인자 없는 `LocalDateTime.now()`를 쓰지 않고, 이 `Clock`을 주입받아 `LocalDateTime.now(clock)`을 쓴다. 테스트에서는 `Clock.fixed(...)`로 바꿔 "3일 뒤"나 "출발 전날 00:00" 같은 시점을 만든다. DB에도 한국 시각이 그대로 저장된다.
+[`ClockConfig`](config/ClockConfig.java)가 `Asia/Seoul` 시간대의 `Clock`을 빈으로 만든다. 코드는 인자 없는 `LocalDateTime.now()`를 쓰지 않고, 이 `Clock`을 주입받아 `LocalDateTime.now(clock)`을 쓴다. 테스트에서는 `Clock.fixed(...)`로 바꿔 "3일 뒤"나 "출발일 00:00" 같은 시점을 만든다. DB에도 한국 시각이 그대로 저장된다.
 
 ### 호출 제한
 

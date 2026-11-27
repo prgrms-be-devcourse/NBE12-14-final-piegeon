@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import world.chakchak.domain.survey.service.SurveyDeadlineService;
 
 /**
- * 기한으로 움직이는 작업을 매분 차례로 실행하는 스케줄러. 설문 마감(13-1), 안건 마감(13-2), D-1 최종 집계 순서다.
+ * 기한으로 움직이는 작업을 매분 차례로 실행하는 스케줄러. 설문 마감(13-1), 안건 마감(13-2), D-DAY 최종 집계 순서다.
  *
  * <p>방마다 별도 트랜잭션으로 처리해, 한 방이 실패해도 다른 방은 처리된다.
  */
@@ -33,7 +33,9 @@ public class AgendaDeadlineScheduler {
                 agendaService::findRoomIdsWithOverdueAgendas,
                 agendaService::expireOverdueAgendas);
         forEachRoom(
-                "D-1 최종 집계", agendaService::findRoomIdsAtFinalTally, agendaService::runFinalTally);
+                "D-DAY 최종 집계",
+                agendaService::findRoomIdsAtFinalTally,
+                agendaService::runFinalTally);
     }
 
     private void forEachRoom(String job, Supplier<List<Long>> findRoomIds, Consumer<Long> process) {

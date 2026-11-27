@@ -37,9 +37,9 @@ import world.chakchak.domain.user.entity.User;
 import world.chakchak.domain.user.repository.UserRepository;
 
 /**
- * D-1 최종 집계를 실제 DB로 확인한다.
+ * D-DAY 최종 집계를 실제 DB로 확인한다.
  *
- * <p>서버는 실제 시각으로 동작하므로 D-1 방은 출발일을 내일로 두고, 안건과 표는 며칠 전 시각으로 만든다.
+ * <p>서버는 실제 시각으로 동작하므로 D-DAY 방은 출발일을 오늘로 두고, 안건과 표는 며칠 전 시각으로 만든다.
  */
 @IntegrationTest
 class AgendaFinalTallyIntegrationTest {
@@ -102,9 +102,9 @@ class AgendaFinalTallyIntegrationTest {
         return room;
     }
 
-    /** 출발일이 내일이라 D-1이 된, 설문이 마감된 방 */
+    /** 출발일이 오늘이라 D-DAY가 된, 설문이 마감된 방 */
     private Room surveyClosedRoomAtFinalTally() {
-        Room room = saveRoom(LocalDate.now(clock).plusDays(1), RoomStatus.SURVEYING);
+        Room room = saveRoom(LocalDate.now(clock), RoomStatus.SURVEYING);
         room.closeSurveyIfReady(1, 1, past());
         return roomRepository.saveAndFlush(room);
     }
@@ -299,7 +299,7 @@ class AgendaFinalTallyIntegrationTest {
             @Test
             @DisplayName("최종 투표는 미투표자가 있어도 낸 표가 모두 동의면 방이 FINALIZED가 된다")
             void finalizesReviewingRoom() {
-                Room room = saveRoom(LocalDate.now(clock).plusDays(1), RoomStatus.REVIEWING);
+                Room room = saveRoom(LocalDate.now(clock), RoomStatus.REVIEWING);
                 RoomMember minsu = saveMember(room, "민수");
                 saveMember(room, "미투표자");
                 AgendaItem finalPlan = saveAgenda(room, AgendaSubject.FINAL_PLAN, 2);
@@ -317,9 +317,9 @@ class AgendaFinalTallyIntegrationTest {
             }
 
             @Test
-            @DisplayName("최종 투표 중 마지막 멤버가 나가 REVIEWING에 남은 방은 D-1에 PLANNING으로 돌아간다")
+            @DisplayName("최종 투표 중 마지막 멤버가 나가 REVIEWING에 남은 방은 D-DAY에 PLANNING으로 돌아간다")
             void returnsAbandonedReviewingRoomToPlanning() {
-                Room room = saveRoom(LocalDate.now(clock).plusDays(1), RoomStatus.REVIEWING);
+                Room room = saveRoom(LocalDate.now(clock), RoomStatus.REVIEWING);
                 RoomMember minsu = saveMember(room, "민수");
                 AgendaItem finalPlan = saveAgenda(room, AgendaSubject.FINAL_PLAN, 1);
                 AgendaOption agree =
@@ -343,9 +343,9 @@ class AgendaFinalTallyIntegrationTest {
         class Failure {
 
             @Test
-            @DisplayName("D-1까지 설문이 마감되지 않은 방은 안건 없이 EXPIRED가 된다")
+            @DisplayName("D-DAY까지 설문이 마감되지 않은 방은 안건 없이 EXPIRED가 된다")
             void expiresRoomWithOpenSurvey() {
-                Room room = saveRoom(LocalDate.now(clock).plusDays(1), RoomStatus.SURVEYING);
+                Room room = saveRoom(LocalDate.now(clock), RoomStatus.SURVEYING);
                 saveMember(room, "민수");
 
                 agendaService.runFinalTally(room.getId());

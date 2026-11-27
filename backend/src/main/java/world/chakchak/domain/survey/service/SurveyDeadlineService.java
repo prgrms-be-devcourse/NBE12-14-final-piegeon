@@ -34,7 +34,7 @@ public class SurveyDeadlineService {
     /**
      * 의견 마감이 지난 방의 설문을 마감하고 1회차 안건을 연다 (5-1). 제출이 0건이면 방이 EXPIRED가 된다.
      *
-     * <p>잠금을 기다리는 사이 D-1이 됐으면 건드리지 않는다. 그 방은 최종 집계가 처리한다.
+     * <p>잠금을 기다리는 사이 D-DAY가 됐으면 건드리지 않는다. 그 방은 최종 집계가 처리한다.
      */
     @Transactional
     public void closeOverdueSurvey(Long roomId) {

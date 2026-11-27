@@ -35,8 +35,8 @@ class SurveyDeadlineServiceTest {
 
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final LocalDateTime NOW = LocalDateTime.of(2027, 6, 1, 12, 0);
-    // 출발일 2027-07-01의 전날 00:00
-    private static final LocalDateTime D_MINUS_1 = LocalDateTime.of(2027, 6, 30, 0, 0);
+    // 출발일 2027-07-01 00:00
+    private static final LocalDateTime D_DAY = LocalDateTime.of(2027, 7, 1, 0, 0);
     private static final Long ROOM_ID = 1L;
 
     @Mock private RoomService roomService;
@@ -133,9 +133,9 @@ class SurveyDeadlineServiceTest {
         class Failure {
 
             @Test
-            @DisplayName("잠금을 기다리는 사이 D-1이 됐으면 설문을 마감하지 않고 최종 집계에 맡긴다")
-            void skipsAtDayBeforeDeparture() {
-                givenLockedRoomAt(D_MINUS_1);
+            @DisplayName("잠금을 기다리는 사이 D-DAY가 됐으면 설문을 마감하지 않고 최종 집계에 맡긴다")
+            void skipsAtDepartureDay() {
+                givenLockedRoomAt(D_DAY);
 
                 surveyDeadlineService.closeOverdueSurvey(ROOM_ID);
 

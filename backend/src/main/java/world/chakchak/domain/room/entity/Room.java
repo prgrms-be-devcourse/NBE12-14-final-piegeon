@@ -129,7 +129,7 @@ public class Room extends BaseEntity {
         this.status = RoomStatus.PLANNING;
     }
 
-    /** D-1 최종 집계까지 설문 조율을 끝내지 못해 방이 만료된다. 이후 읽기 전용이다. (13-3) */
+    /** D-DAY 최종 집계까지 설문 조율을 끝내지 못해 방이 만료된다. 이후 읽기 전용이다. (13-3) */
     public void expire() {
         requireStatus(RoomStatus.SURVEYING);
         this.status = RoomStatus.EXPIRED;

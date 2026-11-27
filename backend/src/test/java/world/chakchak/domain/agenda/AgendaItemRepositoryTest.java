@@ -345,7 +345,7 @@ class AgendaItemRepositoryTest {
 
                 List<Long> roomIds =
                         agendaItemRepository.findRoomIdsWithOverdueAgendas(
-                                AgendaStatus.VOTING, DEADLINE, DEADLINE.toLocalDate().plusDays(1));
+                                AgendaStatus.VOTING, DEADLINE, DEADLINE.toLocalDate());
 
                 assertThat(roomIds)
                         .containsOnlyOnce(room.getId())
@@ -376,37 +376,35 @@ class AgendaItemRepositoryTest {
             }
 
             @Test
-            @DisplayName("자유 안건은 최종 집계가 없어 출발 전날 00:00이 지나도 마감이 지났으면 찾는다")
+            @DisplayName("자유 안건은 최종 집계가 없어 출발일 00:00이 지나도 마감이 지났으면 찾는다")
             void findsCustomAgendaAfterFinalTallyStarts() {
                 saveCustom(room, "렌터카 빌릴까?", 1, DEADLINE);
-                LocalDateTime dayBeforeDeparture = room.getStartDate().minusDays(1).atStartOfDay();
+                LocalDateTime departureStart = room.getStartDate().atStartOfDay();
 
                 assertThat(
                                 agendaItemRepository.findRoomIdsWithOverdueAgendas(
                                         AgendaStatus.VOTING,
-                                        dayBeforeDeparture,
-                                        dayBeforeDeparture.toLocalDate().plusDays(1)))
+                                        departureStart,
+                                        departureStart.toLocalDate()))
                         .contains(room.getId());
             }
 
             @Test
-            @DisplayName("출발 전날 00:00 직전까지는 찾고, 00:00이 되면 최종 집계 대상이라 찾지 않는다")
+            @DisplayName("출발일 00:00 직전까지는 찾고, 00:00이 되면 최종 집계 대상이라 찾지 않는다")
             void excludesRoomsAtFinalTally() {
                 saveAgenda(room, AgendaSubject.BUDGET, 1);
-                LocalDateTime dayBeforeDeparture = room.getStartDate().minusDays(1).atStartOfDay();
-                LocalDateTime justBefore = dayBeforeDeparture.minusSeconds(1);
+                LocalDateTime departureStart = room.getStartDate().atStartOfDay();
+                LocalDateTime justBefore = departureStart.minusSeconds(1);
 
                 assertThat(
                                 agendaItemRepository.findRoomIdsWithOverdueAgendas(
-                                        AgendaStatus.VOTING,
-                                        justBefore,
-                                        justBefore.toLocalDate().plusDays(1)))
+                                        AgendaStatus.VOTING, justBefore, justBefore.toLocalDate()))
                         .contains(room.getId());
                 assertThat(
                                 agendaItemRepository.findRoomIdsWithOverdueAgendas(
                                         AgendaStatus.VOTING,
-                                        dayBeforeDeparture,
-                                        dayBeforeDeparture.toLocalDate().plusDays(1)))
+                                        departureStart,
+                                        departureStart.toLocalDate()))
                         .doesNotContain(room.getId());
             }
         }

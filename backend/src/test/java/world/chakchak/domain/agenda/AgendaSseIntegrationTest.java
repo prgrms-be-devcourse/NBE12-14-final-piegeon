@@ -45,7 +45,7 @@ import world.chakchak.domain.user.entity.User;
 import world.chakchak.domain.user.repository.UserRepository;
 
 /**
- * 투표(V-03), 안건 코멘트(V-06), D-1 방 만료가 커밋된 뒤 같은 방 멤버의 SSE 스트림에 실제로 전달되는지 확인한다.
+ * 투표(V-03), 안건 코멘트(V-06), D-DAY 방 만료가 커밋된 뒤 같은 방 멤버의 SSE 스트림에 실제로 전달되는지 확인한다.
  *
  * <p>표 수(vote.updated), 코멘트(comment.created), 방 만료(room.status_changed)는 기록하지 않는 일시 이벤트라 SSE id가
  * 없다. 안건 결정은 방 활동 기록으로 남아 로그 id를 SSE id로 쓰는 activity 이벤트로 간다.
@@ -197,9 +197,9 @@ class AgendaSseIntegrationTest {
 
             @Test
             @DisplayName(
-                    "D-1까지 설문이 마감되지 않아 방이 만료되면 같은 방 멤버에게 id 없는 room.status_changed가 가고 활동 기록은 남지 않는다")
+                    "D-DAY까지 설문이 마감되지 않아 방이 만료되면 같은 방 멤버에게 id 없는 room.status_changed가 가고 활동 기록은 남지 않는다")
             void streamsRoomExpired() throws Exception {
-                Room room = saveRoom(LocalDate.now(clock).plusDays(1));
+                Room room = saveRoom(LocalDate.now(clock));
                 join(room, jieun);
 
                 try (SseReader reader = new SseReader(openStream(room, jieunCookie).body())) {

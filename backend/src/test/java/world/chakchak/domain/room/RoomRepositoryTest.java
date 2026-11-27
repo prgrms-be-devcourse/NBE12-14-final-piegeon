@@ -67,7 +67,7 @@ class RoomRepositoryTest {
         class Success {
 
             @Test
-            @DisplayName("의견 마감이 지났고 설문이 마감되지 않았으며 아직 D-1 전인 SURVEYING 방만 찾는다")
+            @DisplayName("의견 마감이 지났고 설문이 마감되지 않았으며 아직 D-DAY 전인 SURVEYING 방만 찾는다")
             void findsRoomsPastOpinionDeadline() {
                 LocalDate farStart = LocalDate.now(clock).plusDays(30);
                 Room overdue = saveRoom(farStart, RoomStatus.SURVEYING);
@@ -76,12 +76,12 @@ class RoomRepositoryTest {
                 roomRepository.flush();
                 Room planning = saveRoom(farStart, RoomStatus.PLANNING);
                 LocalDateTime now = overdue.getOpinionDeadlineAt().plusMinutes(1);
-                LocalDate tomorrow = now.toLocalDate().plusDays(1);
-                Room atTally = saveRoom(tomorrow, RoomStatus.SURVEYING);
+                LocalDate today = now.toLocalDate();
+                Room atTally = saveRoom(today, RoomStatus.SURVEYING);
 
                 List<Long> roomIds =
                         roomRepository.findRoomIdsPastOpinionDeadline(
-                                RoomStatus.SURVEYING, now, tomorrow);
+                                RoomStatus.SURVEYING, now, today);
 
                 assertThat(roomIds)
                         .contains(overdue.getId())
@@ -96,24 +96,24 @@ class RoomRepositoryTest {
 
                 List<Long> roomIds =
                         roomRepository.findRoomIdsPastOpinionDeadline(
-                                RoomStatus.SURVEYING, now, now.toLocalDate().plusDays(1));
+                                RoomStatus.SURVEYING, now, now.toLocalDate());
 
                 assertThat(roomIds).doesNotContain(room.getId());
             }
 
             @Test
-            @DisplayName("D-1이 된 방 중 조율 중이거나 최종 투표 중인 방만 찾는다")
+            @DisplayName("D-DAY가 된 방 중 조율 중이거나 최종 투표 중인 방만 찾는다")
             void findsRoomsAtFinalTally() {
-                LocalDate tomorrow = LocalDate.now(clock).plusDays(1);
-                Room surveying = saveRoom(tomorrow, RoomStatus.SURVEYING);
-                Room reviewing = saveRoom(tomorrow, RoomStatus.REVIEWING);
-                Room planning = saveRoom(tomorrow, RoomStatus.PLANNING);
-                Room finalized = saveRoom(tomorrow, RoomStatus.FINALIZED);
-                Room notYet = saveRoom(tomorrow.plusDays(1), RoomStatus.SURVEYING);
+                LocalDate today = LocalDate.now(clock);
+                Room surveying = saveRoom(today, RoomStatus.SURVEYING);
+                Room reviewing = saveRoom(today, RoomStatus.REVIEWING);
+                Room planning = saveRoom(today, RoomStatus.PLANNING);
+                Room finalized = saveRoom(today, RoomStatus.FINALIZED);
+                Room notYet = saveRoom(today.plusDays(1), RoomStatus.SURVEYING);
 
                 List<Long> roomIds =
                         roomRepository.findRoomIdsAtFinalTally(
-                                List.of(RoomStatus.SURVEYING, RoomStatus.REVIEWING), tomorrow);
+                                List.of(RoomStatus.SURVEYING, RoomStatus.REVIEWING), today);
 
                 assertThat(roomIds)
                         .contains(surveying.getId(), reviewing.getId())

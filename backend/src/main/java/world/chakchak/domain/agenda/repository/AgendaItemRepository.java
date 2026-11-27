@@ -66,7 +66,7 @@ public interface AgendaItemRepository extends JpaRepository<AgendaItem, Long> {
     /**
      * 마감 시각이 지난 안건이 있는 방 (13-2 마감 스케줄러).
      *
-     * <p>출발일이 내일보다 뒤인 방만 찾는다. 출발 전날 00:00(D-1)이 된 방은 최종 집계가 처리한다. 자유 안건은 최종 집계가 없어 D-1이 지나도
+     * <p>출발일이 오늘보다 뒤인 방만 찾는다. 출발일 00:00(D-DAY)이 된 방은 최종 집계가 처리한다. 자유 안건은 최종 집계가 없어 D-DAY가 지나도
      * 찾는다({@link AgendaItem#isExpirableAt}).
      */
     @Query(
@@ -74,11 +74,11 @@ public interface AgendaItemRepository extends JpaRepository<AgendaItem, Long> {
             select distinct a.room.id from AgendaItem a
             where a.status = :status
               and a.deadlineAt <= :now
-              and (a.room.startDate > :tomorrow
+              and (a.room.startDate > :today
                    or a.subject = world.chakchak.domain.agenda.entity.AgendaSubject.CUSTOM)
             """)
     List<Long> findRoomIdsWithOverdueAgendas(
             @Param("status") AgendaStatus status,
             @Param("now") LocalDateTime now,
-            @Param("tomorrow") LocalDate tomorrow);
+            @Param("today") LocalDate today);
 }

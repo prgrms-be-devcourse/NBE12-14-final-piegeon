@@ -54,7 +54,7 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     /**
      * 의견 마감이 지났는데 설문이 아직 마감되지 않은 방 (13-1).
      *
-     * <p>출발일이 내일보다 뒤인 방만 찾는다. 출발 전날 00:00(D-1)이 된 방은 최종 집계가 처리한다.
+     * <p>출발일이 오늘보다 뒤인 방만 찾는다. 출발일 00:00(D-DAY)이 된 방은 최종 집계가 처리한다.
      */
     @Query(
             """
@@ -62,18 +62,17 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
             where r.status = :status
               and r.surveyClosedAt is null
               and r.opinionDeadlineAt <= :now
-              and r.startDate > :tomorrow
+              and r.startDate > :today
             """)
     List<Long> findRoomIdsPastOpinionDeadline(
             @Param("status") RoomStatus status,
             @Param("now") LocalDateTime now,
-            @Param("tomorrow") LocalDate tomorrow);
+            @Param("today") LocalDate today);
 
-    /** 출발 전날 00:00(D-1)이 됐는데 아직 조율이나 최종 투표가 끝나지 않은 방 (D-1 최종 집계). */
-    @Query("select r.id from Room r where r.status in :statuses and r.startDate <= :tomorrow")
+    /** 출발일 00:00(D-DAY)이 됐는데 아직 조율이나 최종 투표가 끝나지 않은 방 (D-DAY 최종 집계). */
+    @Query("select r.id from Room r where r.status in :statuses and r.startDate <= :today")
     List<Long> findRoomIdsAtFinalTally(
-            @Param("statuses") Collection<RoomStatus> statuses,
-            @Param("tomorrow") LocalDate tomorrow);
+            @Param("statuses") Collection<RoomStatus> statuses, @Param("today") LocalDate today);
 
     @Query(
             """

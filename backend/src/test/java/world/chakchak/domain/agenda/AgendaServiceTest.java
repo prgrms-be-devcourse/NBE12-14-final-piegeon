@@ -884,11 +884,11 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("출발 전날 00:00이 된 최종 확정 안건은 최종 집계를 위해 투표 중으로 남고 방도 그대로다")
+            @DisplayName("출발일 00:00이 된 최종 확정 안건은 최종 집계를 위해 투표 중으로 남고 방도 그대로다")
             void keepsFinalPlanForFinalTally() {
                 reviewing();
                 AgendaItem finalPlan = openAgenda(AgendaSubject.FINAL_PLAN, 2);
-                givenOverdueCheck(room.getStartDate().minusDays(1).atStartOfDay(), finalPlan);
+                givenOverdueCheck(room.getStartDate().atStartOfDay(), finalPlan);
 
                 agendaService.expireOverdueAgendas(ROOM_ID);
 
@@ -897,13 +897,13 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("기한 지난 안건이 있는 방을 찾을 때 지금 시각과 내일 날짜로 조회한다")
+            @DisplayName("기한 지난 안건이 있는 방을 찾을 때 지금 시각과 오늘 날짜로 조회한다")
             void findsOverdueRoomsWithCurrentTime() {
                 given(clock.instant()).willReturn(NOW.atZone(SEOUL).toInstant());
                 given(clock.getZone()).willReturn(SEOUL);
                 given(
                                 agendaItemRepository.findRoomIdsWithOverdueAgendas(
-                                        AgendaStatus.VOTING, NOW, NOW.toLocalDate().plusDays(1)))
+                                        AgendaStatus.VOTING, NOW, NOW.toLocalDate()))
                         .willReturn(List.of(ROOM_ID));
 
                 assertThat(agendaService.findRoomIdsWithOverdueAgendas()).containsExactly(ROOM_ID);
@@ -1195,8 +1195,8 @@ class AgendaServiceTest {
     @Nested
     class DeadlineJobs {
 
-        // 출발일 2027-07-01의 전날 00:00
-        private static final LocalDateTime D_MINUS_1 = LocalDateTime.of(2027, 6, 30, 0, 0);
+        // 출발일 2027-07-01 00:00
+        private static final LocalDateTime D_DAY = LocalDateTime.of(2027, 7, 1, 0, 0);
 
         @BeforeEach
         void giveRoomId() {
@@ -1249,7 +1249,7 @@ class AgendaServiceTest {
             @DisplayName("표가 갈린 투표 중 항목과 미결 항목을 최다 득표로 결정하고 세 항목이 끝나면 방이 PLANNING이 된다")
             void talliesSurveyAgendasAndStartsPlanning() {
                 surveyClosed();
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem budget = openItem(AgendaSubject.BUDGET);
                 AgendaOption low = budget(budget, 600_000L, 0, null);
                 AgendaOption high = budget(budget, 1_000_000L, 1, null);
@@ -1279,7 +1279,7 @@ class AgendaServiceTest {
             @DisplayName("미결 회차에 남은 나간 멤버의 표는 집계에서 뺀다")
             void excludesVotesOfLeftMembers() {
                 surveyClosed();
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem stay = openItem(AgendaSubject.STAY);
                 AgendaOption hotel = stayOption(stay, StayType.HOTEL, 0);
                 AgendaOption personal = stayOption(stay, StayType.PERSONAL, 1);
@@ -1306,7 +1306,7 @@ class AgendaServiceTest {
             @DisplayName("활동 멤버의 표가 0개인 항목이 있으면 그 항목은 미결, 다른 항목은 결정되고 방은 EXPIRED가 된다")
             void expiresRoomWhenAnItemHasNoVotes() {
                 surveyClosed();
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem budget = openItem(AgendaSubject.BUDGET);
                 AgendaOption low = budget(budget, 600_000L, 0, null);
                 givenVotes(budget, vote(budget, low, me));
@@ -1325,7 +1325,7 @@ class AgendaServiceTest {
             @DisplayName("1위가 동점인 항목이 있으면 그 항목은 미결, 다른 항목은 결정되고 방은 EXPIRED가 된다")
             void expiresRoomWhenAnItemIsTied() {
                 surveyClosed();
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem budget = openItem(AgendaSubject.BUDGET);
                 AgendaOption low = budget(budget, 600_000L, 0, null);
                 AgendaOption high = budget(budget, 1_000_000L, 1, null);
@@ -1345,9 +1345,9 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("D-1까지 설문이 마감되지 않은 방은 EXPIRED가 된다")
+            @DisplayName("D-DAY까지 설문이 마감되지 않은 방은 EXPIRED가 된다")
             void expiresRoomWithOpenSurvey() {
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
 
                 agendaService.runFinalTally(ROOM_ID);
 
@@ -1356,10 +1356,10 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("설문은 마감됐지만 D-1이 지나 안건이 열리지 못한 방은 EXPIRED가 된다")
+            @DisplayName("설문은 마감됐지만 D-DAY가 지나 안건이 열리지 못한 방은 EXPIRED가 된다")
             void expiresRoomWithoutAgendas() {
                 surveyClosed();
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
 
                 agendaService.runFinalTally(ROOM_ID);
 
@@ -1370,7 +1370,7 @@ class AgendaServiceTest {
             @DisplayName("최종 투표는 미투표자가 있어도 낸 표가 모두 동의면 방이 FINALIZED가 된다")
             void finalizesWhenCastVotesAgree() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
                 AgendaOption agree =
                         withId(AgendaOption.finalPlan(finalPlan, FinalPlanChoice.AGREE));
@@ -1382,14 +1382,14 @@ class AgendaServiceTest {
                 assertThat(finalPlan.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
                 assertThat(finalPlan.getResolvedOptionId()).isEqualTo(agree.getId());
                 assertThat(room.getStatus()).isEqualTo(RoomStatus.FINALIZED);
-                assertThat(room.getFinalizedAt()).isEqualTo(D_MINUS_1);
+                assertThat(room.getFinalizedAt()).isEqualTo(D_DAY);
             }
 
             @Test
             @DisplayName("최종 투표에 동의 표가 더 많아도 반대 표가 섞여 있으면 반대로 정하고 방이 PLANNING으로 돌아간다")
             void returnsToPlanningWhenAnyRejectVote() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
                 AgendaOption agree =
                         withId(AgendaOption.finalPlan(finalPlan, FinalPlanChoice.AGREE));
@@ -1415,7 +1415,7 @@ class AgendaServiceTest {
             @DisplayName("최종 투표에 표가 없으면 안건은 미결로 끝나고 방이 PLANNING으로 돌아간다")
             void returnsToPlanningWithoutFinalVotes() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
                 givenVotes(finalPlan);
                 givenLatest(finalPlan);
@@ -1430,7 +1430,7 @@ class AgendaServiceTest {
             @DisplayName("마지막 멤버가 나가 최종 안건이 이미 미결이고 방만 REVIEWING이면 방이 PLANNING으로 돌아간다")
             void returnsToPlanningWhenFinalPlanAlreadyExpired() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
                 finalPlan.expire();
                 givenLatest(finalPlan);
@@ -1446,7 +1446,7 @@ class AgendaServiceTest {
             @DisplayName("이미 PLANNING이 된 방은 다시 집계해도 바뀌지 않는다")
             void doesNothingForPlanningRoom() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.PLANNING);
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
 
                 agendaService.runFinalTally(ROOM_ID);
 
@@ -1455,10 +1455,10 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("D-1 집계로 설문 항목이 결정되면 시스템을 행위자로 항목마다 결정 기록을 남기고 세 항목이 끝나면 조율 완료를 남긴다")
+            @DisplayName("D-DAY 집계로 설문 항목이 결정되면 시스템을 행위자로 항목마다 결정 기록을 남기고 세 항목이 끝나면 조율 완료를 남긴다")
             void recordsFinalTallyResolutions() {
                 surveyClosed();
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem budget = openItem(AgendaSubject.BUDGET);
                 AgendaOption high = budget(budget, 1_000_000L, 0, null);
                 givenVotes(budget, vote(budget, high, me));
@@ -1479,10 +1479,10 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("D-1 집계에서 정하지 못한 투표 중 항목은 미결 기록을 남기고, 방이 만료되면 조율 완료 대신 방 만료를 알린다")
+            @DisplayName("D-DAY 집계에서 정하지 못한 투표 중 항목은 미결 기록을 남기고, 방이 만료되면 조율 완료 대신 방 만료를 알린다")
             void recordsExpiredItemWhenRoomExpires() {
                 surveyClosed();
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem budget = openItem(AgendaSubject.BUDGET);
                 AgendaOption low = budget(budget, 600_000L, 0, null);
                 givenVotes(budget, vote(budget, low, me));
@@ -1499,10 +1499,10 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("D-1 집계에서 이미 미결이던 회차를 정하지 못하면 미결 기록을 다시 남기지 않고 방 만료만 알린다")
+            @DisplayName("D-DAY 집계에서 이미 미결이던 회차를 정하지 못하면 미결 기록을 다시 남기지 않고 방 만료만 알린다")
             void skipsRecordForAlreadyExpiredItem() {
                 surveyClosed();
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem budget = openItem(AgendaSubject.BUDGET);
                 AgendaOption low = budget(budget, 600_000L, 0, null);
                 givenVotes(budget, vote(budget, low, me));
@@ -1519,10 +1519,10 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("D-1 최종 투표가 동의로 정해지면 시스템을 행위자로 계획 확정 한 줄만 남긴다")
+            @DisplayName("D-DAY 최종 투표가 동의로 정해지면 시스템을 행위자로 계획 확정 한 줄만 남긴다")
             void recordsPlanFinalizedByFinalTally() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
                 AgendaOption agree =
                         withId(AgendaOption.finalPlan(finalPlan, FinalPlanChoice.AGREE));
@@ -1536,10 +1536,10 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("D-1 최종 투표에 표가 없으면 시스템을 행위자로 미결 기록을 남긴다")
+            @DisplayName("D-DAY 최종 투표에 표가 없으면 시스템을 행위자로 미결 기록을 남긴다")
             void recordsFinalPlanExpiredByFinalTally() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
                 givenVotes(finalPlan);
                 givenLatest(finalPlan);
@@ -1551,10 +1551,10 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("마지막 멤버가 나가 이미 미결인 최종 안건은 D-1 집계에서 기록을 다시 남기지 않는다")
+            @DisplayName("마지막 멤버가 나가 이미 미결인 최종 안건은 D-DAY 집계에서 기록을 다시 남기지 않는다")
             void skipsRecordForAlreadyExpiredFinalPlan() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
                 AgendaItem finalPlan = openItem(AgendaSubject.FINAL_PLAN);
                 finalPlan.expire();
                 givenLatest(finalPlan);
@@ -1569,10 +1569,10 @@ class AgendaServiceTest {
         class Failure {
 
             @Test
-            @DisplayName("D-1 전이면 최종 집계를 하지 않는다")
-            void skipsTallyBeforeDayBeforeDeparture() {
+            @DisplayName("D-DAY 전이면 최종 집계를 하지 않는다")
+            void skipsTallyBeforeDepartureDay() {
                 surveyClosed();
-                givenLockedRoomAt(D_MINUS_1.minusSeconds(1));
+                givenLockedRoomAt(D_DAY.minusSeconds(1));
 
                 agendaService.runFinalTally(ROOM_ID);
 
@@ -1584,7 +1584,7 @@ class AgendaServiceTest {
             @DisplayName("최종 투표 중인 방에 최종 확정 안건이 없으면 코드 버그로 보고 예외를 던진다")
             void rejectsReviewingRoomWithoutFinalPlan() {
                 ReflectionTestUtils.setField(room, "status", RoomStatus.REVIEWING);
-                givenLockedRoomAt(D_MINUS_1);
+                givenLockedRoomAt(D_DAY);
 
                 assertThatThrownBy(() -> agendaService.runFinalTally(ROOM_ID))
                         .isInstanceOf(IllegalStateException.class);
@@ -1716,13 +1716,13 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("출발 전날 00시가 지났으면 안건을 만들지 않는다")
-            void skipsAfterDayBeforeDeparture() {
-                LocalDateTime dayBeforeDeparture = LocalDateTime.of(2027, 6, 30, 0, 0);
-                ReflectionTestUtils.setField(room, "surveyClosedAt", dayBeforeDeparture);
+            @DisplayName("출발일 00시가 지났으면 안건을 만들지 않는다")
+            void skipsAfterDepartureDay() {
+                LocalDateTime departureStart = LocalDateTime.of(2027, 7, 1, 0, 0);
+                ReflectionTestUtils.setField(room, "surveyClosedAt", departureStart);
                 givenNoSurveyAgendas();
 
-                agendaService.openSurveyAgendas(room, dayBeforeDeparture);
+                agendaService.openSurveyAgendas(room, departureStart);
 
                 verify(agendaItemRepository, never()).save(any());
                 verifyNoInteractions(surveyResponseService);
@@ -1760,13 +1760,13 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("출발 전날 00시가 지나 안건을 열지 않아도 설문 마감은 남긴다")
-            void recordsSurveyClosedAfterDayBeforeDeparture() {
-                LocalDateTime dayBeforeDeparture = LocalDateTime.of(2027, 6, 30, 0, 0);
-                ReflectionTestUtils.setField(room, "surveyClosedAt", dayBeforeDeparture);
+            @DisplayName("출발일 00시가 지나 안건을 열지 않아도 설문 마감은 남긴다")
+            void recordsSurveyClosedAfterDepartureDay() {
+                LocalDateTime departureStart = LocalDateTime.of(2027, 7, 1, 0, 0);
+                ReflectionTestUtils.setField(room, "surveyClosedAt", departureStart);
                 givenNoSurveyAgendas();
 
-                agendaService.openSurveyAgendas(room, dayBeforeDeparture);
+                agendaService.openSurveyAgendas(room, departureStart);
 
                 verify(agendaChangePublisher).surveyClosed(room, 0);
                 verifyNoMoreInteractions(agendaChangePublisher);
@@ -2647,9 +2647,9 @@ class AgendaServiceTest {
             }
 
             @Test
-            @DisplayName("출발 전날 00시가 지나면 AGENDA_DEADLINE_PASSED로 막고 방은 PLANNING에 남는다")
-            void rejectsAfterDayBeforeDeparture() {
-                givenLockedRoomAndMember(LocalDateTime.of(2027, 6, 30, 0, 0));
+            @DisplayName("출발일 00시가 지나면 AGENDA_DEADLINE_PASSED로 막고 방은 PLANNING에 남는다")
+            void rejectsAfterDepartureDay() {
+                givenLockedRoomAndMember(LocalDateTime.of(2027, 7, 1, 0, 0));
                 givenActiveMembers(2);
                 givenPreviousFinalReview(null);
 
