@@ -132,6 +132,19 @@ class AuthIntegrationTest {
     }
 
     @Test
+    @DisplayName("비밀번호에 숫자나 특수문자가 빠지면 400과 password 필드 사유를 응답한다")
+    void signupWithWeakPassword() throws Exception {
+        String body =
+                """
+                {"email": "weak@example.com", "name": "테스터", "password": "asdfasdf"}
+                """;
+        HttpResponse<String> signup = postJson("/api/auth/signup", body, null);
+
+        assertThat(signup.statusCode()).isEqualTo(400);
+        assertThat(signup.body()).contains("INVALID_INPUT").contains("\"field\":\"password\"");
+    }
+
+    @Test
     @DisplayName("이미 가입된 이메일로 가입하면 409와 EMAIL_ALREADY_EXISTS를 응답한다")
     void signupWithDuplicatedEmail() throws Exception {
         String email = uniqueEmail();
