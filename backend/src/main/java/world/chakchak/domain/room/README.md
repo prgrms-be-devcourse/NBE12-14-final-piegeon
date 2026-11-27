@@ -33,7 +33,7 @@
 stateDiagram-v2
     [*] --> SURVEYING: 방 생성
     SURVEYING --> PLANNING: 예산·숙소·이동 강도 모두 결정
-    SURVEYING --> EXPIRED: 의견 마감에 제출 0건, 또는 D-1까지 조율 실패
+    SURVEYING --> EXPIRED: 의견 마감에 제출 0건, 또는 D-DAY까지 조율 실패
     PLANNING --> REVIEWING: 최종 확정 투표 열기
     REVIEWING --> FINALIZED: 동의
     REVIEWING --> PLANNING: 반대 또는 미결
