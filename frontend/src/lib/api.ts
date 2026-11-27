@@ -21,6 +21,7 @@ import type {
   RoomDetailResponse,
   RoomListResponse,
   ScheduleBoardResponse,
+  SwapDayResponse,
   SubmitSurveyRequest,
   SubmitSurveyResponse,
   SurveyMeResponse,
@@ -165,10 +166,27 @@ export const api = {
   schedule: (roomId: number | string) => get<ScheduleBoardResponse>(`${room(roomId)}/schedule`),
   addItem: (roomId: number | string, dayId: number, req: AddItemRequest) =>
     post<AddItemResponse>(`${room(roomId)}/schedule-days/${dayId}/items`, req),
-  moveItem: (roomId: number | string, itemId: number, afterItemId: number | null, dayVersion: number) =>
+  moveItem: (
+    roomId: number | string,
+    itemId: number,
+    afterItemId: number | null,
+    dayVersion: number,
+    /** 다른 날로 옮길 때만 넣는다. 옮겨 갈 날의 id와, 보드에서 받은 그날의 version */
+    target?: { dayId: number; dayVersion: number },
+  ) =>
     patch<DayChangeResponse>(`${room(roomId)}/schedule-items/${itemId}/position`, {
       afterItemId,
       dayVersion,
+      // target이 없으면 undefined라 JSON에서 빠지고, 서버는 같은 날 안에서 옮긴다
+      targetDayId: target?.dayId,
+      targetDayVersion: target?.dayVersion,
+    }),
+  /** 두 날의 일정을 통째로 맞바꾼다. 두 날 모두 보드에서 받은 version을 보낸다 */
+  swapDays: (roomId: number | string, dayId: number, dayVersion: number, other: { dayId: number; dayVersion: number }) =>
+    patch<SwapDayResponse>(`${room(roomId)}/schedule-days/${dayId}/position`, {
+      dayVersion,
+      otherDayId: other.dayId,
+      otherDayVersion: other.dayVersion,
     }),
   updateItem: (
     roomId: number | string,

@@ -230,6 +230,8 @@ export interface PlaceCandidateItem {
   name: string;
   address: string;
   placeType: string | null;
+  /** 장소 종류. 서버가 placeType을 5종으로 묶어 준다. 표에 없는 종류면 null */
+  category?: { value: PlaceCategory; label: string } | null;
   stage: PlaceStage;
   agreeCount: number;
   agreedBy: MemberRef[];
@@ -311,8 +313,16 @@ export interface AddItemResponse {
 
 export type ScheduleWarning = "TIME_ORDER_MISMATCH";
 
+/** 두 날을 맞바꾼 결과. 바뀐 두 날이 일차 순서로 온다 */
+export interface SwapDayResponse {
+  days: DaySnapshot[];
+}
+
 export interface DayChangeResponse {
+  /** 바뀐 날. 블록을 옮겼으면 블록이 지금 놓인 날 */
   day: DaySnapshot;
+  /** 블록을 다른 날로 옮겼을 때만 온다. 블록이 떠난 날 */
+  fromDay?: DaySnapshot;
   warnings?: ScheduleWarning[];
 }
 

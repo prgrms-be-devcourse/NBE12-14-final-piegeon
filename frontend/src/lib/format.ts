@@ -60,6 +60,12 @@ export function dateLabel(date: string): string {
   return `${p.mo}월 ${p.d}일 (${weekday(date)})`;
 }
 
+/** "12월 18일 금요일" */
+export function longDate(date: string): string {
+  const p = parts(date);
+  return `${p.mo}월 ${p.d}일 ${weekday(date)}요일`;
+}
+
 /** "12.18 금" */
 export function shortDate(date: string): string {
   const p = parts(date);
