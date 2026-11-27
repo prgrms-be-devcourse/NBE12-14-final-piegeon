@@ -28,9 +28,13 @@ public interface AgendaItemRepository extends JpaRepository<AgendaItem, Long> {
     List<AgendaItem> findAllByRoomIdAndStatusNotOrderByCreatedAtDescIdDesc(
             Long roomId, AgendaStatus status);
 
-    /** 주제별 가장 최근 회차 안건 */
+    /** 주제별 가장 최근 회차 안건. 제목이 주제마다 하나로 고정인 설문 안건과 최종 확정에 쓴다. */
     Optional<AgendaItem> findTopByRoomIdAndSubjectOrderByRoundDesc(
             Long roomId, AgendaSubject subject);
+
+    /** 같은 주제·제목의 가장 최근 회차 안건. 자유 안건은 subject가 모두 CUSTOM이라 제목까지 봐야 한 줄로 이어진다 (V-04). */
+    Optional<AgendaItem> findTopByRoomIdAndSubjectAndTitleOrderByRoundDesc(
+            Long roomId, AgendaSubject subject, String title);
 
     // 방 나가기(R-06)에서 VOTING 안건만 골라 removeVoter를 부르기 위해 추가
     List<AgendaItem> findAllByRoomIdAndStatus(Long roomId, AgendaStatus status);
@@ -62,14 +66,16 @@ public interface AgendaItemRepository extends JpaRepository<AgendaItem, Long> {
     /**
      * 마감 시각이 지난 안건이 있는 방 (13-2 마감 스케줄러).
      *
-     * <p>출발일이 내일보다 뒤인 방만 찾는다. 출발 전날 00:00(D-1)이 된 방은 최종 집계가 처리한다.
+     * <p>출발일이 내일보다 뒤인 방만 찾는다. 출발 전날 00:00(D-1)이 된 방은 최종 집계가 처리한다. 자유 안건은 최종 집계가 없어 D-1이 지나도
+     * 찾는다({@link AgendaItem#isExpirableAt}).
      */
     @Query(
             """
             select distinct a.room.id from AgendaItem a
             where a.status = :status
               and a.deadlineAt <= :now
-              and a.room.startDate > :tomorrow
+              and (a.room.startDate > :tomorrow
+                   or a.subject = world.chakchak.domain.agenda.entity.AgendaSubject.CUSTOM)
             """)
     List<Long> findRoomIdsWithOverdueAgendas(
             @Param("status") AgendaStatus status,

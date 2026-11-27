@@ -81,6 +81,9 @@ export default function SchedulePage() {
       <FinalReview
         status={status}
         finalAgenda={finalAgenda ?? null}
+        openCustomTitles={(agendas.data?.agendas ?? [])
+          .filter((a) => a.subject === "CUSTOM" && a.status === "VOTING")
+          .map((a) => a.title)}
         dayCounts={days.map((d) => ({ dayIndex: d.dayIndex, count: d.items.length }))}
         solo={room.members.length === 1}
         onOpened={async () => {
@@ -184,12 +187,15 @@ export default function SchedulePage() {
 function FinalReview({
   status,
   finalAgenda,
+  openCustomTitles,
   dayCounts,
   solo,
   onOpened,
 }: {
   status: string;
   finalAgenda: import("@/lib/types").AgendaListItem | null;
+  /** 아직 투표 중인 자유 안건 제목. 최종 투표를 열면 이 안건들은 못 정한 채로 끝난다 */
+  openCustomTitles: string[];
   /** 아무것도 넣지 않은 날의 일차. 서버는 빈 날이 있어도 투표를 열어 준다 */
   dayCounts: { dayIndex: number; count: number }[];
   /** 활동 멤버가 나 혼자인지. 혼자면 여는 사람의 동의만으로 바로 확정된다 */
@@ -236,6 +242,11 @@ function FinalReview({
         onClick={async () => {
           // 투표를 연 사람은 서버가 동의로 넣는다. 그래서 혼자인 방은 열자마자 확정된다
           const notes = solo ? ["지금 방에 나 혼자라서 열자마자 일정이 확정돼요. 확정하면 되돌릴 수 없어요."] : [];
+          if (openCustomTitles.length > 0) {
+            notes.push(
+              `아직 정하지 못한 안건이 ${openCustomTitles.length}개 있어요(${openCustomTitles.join(", ")}). 최종 투표를 열면 이 안건들은 못 정한 채로 끝나요.`,
+            );
+          }
           // 서버는 빈 날이 있어도 투표를 열어 준다. 빈 날이 있으면 일차별로 몇 곳 넣었는지 보여 줘서 열기 전에 알아채게 한다
           const hasEmptyDay = dayCounts.some((d) => d.count === 0);
           const ok = await confirm({

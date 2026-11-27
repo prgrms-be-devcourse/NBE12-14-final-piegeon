@@ -244,6 +244,21 @@ class AgendaFinalTallyIntegrationTest {
             }
 
             @Test
+            @DisplayName("집계로 방이 EXPIRED가 되면 투표 중인 자유 안건도 미결로 끝난다")
+            void expiresVotingCustomAgendaWithRoom() {
+                Room room = surveyClosedRoomAtFinalTally();
+                AgendaItem budget = saveAgenda(room, AgendaSubject.BUDGET, 2);
+                agendaOptionRepository.saveAndFlush(AgendaOption.budget(budget, 600_000L, 0, null));
+                saveResolvedPace(room);
+                AgendaItem custom = saveAgenda(room, AgendaSubject.CUSTOM, 2);
+
+                agendaService.runFinalTally(room.getId());
+
+                assertThat(statusOf(room)).isEqualTo(RoomStatus.EXPIRED);
+                assertThat(reload(custom).getStatus()).isEqualTo(AgendaStatus.EXPIRED);
+            }
+
+            @Test
             @DisplayName("투표 중 항목과 미결 항목의 1위가 동점이면 두 항목 모두 미결로 남고 방이 EXPIRED가 된다")
             void expiresRoomWithTiedItems() {
                 Room room = surveyClosedRoomAtFinalTally();

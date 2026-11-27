@@ -74,6 +74,11 @@ class AgendaItemRepositoryTest {
                 AgendaItem.create(room, subject, round, "예산을 정해주세요", 3, NOW, deadlineAt));
     }
 
+    private AgendaItem saveCustom(Room room, String title, int round, LocalDateTime deadlineAt) {
+        return agendaItemRepository.saveAndFlush(
+                AgendaItem.create(room, AgendaSubject.CUSTOM, round, title, 3, NOW, deadlineAt));
+    }
+
     private void setCreatedAt(AgendaItem agenda, LocalDateTime createdAt) {
         jdbcTemplate.update(
                 "UPDATE agenda_item SET created_at = ? WHERE id = ?", createdAt, agenda.getId());
@@ -138,6 +143,15 @@ class AgendaItemRepositoryTest {
                 saveAgenda(room, AgendaSubject.STAY, 1);
 
                 assertThatThrownBy(() -> saveAgenda(room, AgendaSubject.STAY, 1))
+                        .isInstanceOf(DataIntegrityViolationException.class);
+            }
+
+            @Test
+            @DisplayName("같은 방에 같은 제목과 회차의 자유 안건을 두 번 저장할 수 없다")
+            void rejectsDuplicateCustomTitle() {
+                saveCustom(room, "렌터카 빌릴까?", 1, DEADLINE);
+
+                assertThatThrownBy(() -> saveCustom(room, "렌터카 빌릴까?", 1, DEADLINE))
                         .isInstanceOf(DataIntegrityViolationException.class);
             }
 
@@ -336,6 +350,43 @@ class AgendaItemRepositoryTest {
                 assertThat(roomIds)
                         .containsOnlyOnce(room.getId())
                         .doesNotContain(notYet.getId(), decided.getId());
+            }
+
+            @Test
+            @DisplayName("자유 안건은 제목마다 회차를 따로 세고, 제목으로 가장 최근 회차를 찾는다")
+            void findsLatestRoundByTitle() {
+                saveCustom(room, "렌터카 빌릴까?", 1, DEADLINE);
+                AgendaItem rentalSecond = saveCustom(room, "렌터카 빌릴까?", 2, DEADLINE);
+                AgendaItem breakfast = saveCustom(room, "조식 포함할까?", 1, DEADLINE);
+
+                assertThat(
+                                agendaItemRepository
+                                        .findTopByRoomIdAndSubjectAndTitleOrderByRoundDesc(
+                                                room.getId(), AgendaSubject.CUSTOM, "렌터카 빌릴까?"))
+                        .get()
+                        .extracting(AgendaItem::getId)
+                        .isEqualTo(rentalSecond.getId());
+                assertThat(
+                                agendaItemRepository
+                                        .findTopByRoomIdAndSubjectAndTitleOrderByRoundDesc(
+                                                room.getId(), AgendaSubject.CUSTOM, "조식 포함할까?"))
+                        .get()
+                        .extracting(AgendaItem::getId)
+                        .isEqualTo(breakfast.getId());
+            }
+
+            @Test
+            @DisplayName("자유 안건은 최종 집계가 없어 출발 전날 00:00이 지나도 마감이 지났으면 찾는다")
+            void findsCustomAgendaAfterFinalTallyStarts() {
+                saveCustom(room, "렌터카 빌릴까?", 1, DEADLINE);
+                LocalDateTime dayBeforeDeparture = room.getStartDate().minusDays(1).atStartOfDay();
+
+                assertThat(
+                                agendaItemRepository.findRoomIdsWithOverdueAgendas(
+                                        AgendaStatus.VOTING,
+                                        dayBeforeDeparture,
+                                        dayBeforeDeparture.toLocalDate().plusDays(1)))
+                        .contains(room.getId());
             }
 
             @Test

@@ -6,7 +6,6 @@ import org.springframework.stereotype.Component;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse;
 import world.chakchak.domain.agenda.entity.AgendaItem;
 import world.chakchak.domain.agenda.entity.AgendaOption;
-import world.chakchak.domain.agenda.entity.AgendaSubject;
 import world.chakchak.domain.agenda.event.RoomStatusChangedEvent;
 import world.chakchak.domain.agenda.event.VoteUpdatedEvent;
 import world.chakchak.domain.changelog.entity.ActionStatus;
@@ -152,17 +151,19 @@ public class AgendaChangePublisher {
                 room, actor, EntityType.PLAN_ROOM, room.getId(), eventKind, actionStatus, summary);
     }
 
-    // 예: "예산 1회차", "최종 확정 2회차"
+    // 예: "예산 1회차", "최종 확정 2회차", "'렌터카 빌릴까?' 1회차"
     private static String roundName(AgendaItem agenda) {
-        return subjectName(agenda.getSubject()) + " " + agenda.getRound() + "회차";
+        return subjectName(agenda) + " " + agenda.getRound() + "회차";
     }
 
-    private static String subjectName(AgendaSubject subject) {
-        return switch (subject) {
+    private static String subjectName(AgendaItem agenda) {
+        return switch (agenda.getSubject()) {
             case BUDGET -> "예산";
             case STAY -> "숙소 타입";
             case PACE -> "이동 강도";
             case FINAL_PLAN -> "최종 확정";
+            // 자유 안건은 멤버가 정한 제목이 곧 주제 이름이다
+            case CUSTOM -> "'" + agenda.getTitle() + "'";
         };
     }
 }

@@ -24,9 +24,9 @@ import world.chakchak.global.entity.BaseEntity;
 import world.chakchak.global.error.BusinessException;
 
 /**
- * 투표 안건. 설문 충돌(BUDGET/STAY/PACE)과 최종 확정(FINAL_PLAN) 모두 만장일치로 결정한다.
+ * 투표 안건. 설문 충돌(BUDGET/STAY/PACE), 최종 확정(FINAL_PLAN), 자유 안건(CUSTOM) 모두 만장일치로 결정한다.
  *
- * <p>기한 안에 결정되지 않으면 EXPIRED가 되고, 설문 안건은 round를 1 올린 새 안건으로 다시 연다(V-04).
+ * <p>기한 안에 결정되지 않으면 EXPIRED가 되고, 설문 안건과 자유 안건은 round를 1 올린 새 안건으로 다시 연다(V-04).
  */
 @Entity
 @Table(name = "agenda_item")
@@ -145,7 +145,8 @@ public class AgendaItem extends BaseEntity {
             case BUDGET -> "예산을 정해주세요";
             case STAY -> "숙소 타입을 정해주세요";
             case PACE -> "이동 강도를 정해주세요";
-            case FINAL_PLAN -> throw new IllegalArgumentException("최종 확정 안건은 설문 마감 때 열지 않습니다.");
+            case FINAL_PLAN, CUSTOM ->
+                    throw new IllegalArgumentException(subject + " 안건은 설문 마감 때 열지 않습니다.");
         };
     }
 
@@ -178,9 +179,15 @@ public class AgendaItem extends BaseEntity {
         return status == AgendaStatus.VOTING && now.isBefore(deadlineAt);
     }
 
-    /** 마감 시각이 지나 미결로 끝낼 안건인지. D-1부터는 최종 집계가 낸 표로 결정하므로 대상이 아니다. (13-2) */
+    /**
+     * 마감 시각이 지나 미결로 끝낼 안건인지. (13-2)
+     *
+     * <p>설문 안건과 최종 확정은 D-1부터 최종 집계가 낸 표로 결정하므로 대상이 아니다. 자유 안건은 최종 집계가 없어 D-1 이후에도 마감이 지나면 미결로 끝낸다.
+     */
     public boolean isExpirableAt(LocalDateTime now) {
-        return status == AgendaStatus.VOTING && !now.isBefore(deadlineAt) && canOpenAt(room, now);
+        return status == AgendaStatus.VOTING
+                && !now.isBefore(deadlineAt)
+                && (subject == AgendaSubject.CUSTOM || canOpenAt(room, now));
     }
 
     /**
@@ -320,6 +327,20 @@ public class AgendaItem extends BaseEntity {
     }
 
     /**
+     * 멤버가 직접 주제와 선지를 정한 자유 안건의 1회차를 연다. (V-09)
+     *
+     * <p>마감은 지금 + 7일이고 D-1보다 늦으면 D-1로 줄인다. D-1이 지났으면 AGENDA_DEADLINE_PASSED를 던진다. 같은 제목의 안건이 이미
+     * 있는지는 DB를 봐야 하므로 service에서 확인한다.
+     *
+     * @param title 주제 이름. 같은 방의 자유 안건끼리 겹치지 않고, 열린 뒤에는 바꾸지 않는다
+     */
+    public static AgendaItem openCustom(
+            Room room, String title, long totalVoter, LocalDateTime now) {
+        return create(
+                room, AgendaSubject.CUSTOM, 1, title, totalVoter, now, now.plusDays(VOTING_DAYS));
+    }
+
+    /**
      * 투표 자격자가 방을 나갔을 때 부른다. 자격자가 0명이 되면 EXPIRED가 된다. (R-06)
      *
      * <p>VOTING 안건에만 부른다. 결정·마감된 안건에 부르는 것은 코드 버그라서 조용히 넘기지 않고 AGENDA_CLOSED를 던진다. R-06 service는
@@ -335,14 +356,14 @@ public class AgendaItem extends BaseEntity {
     }
 
     /**
-     * 미결(EXPIRED)로 끝난 설문 안건의 다음 회차를 만든다. (V-04)
+     * 미결(EXPIRED)로 끝난 설문 안건이나 자유 안건의 다음 회차를 만든다. (V-04)
      *
      * <p>마감은 지금 + 7일이고 D-1보다 늦으면 D-1로 줄인다. D-1이 지났으면 열 수 없다. 이 안건이 가장 최근 회차인지는 DB를 봐야 하므로 service에서
      * 확인한다.
      */
     // 출발일은 room에서 직접 꺼내므로 startDate 인자를 없앴다. service가 다른 날짜를 넘길 여지가 사라진다.
     public AgendaItem openNextRound(long totalVoter, LocalDateTime now) {
-        if (!subject.isSurvey() || status != AgendaStatus.EXPIRED) {
+        if (!subject.isReopenable() || status != AgendaStatus.EXPIRED) {
             throw new BusinessException(AgendaErrorCode.AGENDA_NOT_REOPENABLE);
         }
         // 다음 회차도 create로 만들어 D-1 이후 생성 금지와 D-1 상한을 같은 규칙으로 적용한다.

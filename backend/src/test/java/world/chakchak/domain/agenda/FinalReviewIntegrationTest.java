@@ -8,6 +8,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -150,6 +151,36 @@ class FinalReviewIntegrationTest {
                         .containsExactly("AGREE", "REJECT");
                 assertThat(roomRepository.findById(room.getId()).orElseThrow().getStatus())
                         .isEqualTo(RoomStatus.REVIEWING);
+            }
+
+            @Test
+            @DisplayName("최종 확정 투표를 열면 투표 중인 자유 안건은 미결로 끝나고 이미 정해진 자유 안건은 그대로다")
+            void expiresVotingCustomAgendas() throws Exception {
+                Room room = roomIn(RoomStatus.PLANNING);
+                LocalDateTime now = LocalDateTime.now(clock);
+                AgendaItem voting =
+                        agendaItemRepository.save(AgendaItem.openCustom(room, "렌터카 빌릴까?", 2, now));
+                agendaOptionRepository.saveAll(
+                        AgendaOption.customOptions(voting, List.of("빌린다", "안 빌린다")));
+                AgendaItem resolved =
+                        agendaItemRepository.save(AgendaItem.openCustom(room, "조식 포함할까?", 2, now));
+                List<AgendaOption> options =
+                        agendaOptionRepository.saveAll(
+                                AgendaOption.customOptions(resolved, List.of("포함", "미포함")));
+                resolved.resolve(options.getFirst(), now);
+                agendaItemRepository.save(resolved);
+
+                HttpResponse<String> response = openFinalReview(room);
+
+                assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+                assertThat(agendaItemRepository.findById(voting.getId()).orElseThrow().getStatus())
+                        .isEqualTo(AgendaStatus.EXPIRED);
+                assertThat(
+                                agendaItemRepository
+                                        .findById(resolved.getId())
+                                        .orElseThrow()
+                                        .getStatus())
+                        .isEqualTo(AgendaStatus.RESOLVED);
             }
         }
 

@@ -63,7 +63,7 @@ public class AgendaOption extends BaseEntity {
     @Column(name = "display_index", nullable = false)
     private int displayIndex;
 
-    /** 예산 선지를 직접 추가한 멤버(V-07). 설문 응답에서 나온 선지와 최종 확정 선지는 null이다. */
+    /** 예산 선지를 직접 추가한 멤버(V-07). 설문 응답에서 나온 선지, 최종 확정·자유 안건 선지는 null이다. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "proposed_by")
     private RoomMember proposedBy;
@@ -188,6 +188,26 @@ public class AgendaOption extends BaseEntity {
                         .collect(Collectors.toCollection(() -> EnumSet.noneOf(type)));
         List<AgendaOption> options = new ArrayList<>();
         values.forEach(value -> options.add(factory.apply(value, options.size())));
+        return options;
+    }
+
+    /**
+     * 자유 안건 선지 목록. 멤버가 적은 순서대로 두고, value는 순서 번호("0", "1", ...)다. (V-09)
+     *
+     * <p>label이 곧 선지 내용이라 value는 안건 안에서 겹치지 않기만 하면 된다. 다음 회차는 {@link #copyTo}로 value까지 그대로 옮긴다. 앞뒤
+     * 공백 제거와 중복 확인은 service가 먼저 한다.
+     */
+    public static List<AgendaOption> customOptions(AgendaItem agendaItem, List<String> labels) {
+        requireSubject(agendaItem, AgendaSubject.CUSTOM);
+        List<AgendaOption> options = new ArrayList<>();
+        labels.forEach(label ->
+                options.add(
+                        new AgendaOption(
+                                agendaItem,
+                                label,
+                                String.valueOf(options.size()),
+                                options.size(),
+                                null)));
         return options;
     }
 

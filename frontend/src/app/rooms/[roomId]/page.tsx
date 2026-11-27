@@ -32,6 +32,9 @@ function nextStep(room: RoomDetailResponse, mySubmitted: boolean, myTurn: Agenda
         ? { title: `내 선택이 필요한 게 ${myTurn.length}개 있어요`, desc: "모두 같은 걸 골라야 정해져요", href: `${base}/vote`, cta: "정하러 가기" }
         : { title: "친구들이 고르는 중이에요", desc: "갈린 것만 남았어요. 의견을 남겨 보세요", href: `${base}/vote`, cta: "같이 정하기 보기" };
     case "PLANNING":
+      // 일정을 짜는 중에도 직접 연 안건에 투표할 수 있다
+      if (myTurn.length > 0)
+        return { title: `내 선택이 필요한 게 ${myTurn.length}개 있어요`, desc: "모두 같은 걸 골라야 정해져요", href: `${base}/vote`, cta: "정하러 가기" };
       return { title: "가고 싶은 곳을 모아 일정을 짜요", desc: "모두 원하는 곳을 확정해서 일정에 넣어요", href: `${base}/places`, cta: "가고 싶은 곳 보기" };
     case "REVIEWING":
       return { title: "최종 일정에 동의해 주세요", desc: "모두 동의하면 일정이 잠기고 확정돼요", href: `${base}/schedule`, cta: "일정에서 보기" };

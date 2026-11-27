@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import world.chakchak.domain.agenda.dto.AddOptionRequest;
 import world.chakchak.domain.agenda.dto.AgendaDetailResponse;
 import world.chakchak.domain.agenda.dto.AgendaListResponse;
+import world.chakchak.domain.agenda.dto.CreateAgendaRequest;
 import world.chakchak.domain.agenda.dto.VoteRequest;
 import world.chakchak.domain.agenda.service.AgendaService;
 import world.chakchak.domain.comment.dto.CommentListResponse;
@@ -41,6 +42,23 @@ public class AgendaController {
             @PathVariable Long roomId, @AuthenticationPrincipal LoginUser loginUser) {
         AgendaListResponse response = agendaService.getAgendas(roomId, loginUser.userId());
         return ResponseEntity.ok(ApiResponse.success("AGENDAS_FETCHED", response));
+    }
+
+    /** V-09 자유 안건 열기 */
+    @Operation(
+            summary = "자유 안건 열기",
+            description =
+                    "설문 항목 밖의 주제로 안건을 연다. 설문이 마감된 뒤(설문 마감 후 SURVEYING, PLANNING)에만 열 수 있다. "
+                            + "같은 방에 같은 제목의 안건이 있으면 열 수 없다.")
+    @PostMapping
+    public ResponseEntity<ApiResponse<AgendaDetailResponse>> openCustomAgenda(
+            @PathVariable Long roomId,
+            @Valid @RequestBody CreateAgendaRequest request,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        AgendaDetailResponse response =
+                agendaService.openCustomAgenda(roomId, loginUser.userId(), request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("AGENDA_CREATED", "안건을 열었습니다.", response));
     }
 
     /** V-02 안건 상세 */
