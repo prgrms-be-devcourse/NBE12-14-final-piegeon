@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRoom } from "@/components/room";
 import { useConfirm } from "@/components/ConfirmDialog";
-import { Avatar, Loading, Notice } from "@/components/ui";
+import { Avatar, CopyButton, Loading, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { won } from "@/lib/format";
 import { requestRefresh, useApi } from "@/lib/hooks";
@@ -99,6 +99,9 @@ function MySurvey() {
   );
 }
 
+// 확인창의 꼭 알아야 할 점(cf-notes)은 줄 전체가 강조색이라, 이 글자는 본문색에 연한 강조색 배경을 깔아 형광펜처럼 구분한다
+const EMPHASIS: React.CSSProperties = { color: "var(--ink)", background: "var(--accent-soft)", padding: "0 4px", borderRadius: 4 };
+
 function SurveyForm({ options, onDone }: { options: SurveyOptionsResponse; onDone: () => Promise<void> }) {
   const { roomId, room } = useRoom();
   // 조율 중(SURVEYING)이면 설문 마감 뒤에도 예산, 숙소, 속도를 묻는다. 이미 투표 중인 항목은 다음 회차부터 선지에 들어간다.
@@ -134,11 +137,24 @@ function SurveyForm({ options, onDone }: { options: SurveyOptionsResponse; onDon
     if (!avoid.trim()) return setError("피하고 싶은 것을 적어 주세요. 없으면 '없어요'라고 적어도 돼요.");
     const remaining = room.members.filter((member) => !member.surveySubmitted).length;
     if (room.members.length === 1 || (room.members.length >= 2 && remaining === 1)) {
-      const message =
-        room.members.length === 1
-          ? "제출하면 설문이 마감되고 같이 정하기 없이 바로 가고 싶은 곳을 추가할 수 있어요"
-          : "제출하면 설문이 마감되고 투표가 시작돼요";
-      const confirmed = await confirm({ title: "설문 제출", body: message, confirmLabel: "확인", cancelLabel: "취소" });
+      const solo = room.members.length === 1;
+      const message = solo
+        ? "제출하면 설문이 마감되고 같이 정하기 없이 바로 가고 싶은 곳을 추가할 수 있어요"
+        : "제출하면 설문이 마감되고 투표가 시작돼요";
+      // 혼자 내면 내 답으로 바로 정해진다. 나중에 들어온 사람은 예산, 숙소, 하루 속도를 낼 수 없어(계획 단계) 미리 알리고,
+      // 제출 대신 친구를 먼저 부를 수 있게 초대 링크 복사 버튼을 같이 둔다
+      const notes = solo
+        ? [
+            <>
+              혹시 같이 갈 사람이 더 있나요? 지금 누르면 나중 참여자의 설문은 <b style={EMPHASIS}>하고 싶은 것</b>,{" "}
+              <b style={EMPHASIS}>피하고 싶은 것</b>만 반영돼요.
+            </>,
+          ]
+        : undefined;
+      const extra = solo ? (
+        <CopyButton text={`${window.location.origin}/invite/${room.inviteCode}`} label="친구 먼저 초대하기 (초대 링크 복사)" />
+      ) : undefined;
+      const confirmed = await confirm({ title: "설문 제출", body: message, notes, extra, confirmLabel: "확인", cancelLabel: "취소" });
       if (!confirmed) return;
     }
     await submit(budgetWon);

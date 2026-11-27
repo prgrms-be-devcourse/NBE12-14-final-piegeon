@@ -5,8 +5,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 export interface ConfirmOptions {
   title: string;
   body?: string;
-  /** 누르기 전에 꼭 알아야 할 점. 본문 아래에 따로 눈에 띄게 보여 준다 */
-  notes?: string[];
+  /** 누르기 전에 꼭 알아야 할 점. 본문 아래에 따로 눈에 띄게 보여 준다. 일부 글자를 강조하려면 요소로 넘긴다 */
+  notes?: React.ReactNode[];
   /** 본문 아래에 그릴 추가 내용 (예: 일차 요약) */
   extra?: React.ReactNode;
   confirmLabel: string;
@@ -85,8 +85,9 @@ function ConfirmDialog({ options, onClose }: { options: ConfirmOptions; onClose:
         )}
         {options.notes && options.notes.length > 0 && (
           <ul className="cf-notes">
-            {options.notes.map((n) => (
-              <li key={n}>{n}</li>
+            {/* 요소는 key로 쓸 글자가 없어 순서로 구분한다. 확인창이 떠 있는 동안 목록은 바뀌지 않는다 */}
+            {options.notes.map((n, i) => (
+              <li key={i}>{n}</li>
             ))}
           </ul>
         )}
