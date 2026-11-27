@@ -17,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import world.chakchak.IntegrationTest;
 import world.chakchak.domain.changelog.entity.ActionStatus;
 import world.chakchak.domain.changelog.entity.ChangeLog;
+import world.chakchak.domain.changelog.entity.EntityType;
 import world.chakchak.domain.changelog.entity.EventKind;
 import world.chakchak.domain.changelog.repository.ChangeLogRepository;
 import world.chakchak.domain.place.entity.PlaceCandidate;
@@ -37,6 +38,8 @@ import world.chakchak.domain.schedule.dto.MoveItemResponse;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
 import world.chakchak.domain.schedule.dto.ScheduleVersionConflictData;
 import world.chakchak.domain.schedule.dto.ScheduleWarning;
+import world.chakchak.domain.schedule.dto.SwapDayRequest;
+import world.chakchak.domain.schedule.dto.SwapDayResponse;
 import world.chakchak.domain.schedule.dto.UpdateItemRequest;
 import world.chakchak.domain.schedule.entity.ScheduleDay;
 import world.chakchak.domain.schedule.entity.ScheduleItem;
@@ -1429,6 +1432,211 @@ class ScheduleBoardServiceTest {
                 assertThat(scheduleItemRepository.findById(item.getId())).isPresent();
             }
         }
+    }
+
+    @Nested
+    class Swap {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("두 날을 맞바꾸면 일차와 날짜가 서로 바뀌고, 블록은 시간·메모·순서 그대로 그날을 따라간다")
+            void swapsDays() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day1 = saveDay(room, 1);
+                ScheduleDay day2 = saveDay(room, 2);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                PlaceCandidate palace = saveConfirmedPlace(room, minsu, "경복궁", "서울 종로구 사직로");
+                ScheduleItem a = saveItem(day1, market, 1000, LocalTime.of(10, 0), "아침");
+                ScheduleItem b = saveItem(day1, palace, 2000, null, null);
+                ScheduleItem x = saveItem(day2, palace, 1000, LocalTime.of(9, 0), null);
+
+                SwapDayResponse response =
+                        swapDays(minsu, day1, new SwapDayRequest(0L, day2.getId(), 0L));
+
+                // 응답은 일차 순서다. 이제 1일차는 day2였던 날이고, 2일차는 day1이었던 날이다
+                assertThat(response.days())
+                        .extracting(
+                                DaySnapshot::scheduleDayId,
+                                DaySnapshot::dayIndex,
+                                DaySnapshot::date,
+                                DaySnapshot::version)
+                        .containsExactly(
+                                tuple(day2.getId(), 1L, LocalDate.of(2027, 7, 1), 1L),
+                                tuple(day1.getId(), 2L, LocalDate.of(2027, 7, 2), 1L));
+                assertThat(response.days().get(0).items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactly(x.getId());
+                assertThat(response.days().get(1).items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactly(a.getId(), b.getId());
+                ScheduleItem kept = scheduleItemRepository.findById(a.getId()).orElseThrow();
+                assertThat(kept.getStartTime()).isEqualTo(LocalTime.of(10, 0));
+                assertThat(kept.getMemo()).isEqualTo("아침");
+                assertThat(kept.getSortOrder()).isEqualTo(1000);
+                // 보드를 다시 조회해도 같은 모습이다
+                ScheduleBoardResponse board = getBoard(minsu);
+                assertThat(board.days().get(0).items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactly(x.getId());
+                assertThat(board.days().get(1).items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactly(a.getId(), b.getId());
+            }
+
+            @Test
+            @DisplayName("두 날이 모두 10칸이어도 맞바꿀 수 있다")
+            void swapsFullDays() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day1 = saveDay(room, 1);
+                ScheduleDay day2 = saveDay(room, 2);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                for (int i = 1; i <= 10; i++) {
+                    saveItem(day1, market, i * 1000, null, null);
+                    saveItem(day2, market, i * 1000, null, null);
+                }
+                List<Long> day1Items = itemIdsOf(day1);
+                List<Long> day2Items = itemIdsOf(day2);
+
+                swapDays(minsu, day1, new SwapDayRequest(0L, day2.getId(), 0L));
+
+                ScheduleBoardResponse board = getBoard(minsu);
+                assertThat(board.days().get(0).items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactlyElementsOf(day2Items);
+                assertThat(board.days().get(1).items())
+                        .extracting(ItemResponse::itemId)
+                        .containsExactlyElementsOf(day1Items);
+            }
+
+            @Test
+            @DisplayName("맞바꾸면 변경 이력이 방 단위로 한 건 남고, 일차는 작은 쪽부터 적는다")
+            void recordsLog() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day1 = saveDay(room, 1);
+                saveDay(room, 2);
+                ScheduleDay day3 = saveDay(room, 3);
+
+                // 3일차를 1일차와 바꿔 달라고 해도 문구는 "1일차와 3일차"다
+                swapDays(minsu, day3, new SwapDayRequest(0L, day1.getId(), 0L));
+
+                assertThat(
+                                jdbcTemplate.queryForObject(
+                                        "SELECT COUNT(*) FROM change_log WHERE plan_room_id = ?",
+                                        Long.class,
+                                        room.getId()))
+                        .isEqualTo(1);
+                ChangeLog log =
+                        changeLogRepository
+                                .findTopByRoom_IdOrderByIdDesc(room.getId())
+                                .orElseThrow();
+                assertThat(log.getEntityType()).isEqualTo(EntityType.PLAN_ROOM);
+                assertThat(log.getEntityId()).isEqualTo(room.getId());
+                assertThat(log.getEventKind()).isEqualTo(EventKind.SCHEDULE_CHANGED);
+                assertThat(log.getActionStatus()).isEqualTo(ActionStatus.UPDATE);
+                assertThat(log.getSummary()).isEqualTo("1일차와 3일차 일정을 서로 바꿨어요");
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("방이 PLANNING이 아니면 BOARD_LOCKED이고 일차는 그대로다")
+            void rejectsLockedBoard() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day1 = saveDay(room, 1);
+                ScheduleDay day2 = saveDay(room, 2);
+                jdbcTemplate.update(
+                        "UPDATE plan_room SET status = 'REVIEWING' WHERE id = ?", room.getId());
+
+                assertFails(
+                        () -> swapDays(minsu, day1, new SwapDayRequest(0L, day2.getId(), 0L)),
+                        ScheduleErrorCode.BOARD_LOCKED);
+                assertThat(reload(day1).getDayIndex()).isEqualTo(1);
+                assertThat(reload(day2).getDayIndex()).isEqualTo(2);
+            }
+
+            @Test
+            @DisplayName(
+                    "두 날 중 하나라도 버전이 낡았으면 SCHEDULE_VERSION_CONFLICT와 그날의 지금 버전을 알려 주고, 일차는 그대로다")
+            void rejectsStaleVersion() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day1 = saveDay(room, 1);
+                ScheduleDay day2 = saveDay(room, 2);
+                PlaceCandidate market = saveConfirmedPlace(room, minsu, "광장시장", "서울 종로구");
+                // 다른 사람이 먼저 2일차에 블록을 넣어서 2일차 버전이 1이 됐다
+                addItem(minsu, day2, request(market, null, 0L));
+
+                assertThatThrownBy(() ->
+                                swapDays(minsu, day1, new SwapDayRequest(0L, day2.getId(), 0L)))
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                e -> {
+                                    assertThat(e.getErrorCode())
+                                            .isEqualTo(ScheduleErrorCode.SCHEDULE_VERSION_CONFLICT);
+                                    assertThat(e.getData())
+                                            .isEqualTo(
+                                                    new ScheduleVersionConflictData(
+                                                            day2.getId(), 1L));
+                                });
+                assertThat(reload(day1).getDayIndex()).isEqualTo(1);
+                assertThat(reload(day2).getDayIndex()).isEqualTo(2);
+                assertThat(reload(day1).getVersion()).isZero();
+                assertThat(reload(day2).getVersion()).isEqualTo(1);
+            }
+
+            @Test
+            @DisplayName("같은 날끼리 바꾸라고 하면 INVALID_INPUT이다")
+            void rejectsSameDay() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day1 = saveDay(room, 1);
+
+                assertFails(
+                        () -> swapDays(minsu, day1, new SwapDayRequest(0L, day1.getId(), 0L)),
+                        CommonErrorCode.INVALID_INPUT);
+                assertThat(reload(day1).getVersion()).isZero();
+            }
+
+            @Test
+            @DisplayName("맞바꿀 날이 없거나 다른 방의 날이면 SCHEDULE_DAY_NOT_FOUND이고 일차는 그대로다")
+            void rejectsUnknownDay() {
+                Room room = saveRoom();
+                RoomMember minsu = saveMember(room, "민수");
+                ScheduleDay day1 = saveDay(room, 1);
+                ScheduleDay otherRoomDay = saveDay(saveRoom(), 2);
+
+                assertFails(
+                        () ->
+                                swapDays(
+                                        minsu,
+                                        day1,
+                                        new SwapDayRequest(0L, otherRoomDay.getId(), 0L)),
+                        ScheduleErrorCode.SCHEDULE_DAY_NOT_FOUND);
+                assertFails(
+                        () -> swapDays(minsu, day1, new SwapDayRequest(0L, 999_999_999L, 0L)),
+                        ScheduleErrorCode.SCHEDULE_DAY_NOT_FOUND);
+                assertThat(reload(day1).getDayIndex()).isEqualTo(1);
+                assertThat(reload(otherRoomDay).getDayIndex()).isEqualTo(2);
+            }
+        }
+    }
+
+    private SwapDayResponse swapDays(RoomMember member, ScheduleDay day, SwapDayRequest request) {
+        return scheduleBoardService.swapDays(
+                member.getRoom().getId(), day.getId(), member.getUser().getId(), request);
+    }
+
+    // DB에 지금 저장돼 있는 날. 일차와 버전이 바뀌었는지 볼 때 쓴다
+    private ScheduleDay reload(ScheduleDay day) {
+        return scheduleDayRepository.findById(day.getId()).orElseThrow();
     }
 
     private DayChangeResponse deleteItem(RoomMember member, ScheduleItem item, long dayVersion) {

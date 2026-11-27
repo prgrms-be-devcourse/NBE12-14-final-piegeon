@@ -58,6 +58,11 @@ public class ScheduleDay extends BaseEntity {
         this.version++;
     }
 
+    /** 일차를 바꾼다. 두 날의 일정을 통째로 맞바꿀 때 쓴다. 블록은 이 날에 달려 있어서 함께 옮겨 간다. */
+    public void changeDayIndex(int dayIndex) {
+        this.dayIndex = dayIndex;
+    }
+
     /** 이 날의 실제 날짜. 1일차가 여행 시작일이다. */
     public LocalDate getDate() {
         return room.getStartDate().plusDays(dayIndex - 1L);
