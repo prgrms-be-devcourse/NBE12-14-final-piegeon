@@ -85,4 +85,10 @@ public class ScheduleItem extends BaseEntity {
     public void changeSortOrder(int sortOrder) {
         this.sortOrder = sortOrder;
     }
+
+    /** 다른 날로 옮긴다. (B-03) 날과 순서값을 함께 바꾸고, 시간과 메모는 그대로 둔다. */
+    public void moveTo(ScheduleDay scheduleDay, int sortOrder) {
+        this.scheduleDay = scheduleDay;
+        this.sortOrder = sortOrder;
+    }
 }

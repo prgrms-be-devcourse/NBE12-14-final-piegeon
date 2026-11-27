@@ -13,7 +13,7 @@ import world.chakchak.global.error.ErrorCode;
 @Getter
 @RequiredArgsConstructor
 public enum ScheduleErrorCode implements ErrorCode {
-    // 없거나 다른 방의 날 (B-02)
+    // 없거나 다른 방의 날 (B-02, B-03에서 다른 날로 옮길 때)
     SCHEDULE_DAY_NOT_FOUND(HttpStatus.NOT_FOUND, "일정의 해당 날짜를 찾을 수 없습니다."),
     // 없거나 다른 방의 블록 (B-03, B-04, B-05)
     SCHEDULE_ITEM_NOT_FOUND(HttpStatus.NOT_FOUND, "일정 블록을 찾을 수 없습니다."),
@@ -21,7 +21,7 @@ public enum ScheduleErrorCode implements ErrorCode {
     BOARD_LOCKED(HttpStatus.CONFLICT, "지금 단계에서는 일정을 수정할 수 없습니다."),
     // 요청의 dayVersion이 서버와 다름 (B-02~B-05)
     SCHEDULE_VERSION_CONFLICT(HttpStatus.CONFLICT, "다른 멤버가 먼저 일정을 수정했습니다. 최신 보드를 다시 불러와 주세요."),
-    // 하루 블록이 10개를 넘음 (B-02)
+    // 하루 블록이 10개를 넘음 (B-02, B-03에서 다른 날로 옮길 때)
     DAY_ITEM_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "일정 블록은 하루에 10개까지 넣을 수 있습니다.");
 
     private final HttpStatus status;

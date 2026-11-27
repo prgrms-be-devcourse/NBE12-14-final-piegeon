@@ -141,6 +141,20 @@ class ScheduleItemTest {
 
                 assertThat(item.getSortOrder()).isEqualTo(1500);
             }
+
+            @Test
+            @DisplayName("다른 날로 옮기면 날과 순서값이 바뀌고, 시간과 메모는 그대로다")
+            void movesToOtherDay() {
+                ScheduleItem item = newItem();
+                ScheduleDay day2 = ScheduleDay.create(room, 2);
+
+                item.moveTo(day2, 2500);
+
+                assertThat(item.getScheduleDay()).isSameAs(day2);
+                assertThat(item.getSortOrder()).isEqualTo(2500);
+                assertThat(item.getStartTime()).isEqualTo(LocalTime.of(11, 0));
+                assertThat(item.getMemo()).isEqualTo("점심");
+            }
         }
     }
 }
