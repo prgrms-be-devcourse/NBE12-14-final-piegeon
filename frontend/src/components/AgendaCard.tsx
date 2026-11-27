@@ -55,8 +55,8 @@ export function AgendaCard({ item, latestRound }: { item: AgendaListItem; latest
 
   // 확인창이 떠 있는 동안 다른 멤버의 표로 안건이 끝나면 물어보던 일이 의미 없어져 닫는다
   useEffect(() => {
-    if (a && a.status !== "VOTING") cancel();
-  }, [a, cancel]);
+    if (a?.status && a.status !== "VOTING") cancel();
+  }, [a?.status, cancel]);
 
   async function run(action: () => Promise<AgendaDetailResponse | void>) {
     setBusy(true);
