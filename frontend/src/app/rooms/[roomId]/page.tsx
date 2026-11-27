@@ -41,7 +41,13 @@ function nextStep(room: RoomDetailResponse, mySubmitted: boolean, myTurn: Agenda
     case "FINALIZED":
       return { title: "우리 여행이 정해졌어요", desc: room.finalizedAt ? `${dateTimeLabel(room.finalizedAt)}에 확정됐어요` : "", href: `${base}/plan`, cta: "확정된 계획 보기" };
     case "EXPIRED":
-      return { title: "이 방은 닫혔어요", desc: "설문 마감까지 아무도 답을 내지 않았어요" };
+      // 설문이 마감됐으면 안건까지 열렸다는 뜻이라, 출발일 0시 최종 집계에서 동점이거나 표가 없는 항목이 있었다
+      return {
+        title: "이 방은 닫혔어요",
+        desc: room.surveyClosedAt
+          ? "출발일 0시까지 정하지 못한 항목이 있었어요. 표가 동점이었거나 아무도 고르지 않았어요"
+          : "설문 마감까지 아무도 답을 내지 않았어요",
+      };
   }
 }
 

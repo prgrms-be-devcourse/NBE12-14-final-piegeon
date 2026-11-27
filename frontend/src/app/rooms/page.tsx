@@ -15,7 +15,8 @@ const STATUS_TEXT: Record<RoomStatus, string> = {
   PLANNING: "가고 싶은 곳과 일정을 짜는 중",
   REVIEWING: "최종 확정 투표 중",
   FINALIZED: "확정됐어요",
-  EXPIRED: "아무도 설문을 안 내서 닫혔어요",
+  // 목록에는 닫힌 까닭이 없다. 아무도 설문을 안 냈을 때와 출발일까지 못 정했을 때 모두 맞는 말로 쓴다
+  EXPIRED: "정하지 못하고 닫혔어요",
 };
 
 function RoomCard({ room }: { room: RoomSummaryResponse }) {
