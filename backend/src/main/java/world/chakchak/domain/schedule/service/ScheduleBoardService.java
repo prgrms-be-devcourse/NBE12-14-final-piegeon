@@ -25,6 +25,7 @@ import world.chakchak.domain.schedule.dto.AddItemResponse;
 import world.chakchak.domain.schedule.dto.DayChangeResponse;
 import world.chakchak.domain.schedule.dto.DaySnapshot;
 import world.chakchak.domain.schedule.dto.MoveItemRequest;
+import world.chakchak.domain.schedule.dto.MoveItemResponse;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
 import world.chakchak.domain.schedule.dto.ScheduleVersionConflictData;
 import world.chakchak.domain.schedule.dto.ScheduleWarning;
@@ -130,21 +131,25 @@ public class ScheduleBoardService {
     }
 
     /**
-     * 같은 날 안에서 블록을 afterItemId 블록 바로 뒤로 옮긴다. null이면 맨 앞. (B-03)
+     * 블록을 afterItemId 블록 바로 뒤로 옮긴다. null이면 맨 앞. targetDayId가 다른 날이면 그날로 옮긴다. (B-03)
      *
-     * <p>지금 자리 그대로면 아무것도 저장하지 않고 버전도 올리지 않는다.
+     * <p>같은 날의 지금 자리 그대로면 아무것도 저장하지 않고 버전도 올리지 않는다.
      *
      * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
      *     BOARD_LOCKED, 없거나 다른 방의 블록이면 SCHEDULE_ITEM_NOT_FOUND, 버전이 다르면 SCHEDULE_VERSION_CONFLICT,
-     *     afterItemId가 그날의 다른 블록이 아니면 SCHEDULE_ITEM_NOT_FOUND
+     *     afterItemId가 블록이 놓일 날의 다른 블록이 아니면 SCHEDULE_ITEM_NOT_FOUND. 다른 날로 옮길 때는 없거나 다른 방의 날이면
+     *     SCHEDULE_DAY_NOT_FOUND, 그날 블록이 10개면 DAY_ITEM_LIMIT_EXCEEDED
      */
     @Transactional
-    public DayChangeResponse moveItem(
+    public MoveItemResponse moveItem(
             Long roomId, Long itemId, Long userId, MoveItemRequest request) {
         RoomMember me = lockBoard(roomId, userId);
         ScheduleItem item = getItemInRoom(roomId, itemId);
         ScheduleDay day = item.getScheduleDay();
         checkVersion(day, request.dayVersion());
+        if (request.targetDayId() != null && !request.targetDayId().equals(day.getId())) {
+            return moveToOtherDay(me, item, day, request);
+        }
 
         // 옮길 블록을 뺀 나머지에서 새 자리를 찾는다
         List<ScheduleItem> others =
@@ -158,7 +163,7 @@ public class ScheduleBoardService {
         // 제자리면 아무것도 바꾸지 않는다. 버전을 올리면 같은 날을 보던 다른 사람이, 실제로는 바뀐 게 없는데 버전 충돌을 맞는다
         if (position == oldPosition) {
             others.add(position, item);
-            return new DayChangeResponse(DaySnapshot.of(day, others), List.of());
+            return new MoveItemResponse(DaySnapshot.of(day, others), null);
         }
 
         // 나머지를 다시 매기면 1000, 2000...이 되는데, 옮길 블록의 옛 값과 겹치지 않게 아무도 안 쓰는 0으로 먼저 비켜 둔다
@@ -176,7 +181,58 @@ public class ScheduleBoardService {
                 EventKind.SCHEDULE_CHANGED,
                 ActionStatus.UPDATE,
                 day.getDayIndex() + "일차 " + item.getPlaceCandidate().getName() + ": 순서가 바뀌었어요");
-        return new DayChangeResponse(DaySnapshot.of(day, others), List.of());
+        return new MoveItemResponse(DaySnapshot.of(day, others), null);
+    }
+
+    /**
+     * 블록을 다른 날(to)의 afterItemId 블록 바로 뒤로 옮긴다. null이면 맨 앞. 시간과 메모는 그대로 가져간다.
+     *
+     * <p>떠나는 날의 버전은 moveItem이 이미 확인했다. 여기서는 옮겨 갈 날의 버전을 확인하고, 두 날의 버전을 모두 올린다.
+     */
+    private MoveItemResponse moveToOtherDay(
+            RoomMember me, ScheduleItem item, ScheduleDay from, MoveItemRequest request) {
+        Room room = me.getRoom();
+        ScheduleDay to = getDayInRoom(room.getId(), request.targetDayId());
+        checkVersion(to, request.targetDayVersion());
+
+        List<ScheduleItem> toItems =
+                new ArrayList<>(
+                        scheduleItemRepository.findAllByScheduleDay_IdOrderBySortOrderAsc(
+                                to.getId()));
+        if (toItems.size() >= ITEMS_PER_DAY) {
+            throw new BusinessException(ScheduleErrorCode.DAY_ITEM_LIMIT_EXCEEDED);
+        }
+        int position = positionAfter(toItems, request.afterItemId());
+        // 순서값을 먼저 구한다. 틈이 없으면 여기서 옮겨 갈 날을 다시 매기는데, 옮길 블록은 아직 원래 날에 있어서 겹치지 않는다
+        int sortOrder = sortOrderAt(toItems, position);
+
+        // 응답에 쓸, 떠나는 날에 남을 블록. 옮길 블록만 목록에서 뺀다
+        List<ScheduleItem> fromItems =
+                new ArrayList<>(
+                        scheduleItemRepository.findAllByScheduleDay_IdOrderBySortOrderAsc(
+                                from.getId()));
+        fromItems.remove(item);
+
+        item.moveTo(to, sortOrder);
+        from.increaseVersion();
+        to.increaseVersion();
+        toItems.add(position, item);
+
+        // 예: "1일차 광장시장: 2일차로 옮겼어요"
+        changeLogService.record(
+                room,
+                me,
+                EntityType.SCHEDULE_ITEM,
+                item.getId(),
+                EventKind.SCHEDULE_CHANGED,
+                ActionStatus.UPDATE,
+                from.getDayIndex()
+                        + "일차 "
+                        + item.getPlaceCandidate().getName()
+                        + ": "
+                        + to.getDayIndex()
+                        + "일차로 옮겼어요");
+        return new MoveItemResponse(DaySnapshot.of(to, toItems), DaySnapshot.of(from, fromItems));
     }
 
     /**

@@ -170,7 +170,8 @@ class ScheduleApiIntegrationTest {
         class Success {
 
             @Test
-            @DisplayName("블록을 옮기면 200과 SCHEDULE_ITEM_MOVED, 그날의 새 버전이 반환되고 warnings 칸은 없다")
+            @DisplayName(
+                    "같은 날 안에서 옮기면 200과 SCHEDULE_ITEM_MOVED, 그날의 새 버전이 반환되고 fromDay·warnings 칸은 없다")
             void movesItem() throws java.lang.Exception {
                 String cookie = login();
                 long roomId = createPlanningRoom(cookie);
@@ -198,7 +199,51 @@ class ScheduleApiIntegrationTest {
                         .contains("\"code\":\"SCHEDULE_ITEM_MOVED\"")
                         .contains("\"version\":1")
                         .contains("\"itemId\":" + second.getId())
+                        .doesNotContain("fromDay")
                         .doesNotContain("warnings")
+                        .doesNotContain("sortOrder");
+            }
+
+            @Test
+            @DisplayName("다른 날로 옮기면 200과 SCHEDULE_ITEM_MOVED, 블록이 놓인 날(day)과 떠난 날(fromDay)이 반환된다")
+            void movesItemToOtherDay() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                List<ScheduleDay> days =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId);
+                ScheduleItem item =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(
+                                        days.get(0), saveConfirmedPlace(roomId), 1000, null, null));
+
+                HttpResponse<String> response =
+                        patch(
+                                "/api/rooms/"
+                                        + roomId
+                                        + "/schedule-items/"
+                                        + item.getId()
+                                        + "/position",
+                                "{\"afterItemId\":null,\"dayVersion\":0,\"targetDayId\":"
+                                        + days.get(1).getId()
+                                        + ",\"targetDayVersion\":0}",
+                                cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"SCHEDULE_ITEM_MOVED\"")
+                        // 블록이 놓인 날: 2일차, 새 버전 1, 옮긴 블록이 들어 있다
+                        .contains(
+                                "\"day\":{\"scheduleDayId\":"
+                                        + days.get(1).getId()
+                                        + ",\"dayIndex\":2,")
+                        .contains("\"itemId\":" + item.getId())
+                        // 떠난 날: 1일차, 새 버전 1, 블록이 없다
+                        .contains(
+                                "\"fromDay\":{\"scheduleDayId\":"
+                                        + days.get(0).getId()
+                                        + ",\"dayIndex\":1,")
+                        .contains("\"version\":1,\"items\":[]")
+                        .doesNotContain("targetDayVersionPresent")
                         .doesNotContain("sortOrder");
             }
         }
@@ -230,6 +275,40 @@ class ScheduleApiIntegrationTest {
 
                 assertThat(response.statusCode()).isEqualTo(400);
                 assertThat(response.body()).contains("\"code\":\"INVALID_INPUT\"");
+            }
+
+            @Test
+            @DisplayName("targetDayId만 보내고 targetDayVersion이 없으면 400 INVALID_INPUT이고 블록은 그대로다")
+            void rejectsTargetDayWithoutVersion() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                List<ScheduleDay> days =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId);
+                ScheduleItem item =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(
+                                        days.get(0), saveConfirmedPlace(roomId), 1000, null, null));
+
+                HttpResponse<String> response =
+                        patch(
+                                "/api/rooms/"
+                                        + roomId
+                                        + "/schedule-items/"
+                                        + item.getId()
+                                        + "/position",
+                                "{\"afterItemId\":null,\"dayVersion\":0,\"targetDayId\":"
+                                        + days.get(1).getId()
+                                        + "}",
+                                cookie);
+
+                assertThat(response.statusCode()).isEqualTo(400);
+                assertThat(response.body())
+                        .contains("\"code\":\"INVALID_INPUT\"")
+                        .contains("targetDayVersion");
+                assertThat(
+                                scheduleItemRepository.findAllByScheduleDay_IdOrderBySortOrderAsc(
+                                        days.get(0).getId()))
+                        .hasSize(1);
             }
         }
     }

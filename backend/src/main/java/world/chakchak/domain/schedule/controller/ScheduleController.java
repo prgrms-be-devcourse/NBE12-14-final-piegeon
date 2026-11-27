@@ -20,6 +20,7 @@ import world.chakchak.domain.schedule.dto.AddItemRequest;
 import world.chakchak.domain.schedule.dto.AddItemResponse;
 import world.chakchak.domain.schedule.dto.DayChangeResponse;
 import world.chakchak.domain.schedule.dto.MoveItemRequest;
+import world.chakchak.domain.schedule.dto.MoveItemResponse;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
 import world.chakchak.domain.schedule.dto.UpdateItemRequest;
 import world.chakchak.domain.schedule.service.ScheduleBoardService;
@@ -62,14 +63,16 @@ public class ScheduleController {
     /** B-03 블록 이동 */
     @Operation(
             summary = "블록 이동 (B-03)",
-            description = "같은 날 안에서 블록을 afterItemId 블록 뒤(null이면 맨 앞)로 옮기고, 그날의 바뀐 모습을 돌려준다.")
+            description =
+                    "블록을 afterItemId 블록 뒤(null이면 맨 앞)로 옮기고, 블록이 놓인 날의 바뀐 모습을 돌려준다."
+                            + " targetDayId를 보내면 그날로 옮기고, 블록이 떠난 날의 모습(fromDay)도 함께 돌려준다.")
     @PatchMapping("/schedule-items/{itemId}/position")
-    public ResponseEntity<ApiResponse<DayChangeResponse>> moveItem(
+    public ResponseEntity<ApiResponse<MoveItemResponse>> moveItem(
             @PathVariable Long roomId,
             @PathVariable Long itemId,
             @AuthenticationPrincipal LoginUser loginUser,
             @Valid @RequestBody MoveItemRequest request) {
-        DayChangeResponse response =
+        MoveItemResponse response =
                 scheduleBoardService.moveItem(roomId, itemId, loginUser.userId(), request);
         return ResponseEntity.ok(ApiResponse.success("SCHEDULE_ITEM_MOVED", response));
     }
