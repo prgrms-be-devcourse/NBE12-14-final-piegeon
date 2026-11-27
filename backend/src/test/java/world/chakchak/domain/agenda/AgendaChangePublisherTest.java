@@ -260,7 +260,7 @@ class AgendaChangePublisherTest {
             }
 
             @Test
-            @DisplayName("D-1에 방이 만료되면 기록 없이 id 없는 room.status_changed로 EXPIRED를 보낸다")
+            @DisplayName("D-DAY에 방이 만료되면 기록 없이 id 없는 room.status_changed로 EXPIRED를 보낸다")
             void publishesRoomExpired() {
                 agendaChangePublisher.roomExpired(room);
 

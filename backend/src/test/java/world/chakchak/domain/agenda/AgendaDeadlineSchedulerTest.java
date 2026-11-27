@@ -46,7 +46,7 @@ class AgendaDeadlineSchedulerTest {
             }
 
             @Test
-            @DisplayName("설문 마감, 안건 마감, D-1 최종 집계 순서로 실행한다")
+            @DisplayName("설문 마감, 안건 마감, D-DAY 최종 집계 순서로 실행한다")
             void runsJobsInOrder() {
                 given(surveyDeadlineService.findRoomIdsPastOpinionDeadline())
                         .willReturn(List.of(1L));

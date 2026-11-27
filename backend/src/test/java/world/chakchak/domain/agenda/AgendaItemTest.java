@@ -33,8 +33,8 @@ class AgendaItemTest {
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final LocalDateTime NOW = LocalDateTime.of(2027, 6, 1, 12, 0);
     private static final LocalDate START_DATE = LocalDate.of(2027, 7, 1);
-    // 출발 전날 00:00
-    private static final LocalDateTime D_MINUS_1 = LocalDateTime.of(2027, 6, 30, 0, 0);
+    // 출발일 00:00 (D-DAY)
+    private static final LocalDateTime D_DAY = LocalDateTime.of(2027, 7, 1, 0, 0);
     private static final Long OPTION_ID = 10L;
 
     private static Room room() {
@@ -113,8 +113,8 @@ class AgendaItemTest {
 
             // capDeadline이 private이 되어, create가 마감을 줄이는지로 검증한다
             @Test
-            @DisplayName("마감 후보가 출발 전날 00시보다 늦으면 안건을 만들 때 출발 전날 00시로 줄인다")
-            void capsDeadlineToDayBeforeDeparture() {
+            @DisplayName("마감 후보가 출발일 00시보다 늦으면 안건을 만들 때 출발일 00시로 줄인다")
+            void capsDeadlineToDepartureDay() {
                 AgendaItem agenda =
                         AgendaItem.create(
                                 room(),
@@ -123,15 +123,15 @@ class AgendaItemTest {
                                 "제목",
                                 4,
                                 NOW,
-                                LocalDateTime.of(2027, 6, 30, 9, 0));
+                                LocalDateTime.of(2027, 7, 1, 9, 0));
 
-                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_DAY);
             }
 
             @Test
-            @DisplayName("마감 후보가 출발 전날 00시보다 이르면 그대로 둔다")
-            void keepsDeadlineBeforeDayBeforeDeparture() {
-                LocalDateTime candidate = LocalDateTime.of(2027, 6, 29, 23, 0);
+            @DisplayName("마감 후보가 출발일 00시보다 이르면 그대로 둔다")
+            void keepsDeadlineBeforeDepartureDay() {
+                LocalDateTime candidate = LocalDateTime.of(2027, 6, 30, 23, 0);
 
                 AgendaItem agenda =
                         AgendaItem.create(room(), AgendaSubject.BUDGET, 1, "제목", 4, NOW, candidate);
@@ -140,15 +140,15 @@ class AgendaItemTest {
             }
 
             @Test
-            @DisplayName("출발 전날 00시 직전에는 안건을 만들 수 있고 마감은 출발 전날 00시로 줄어든다")
-            void createsJustBeforeDayBeforeDeparture() {
-                LocalDateTime now = D_MINUS_1.minusMinutes(1);
+            @DisplayName("출발일 00시 직전에는 안건을 만들 수 있고 마감은 출발일 00시로 줄어든다")
+            void createsJustBeforeDepartureDay() {
+                LocalDateTime now = D_DAY.minusMinutes(1);
 
                 AgendaItem agenda =
                         AgendaItem.create(
                                 room(), AgendaSubject.BUDGET, 1, "제목", 4, now, now.plusDays(4));
 
-                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_DAY);
                 assertThat(agenda.isOpenAt(now)).isTrue();
             }
 
@@ -190,21 +190,20 @@ class AgendaItemTest {
             }
 
             @Test
-            @DisplayName("출발까지 7일이 안 남았으면 자유 안건 마감을 출발 전날 00시로 줄인다")
+            @DisplayName("출발까지 7일이 안 남았으면 자유 안건 마감을 출발일 00시로 줄인다")
             void capsCustomAgendaDeadline() {
                 AgendaItem agenda =
-                        AgendaItem.openCustom(room(), "렌터카 빌릴까?", 4, D_MINUS_1.minusDays(3));
+                        AgendaItem.openCustom(room(), "렌터카 빌릴까?", 4, D_DAY.minusDays(3));
 
-                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_DAY);
             }
 
             @Test
-            @DisplayName("출발까지 7일이 안 남았으면 최종 확정 마감을 출발 전날 00시로 줄인다")
+            @DisplayName("출발까지 7일이 안 남았으면 최종 확정 마감을 출발일 00시로 줄인다")
             void capsFinalReviewDeadline() {
-                AgendaItem agenda =
-                        AgendaItem.openFinalReview(room(), 1, 4, D_MINUS_1.minusDays(3));
+                AgendaItem agenda = AgendaItem.openFinalReview(room(), 1, 4, D_DAY.minusDays(3));
 
-                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_DAY);
             }
         }
 
@@ -212,25 +211,25 @@ class AgendaItemTest {
         class Failure {
 
             @Test
-            @DisplayName("출발 전날 00시가 되면 자유 안건을 열 수 없다")
-            void rejectsCustomAgendaAtDayBeforeDeparture() {
+            @DisplayName("출발일 00시가 되면 자유 안건을 열 수 없다")
+            void rejectsCustomAgendaAtDepartureDay() {
                 assertErrorCode(
-                        () -> AgendaItem.openCustom(room(), "렌터카 빌릴까?", 4, D_MINUS_1),
+                        () -> AgendaItem.openCustom(room(), "렌터카 빌릴까?", 4, D_DAY),
                         AgendaErrorCode.AGENDA_DEADLINE_PASSED);
             }
 
             @Test
-            @DisplayName("출발 전날 00시가 되면 최종 확정 투표를 열 수 없다")
-            void rejectsFinalReviewAtDayBeforeDeparture() {
+            @DisplayName("출발일 00시가 되면 최종 확정 투표를 열 수 없다")
+            void rejectsFinalReviewAtDepartureDay() {
                 assertErrorCode(
-                        () -> AgendaItem.openFinalReview(room(), 1, 4, D_MINUS_1),
+                        () -> AgendaItem.openFinalReview(room(), 1, 4, D_DAY),
                         AgendaErrorCode.AGENDA_DEADLINE_PASSED);
             }
 
-            // 출발 4일 전에 만든 방은 설문 마감이 정확히 D-1이라, 이때 만든 안건은 만들자마자 투표할 수 없게 된다
+            // 출발 3일 전에 만든 방은 설문 마감이 정확히 D-DAY라, 이때 만든 안건은 만들자마자 투표할 수 없게 된다
             @Test
-            @DisplayName("출발 전날 00시가 되면 안건을 만들 수 없다")
-            void rejectsAtDayBeforeDeparture() {
+            @DisplayName("출발일 00시가 되면 안건을 만들 수 없다")
+            void rejectsAtDepartureDay() {
                 assertErrorCode(
                         () ->
                                 AgendaItem.create(
@@ -239,15 +238,15 @@ class AgendaItemTest {
                                         1,
                                         "제목",
                                         4,
-                                        D_MINUS_1,
-                                        D_MINUS_1.plusDays(4)),
+                                        D_DAY,
+                                        D_DAY.plusDays(4)),
                         AgendaErrorCode.AGENDA_DEADLINE_PASSED);
             }
 
             @Test
-            @DisplayName("출발 전날 00시가 지나도 안건을 만들 수 없다")
-            void rejectsAfterDayBeforeDeparture() {
-                LocalDateTime now = D_MINUS_1.plusHours(5);
+            @DisplayName("출발일 00시가 지나도 안건을 만들 수 없다")
+            void rejectsAfterDepartureDay() {
+                LocalDateTime now = D_DAY.plusHours(5);
 
                 assertErrorCode(
                         () -> AgendaItem.create(room(), AgendaSubject.BUDGET, 1, "제목", 4, now, now),
@@ -611,12 +610,12 @@ class AgendaItemTest {
             }
 
             @Test
-            @DisplayName("자유 안건은 최종 집계가 없어 출발 전날 00:00이 지나도 마감이 지났으면 미결로 끝낼 수 있다")
+            @DisplayName("자유 안건은 최종 집계가 없어 출발일 00:00이 지나도 마감이 지났으면 미결로 끝낼 수 있다")
             void customExpirableAfterFinalTallyStarts() {
                 AgendaItem agenda = AgendaItem.openCustom(room(), "렌터카 빌릴까?", 3, NOW);
 
                 assertThat(agenda.getDeadlineAt()).isEqualTo(NOW.plusDays(7));
-                assertThat(agenda.isExpirableAt(D_MINUS_1.plusMinutes(1))).isTrue();
+                assertThat(agenda.isExpirableAt(D_DAY.plusMinutes(1))).isTrue();
             }
         }
 
@@ -632,17 +631,17 @@ class AgendaItemTest {
             }
 
             @Test
-            @DisplayName("마감이 출발 전날 00:00인 안건은 최종 집계 대상이라 미결로 끝내지 않는다")
+            @DisplayName("마감이 출발일 00:00인 안건은 최종 집계 대상이라 미결로 끝내지 않는다")
             void notExpirableAtFinalTally() {
-                assertThat(agendaUntil(D_MINUS_1).isExpirableAt(D_MINUS_1)).isFalse();
+                assertThat(agendaUntil(D_DAY).isExpirableAt(D_DAY)).isFalse();
             }
 
             @Test
-            @DisplayName("마감이 더 일렀어도 출발 전날 00:00이 지났으면 최종 집계 대상이라 미결로 끝내지 않는다")
+            @DisplayName("마감이 더 일렀어도 출발일 00:00이 지났으면 최종 집계 대상이라 미결로 끝내지 않는다")
             void notExpirableAfterFinalTallyStarts() {
                 AgendaItem agenda = agendaUntil(NOW.plusDays(4));
 
-                assertThat(agenda.isExpirableAt(D_MINUS_1.plusMinutes(1))).isFalse();
+                assertThat(agenda.isExpirableAt(D_DAY.plusMinutes(1))).isFalse();
             }
 
             @Test
@@ -740,11 +739,11 @@ class AgendaItemTest {
                 AgendaOption option = stayOption(agenda, StayType.HOTEL, 1L);
                 agenda.expire();
 
-                agenda.resolveByFinalTally(option, D_MINUS_1);
+                agenda.resolveByFinalTally(option, D_DAY);
 
                 assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
                 assertThat(agenda.getResolvedOptionId()).isEqualTo(1L);
-                assertThat(agenda.getResolvedAt()).isEqualTo(D_MINUS_1);
+                assertThat(agenda.getResolvedAt()).isEqualTo(D_DAY);
             }
 
             @Test
@@ -753,7 +752,7 @@ class AgendaItemTest {
                 AgendaItem agenda = votingAgenda(AgendaSubject.STAY, 3);
                 AgendaOption option = stayOption(agenda, StayType.HOTEL, 1L);
 
-                agenda.resolveByFinalTally(option, D_MINUS_1);
+                agenda.resolveByFinalTally(option, D_DAY);
 
                 assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.RESOLVED);
                 assertThat(agenda.getResolvedOptionId()).isEqualTo(1L);
@@ -822,7 +821,7 @@ class AgendaItemTest {
                 agenda.resolve(option, NOW);
 
                 assertErrorCode(
-                        () -> agenda.resolveByFinalTally(option, D_MINUS_1),
+                        () -> agenda.resolveByFinalTally(option, D_DAY),
                         AgendaErrorCode.AGENDA_CLOSED);
                 assertThat(agenda.getResolvedAt()).isEqualTo(NOW);
             }
@@ -834,7 +833,7 @@ class AgendaItemTest {
                 AgendaItem other = votingAgenda(AgendaSubject.STAY, 3);
                 AgendaOption foreign = stayOption(other, StayType.HOTEL, 1L);
 
-                assertThatThrownBy(() -> agenda.resolveByFinalTally(foreign, D_MINUS_1))
+                assertThatThrownBy(() -> agenda.resolveByFinalTally(foreign, D_DAY))
                         .isInstanceOf(IllegalArgumentException.class);
                 assertThat(agenda.getStatus()).isEqualTo(AgendaStatus.VOTING);
             }
@@ -904,13 +903,13 @@ class AgendaItemTest {
             }
 
             @Test
-            @DisplayName("출발까지 4일이 안 남았으면 1회차 마감을 출발 전날 00시로 줄인다")
+            @DisplayName("출발까지 4일이 안 남았으면 1회차 마감을 출발일 00시로 줄인다")
             void capsFirstRoundDeadline() {
                 AgendaItem agenda =
                         AgendaItem.openFirstRound(
-                                room(), AgendaSubject.BUDGET, 3, D_MINUS_1.minusDays(2));
+                                room(), AgendaSubject.BUDGET, 3, D_DAY.minusDays(2));
 
-                assertThat(agenda.getDeadlineAt()).isEqualTo(D_MINUS_1);
+                assertThat(agenda.getDeadlineAt()).isEqualTo(D_DAY);
             }
 
             @Test
@@ -926,10 +925,10 @@ class AgendaItemTest {
             }
 
             @Test
-            @DisplayName("출발 전날 00시 전에만 안건을 열 수 있다")
-            void canOpenOnlyBeforeDayBeforeDeparture() {
-                assertThat(AgendaItem.canOpenAt(room(), D_MINUS_1.minusSeconds(1))).isTrue();
-                assertThat(AgendaItem.canOpenAt(room(), D_MINUS_1)).isFalse();
+            @DisplayName("출발일 00시 전에만 안건을 열 수 있다")
+            void canOpenOnlyBeforeDepartureDay() {
+                assertThat(AgendaItem.canOpenAt(room(), D_DAY.minusSeconds(1))).isTrue();
+                assertThat(AgendaItem.canOpenAt(room(), D_DAY)).isFalse();
             }
         }
 
@@ -1001,14 +1000,14 @@ class AgendaItemTest {
             }
 
             @Test
-            @DisplayName("다음 회차의 7일 뒤가 출발 전날 00시보다 늦으면 출발 전날 00시에 마감된다")
+            @DisplayName("다음 회차의 7일 뒤가 출발일 00시보다 늦으면 출발일 00시에 마감된다")
             void capsNextRoundDeadline() {
                 AgendaItem expired = expiredAgenda(AgendaSubject.BUDGET);
                 LocalDateTime now = LocalDateTime.of(2027, 6, 26, 10, 0);
 
                 AgendaItem next = expired.openNextRound(4, now);
 
-                assertThat(next.getDeadlineAt()).isEqualTo(D_MINUS_1);
+                assertThat(next.getDeadlineAt()).isEqualTo(D_DAY);
             }
         }
 
@@ -1034,13 +1033,13 @@ class AgendaItemTest {
             }
 
             @Test
-            @DisplayName("출발 전날 00시가 지나면 다음 회차를 열 수 없다")
-            void rejectsAfterDayBeforeDeparture() {
+            @DisplayName("출발일 00시가 지나면 다음 회차를 열 수 없다")
+            void rejectsAfterDepartureDay() {
                 AgendaItem expired = expiredAgenda(AgendaSubject.BUDGET);
 
                 // create와 같은 규칙이라 같은 에러 코드를 쓴다
                 assertErrorCode(
-                        () -> expired.openNextRound(4, D_MINUS_1),
+                        () -> expired.openNextRound(4, D_DAY),
                         AgendaErrorCode.AGENDA_DEADLINE_PASSED);
             }
         }

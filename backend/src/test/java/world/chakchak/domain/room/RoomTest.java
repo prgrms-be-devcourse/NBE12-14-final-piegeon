@@ -131,7 +131,7 @@ class RoomTest {
             }
 
             @Test
-            @DisplayName("D-1까지 설문 조율을 끝내지 못한 SURVEYING 방은 EXPIRED가 된다")
+            @DisplayName("D-DAY까지 설문 조율을 끝내지 못한 SURVEYING 방은 EXPIRED가 된다")
             void expiresSurveyingRoom() {
                 Room room = roomIn(RoomStatus.SURVEYING);
 
