@@ -12,7 +12,7 @@ public enum AgendaSubject {
     FINAL_PLAN,
     CUSTOM;
 
-    /** 설문에서 나온 안건인지. 설문 조율 완료(5-2)와 D-1 최종 집계(13-3)는 이 안건들만 본다. */
+    /** 설문에서 나온 안건인지. 설문 조율 완료(5-2)와 D-DAY 최종 집계(13-3)는 이 안건들만 본다. */
     public boolean isSurvey() {
         return this == BUDGET || this == STAY || this == PACE;
     }

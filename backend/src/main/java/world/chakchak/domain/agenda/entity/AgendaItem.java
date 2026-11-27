@@ -37,7 +37,7 @@ public class AgendaItem extends BaseEntity {
     /** 설문 마감 때 여는 1회차 안건의 투표 기간 (명세 5-1) */
     static final int FIRST_ROUND_VOTING_DAYS = 4;
 
-    /** 다음 회차(V-04)와 최종 확정(C-01) 안건의 투표 기간. 마감은 D-1을 넘지 않게 줄인다. */
+    /** 다음 회차(V-04)와 최종 확정(C-01) 안건의 투표 기간. 마감은 D-DAY를 넘지 않게 줄인다. */
     static final int VOTING_DAYS = 7;
 
     static final String FINAL_REVIEW_TITLE = "이 계획으로 확정할까요?";
@@ -82,8 +82,8 @@ public class AgendaItem extends BaseEntity {
             long totalVoter,
             LocalDateTime now,
             LocalDateTime deadlineAt) {
-        // D-1이 됐거나 지났으면 안건을 만들지 않는다. 만들면 마감이 D-1로 줄어 만들자마자 투표할 수 없는 안건이 된다.
-        // (예: 출발 4일 전에 만든 방은 설문 마감(생성 + 3일)이 정확히 D-1이다)
+        // D-DAY가 됐거나 지났으면 안건을 만들지 않는다. 만들면 마감이 D-DAY로 줄어 만들자마자 투표할 수 없는 안건이 된다.
+        // (예: 출발 3일 전에 만든 방은 설문 마감(생성 + 3일)이 정확히 D-DAY다)
         if (!canOpenAt(room, now)) {
             throw new BusinessException(AgendaErrorCode.AGENDA_DEADLINE_PASSED);
         }
@@ -97,7 +97,7 @@ public class AgendaItem extends BaseEntity {
         this.title = title;
         this.status = AgendaStatus.VOTING;
         this.totalVoter = totalVoter;
-        // 마감 시각은 항상 D-1(출발 전날 00:00)을 넘지 않게 엔티티에서 줄인다.
+        // 마감 시각은 항상 D-DAY(출발일 00:00)을 넘지 않게 엔티티에서 줄인다.
         this.deadlineAt = capDeadline(deadlineAt, room.getStartDate());
     }
 
@@ -106,8 +106,8 @@ public class AgendaItem extends BaseEntity {
      *
      * @param title 안건 제목. service가 주제에 맞는 기본 제목을 정해서 넘긴다.
      * @param totalVoter 투표 자격자 수. 1 이상이어야 한다.
-     * @param now 지금 시각. D-1 이후면 AGENDA_DEADLINE_PASSED를 던진다.
-     * @param deadlineAt 마감 후보 시각. D-1보다 늦으면 D-1로 줄여서 저장한다. 만장일치 안건은 now를 넘긴다.
+     * @param now 지금 시각. D-DAY 이후면 AGENDA_DEADLINE_PASSED를 던진다.
+     * @param deadlineAt 마감 후보 시각. D-DAY보다 늦으면 D-DAY로 줄여서 저장한다. 만장일치 안건은 now를 넘긴다.
      */
     public static AgendaItem create(
             Room room,
@@ -123,8 +123,8 @@ public class AgendaItem extends BaseEntity {
     /**
      * 설문 마감 때 설문 항목의 1회차 안건을 연다. (5-1)
      *
-     * <p>마감은 설문 마감 + 4일이고 D-1보다 늦으면 D-1로 줄인다. 만장일치 항목도 이렇게 연 뒤 선지를 만들고 {@link #resolveWithoutVote}로
-     * 바로 결정한다.
+     * <p>마감은 설문 마감 + 4일이고 D-DAY보다 늦으면 D-DAY로 줄인다. 만장일치 항목도 이렇게 연 뒤 선지를 만들고 {@link
+     * #resolveWithoutVote}로 바로 결정한다.
      *
      * @param surveyClosedAt 설문 마감 시각. 안건을 여는 지금 시각이기도 하다
      */
@@ -151,27 +151,27 @@ public class AgendaItem extends BaseEntity {
     }
 
     /**
-     * 지금 이 방에 안건을 열 수 있는지. 출발 전날 00:00(D-1)이 됐거나 지났으면 열 수 없다.
+     * 지금 이 방에 안건을 열 수 있는지. 출발일 00:00(D-DAY)이 됐거나 지났으면 열 수 없다.
      *
      * <p>설문 마감(5-1)처럼 다른 요청(퇴장, 설문 제출) 안에서 안건을 열 때, 409로 그 요청까지 실패시키지 않고 건너뛰려고 미리 확인한다.
      */
     public static boolean canOpenAt(Room room, LocalDateTime now) {
-        return now.isBefore(dayBeforeDeparture(room.getStartDate()));
+        return now.isBefore(departureStart(room.getStartDate()));
     }
 
     /**
-     * 마감 시각을 출발 전날 00:00(D-1)보다 늦지 않게 줄인다.
+     * 마감 시각을 출발일 00:00(D-DAY)보다 늦지 않게 줄인다.
      *
      * <p>생성자에서 항상 적용하므로 외부에서 부를 일이 없어 private으로 바꿨다.
      */
     private static LocalDateTime capDeadline(LocalDateTime candidate, LocalDate startDate) {
-        LocalDateTime dayBeforeDeparture = dayBeforeDeparture(startDate);
-        return candidate.isAfter(dayBeforeDeparture) ? dayBeforeDeparture : candidate;
+        LocalDateTime departureStart = departureStart(startDate);
+        return candidate.isAfter(departureStart) ? departureStart : candidate;
     }
 
-    // D-1을 알려주는 날짜 메서드
-    private static LocalDateTime dayBeforeDeparture(LocalDate startDate) {
-        return startDate.minusDays(1).atStartOfDay();
+    // 출발일 00:00(D-DAY)을 알려주는 날짜 메서드
+    private static LocalDateTime departureStart(LocalDate startDate) {
+        return startDate.atStartOfDay();
     }
 
     /** 지금 투표·선지 추가·삭제를 받을 수 있는지. VOTING이고 마감 전이어야 한다. */
@@ -182,7 +182,8 @@ public class AgendaItem extends BaseEntity {
     /**
      * 마감 시각이 지나 미결로 끝낼 안건인지. (13-2)
      *
-     * <p>설문 안건과 최종 확정은 D-1부터 최종 집계가 낸 표로 결정하므로 대상이 아니다. 자유 안건은 최종 집계가 없어 D-1 이후에도 마감이 지나면 미결로 끝낸다.
+     * <p>설문 안건과 최종 확정은 D-DAY부터 최종 집계가 낸 표로 결정하므로 대상이 아니다. 자유 안건은 최종 집계가 없어 D-DAY 이후에도 마감이 지나면 미결로
+     * 끝낸다.
      */
     public boolean isExpirableAt(LocalDateTime now) {
         return status == AgendaStatus.VOTING
@@ -202,7 +203,7 @@ public class AgendaItem extends BaseEntity {
         return !member.getJoinedAt().isAfter(getCreatedAt());
     }
 
-    /** 선택지 하나로 결정한다. (7-1 만장일치, 최종 확정 반대, D-1 최종 집계) */
+    /** 선택지 하나로 결정한다. (7-1 만장일치, 최종 확정 반대, D-DAY 최종 집계) */
     // 선지 객체를 받아 이 안건의 선지인지 먼저 확인한다. id만 받으면 다른 안건의 선지여도 flush 때 V13 FK에 걸려 500이 된다.
     // 저장은 id로 한다. 안건과 선지가 서로를 객체로 참조하지 않게 하기 위해서다.
     public void resolve(AgendaOption option, LocalDateTime now) {
@@ -210,7 +211,7 @@ public class AgendaItem extends BaseEntity {
         markResolved(option, now);
     }
 
-    /** D-1 최종 집계로 결정한다. 미결(EXPIRED)로 끝나고 다음 회차가 열리지 않은 안건도 이 회차의 표로 결정한다. */
+    /** D-DAY 최종 집계로 결정한다. 미결(EXPIRED)로 끝나고 다음 회차가 열리지 않은 안건도 이 회차의 표로 결정한다. */
     public void resolveByFinalTally(AgendaOption option, LocalDateTime now) {
         if (status == AgendaStatus.RESOLVED) {
             throw new BusinessException(AgendaErrorCode.AGENDA_CLOSED);
@@ -246,7 +247,7 @@ public class AgendaItem extends BaseEntity {
      *   <li>표 수가 total_voter에 닿았고 모든 표가 같은 선지면 그 선지.
      * </ul>
      *
-     * <p>마감 시각의 판정(13-2)과 D-1 최종 집계(13-3)는 규칙이 달라 여기서 다루지 않는다.
+     * <p>마감 시각의 판정(13-2)과 D-DAY 최종 집계(13-3)는 규칙이 달라 여기서 다루지 않는다.
      *
      * @param votes 이 안건에 들어온 표 전부
      */
@@ -270,7 +271,7 @@ public class AgendaItem extends BaseEntity {
     }
 
     /**
-     * D-1 최종 집계로 정할 선지를 고른다. 정할 수 없으면 비어 있고, 그 항목은 미결로 끝난다.
+     * D-DAY 최종 집계로 정할 선지를 고른다. 정할 수 없으면 비어 있고, 그 항목은 미결로 끝난다.
      *
      * <ul>
      *   <li>표가 없으면 정할 수 없다.
@@ -311,8 +312,8 @@ public class AgendaItem extends BaseEntity {
     /**
      * 최종 확정(FINAL_PLAN) 안건을 연다. (C-01)
      *
-     * <p>마감은 지금 + 7일이고 D-1보다 늦으면 D-1로 줄인다. D-1이 지났으면 AGENDA_DEADLINE_PASSED를 던진다. 회차는 반대·미결로 끝난 뒤
-     * 다시 열 때마다 1씩 오르며, 이전 회차를 읽어야 하므로 service가 정한다.
+     * <p>마감은 지금 + 7일이고 D-DAY보다 늦으면 D-DAY로 줄인다. D-DAY가 지났으면 AGENDA_DEADLINE_PASSED를 던진다. 회차는 반대·미결로
+     * 끝난 뒤 다시 열 때마다 1씩 오르며, 이전 회차를 읽어야 하므로 service가 정한다.
      */
     public static AgendaItem openFinalReview(
             Room room, int round, long totalVoter, LocalDateTime now) {
@@ -329,8 +330,8 @@ public class AgendaItem extends BaseEntity {
     /**
      * 멤버가 직접 주제와 선지를 정한 자유 안건의 1회차를 연다. (V-09)
      *
-     * <p>마감은 지금 + 7일이고 D-1보다 늦으면 D-1로 줄인다. D-1이 지났으면 AGENDA_DEADLINE_PASSED를 던진다. 같은 제목의 안건이 이미
-     * 있는지는 DB를 봐야 하므로 service에서 확인한다.
+     * <p>마감은 지금 + 7일이고 D-DAY보다 늦으면 D-DAY로 줄인다. D-DAY가 지났으면 AGENDA_DEADLINE_PASSED를 던진다. 같은 제목의 안건이
+     * 이미 있는지는 DB를 봐야 하므로 service에서 확인한다.
      *
      * @param title 주제 이름. 같은 방의 자유 안건끼리 겹치지 않고, 열린 뒤에는 바꾸지 않는다
      */
@@ -358,15 +359,15 @@ public class AgendaItem extends BaseEntity {
     /**
      * 미결(EXPIRED)로 끝난 설문 안건이나 자유 안건의 다음 회차를 만든다. (V-04)
      *
-     * <p>마감은 지금 + 7일이고 D-1보다 늦으면 D-1로 줄인다. D-1이 지났으면 열 수 없다. 이 안건이 가장 최근 회차인지는 DB를 봐야 하므로 service에서
-     * 확인한다.
+     * <p>마감은 지금 + 7일이고 D-DAY보다 늦으면 D-DAY로 줄인다. D-DAY가 지났으면 열 수 없다. 이 안건이 가장 최근 회차인지는 DB를 봐야 하므로
+     * service에서 확인한다.
      */
     // 출발일은 room에서 직접 꺼내므로 startDate 인자를 없앴다. service가 다른 날짜를 넘길 여지가 사라진다.
     public AgendaItem openNextRound(long totalVoter, LocalDateTime now) {
         if (!subject.isReopenable() || status != AgendaStatus.EXPIRED) {
             throw new BusinessException(AgendaErrorCode.AGENDA_NOT_REOPENABLE);
         }
-        // 다음 회차도 create로 만들어 D-1 이후 생성 금지와 D-1 상한을 같은 규칙으로 적용한다.
+        // 다음 회차도 create로 만들어 D-DAY 이후 생성 금지와 D-DAY 상한을 같은 규칙으로 적용한다.
         // 제목은 직전 회차를 그대로 물려받는다
         return create(room, subject, round + 1, title, totalVoter, now, now.plusDays(VOTING_DAYS));
     }

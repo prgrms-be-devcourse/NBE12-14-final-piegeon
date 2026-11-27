@@ -163,18 +163,18 @@ public class RoomService {
                 .orElseThrow(() -> new BusinessException(RoomErrorCode.ROOM_NOT_FOUND));
     }
 
-    /** 의견 마감이 지났는데 설문이 마감되지 않은 방을 찾는다 (13-1). D-1이 된 방은 최종 집계 대상이라 뺀다. */
+    /** 의견 마감이 지났는데 설문이 마감되지 않은 방을 찾는다 (13-1). D-DAY가 된 방은 최종 집계 대상이라 뺀다. */
     @Transactional(readOnly = true)
     public List<Long> findRoomIdsPastOpinionDeadline(LocalDateTime now) {
         return roomRepository.findRoomIdsPastOpinionDeadline(
-                RoomStatus.SURVEYING, now, now.toLocalDate().plusDays(1));
+                RoomStatus.SURVEYING, now, now.toLocalDate());
     }
 
-    /** D-1 최종 집계 대상 방을 찾는다. 조율 중(SURVEYING)이거나 최종 투표 중(REVIEWING)인 방이다. */
+    /** D-DAY 최종 집계 대상 방을 찾는다. 조율 중(SURVEYING)이거나 최종 투표 중(REVIEWING)인 방이다. */
     @Transactional(readOnly = true)
     public List<Long> findRoomIdsAtFinalTally(LocalDateTime now) {
         return roomRepository.findRoomIdsAtFinalTally(
-                List.of(RoomStatus.SURVEYING, RoomStatus.REVIEWING), now.toLocalDate().plusDays(1));
+                List.of(RoomStatus.SURVEYING, RoomStatus.REVIEWING), now.toLocalDate());
     }
 
     @Transactional(readOnly = true)

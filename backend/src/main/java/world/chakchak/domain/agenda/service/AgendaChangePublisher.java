@@ -23,8 +23,8 @@ import world.chakchak.domain.room.entity.RoomStatus;
  * <ul>
  *   <li>안건이 열리고, 결정되고, 미결로 끝나고, 설문 마감·조율 완료·계획 확정이 되면 {@link ChangeLogService}로 한 줄을 남긴다. 그 기록이
  *       {@code activity} 이벤트(SSE id = 로그 id)로 나가고, 재연결 때 다시 보내진다.
- *   <li>표 수가 바뀐 것({@code vote.updated})과 D-1에 방이 만료된 것({@code room.status_changed})은 남기지 않는 일시 이벤트라
- *       id 없이 보낸다. 재연결 때 다시 보내지 않으므로 클라이언트가 다시 조회한다.
+ *   <li>표 수가 바뀐 것({@code vote.updated})과 D-DAY에 방이 만료된 것({@code room.status_changed})은 남기지 않는 일시
+ *       이벤트라 id 없이 보낸다. 재연결 때 다시 보내지 않으므로 클라이언트가 다시 조회한다.
  * </ul>
  *
  * <p>둘 다 호출자의 트랜잭션 안에서 부르고, 실제 전송은 커밋 뒤에 한다({@code ChangeLogStreamListener}).
@@ -111,7 +111,7 @@ public class AgendaChangePublisher {
     }
 
     /**
-     * 방이 만료됐다. D-1 최종 집계에서 설문 조율을 끝내지 못했거나(13-3), 의견 마감까지 설문이 0건이었다(13-1). 명세의 기록 대상에 방 만료가 없어 기록
+     * 방이 만료됐다. D-DAY 최종 집계에서 설문 조율을 끝내지 못했거나(13-3), 의견 마감까지 설문이 0건이었다(13-1). 명세의 기록 대상에 방 만료가 없어 기록
      * 없이 보낸다.
      *
      * <p>두 경우 모두 만료와 함께 남는 기록이 없을 수 있다. 이 이벤트가 없으면 접속 중인 멤버는 화면을 다시 불러오기 전까지 수정할 수 있는 방으로 보게 된다.
