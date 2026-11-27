@@ -1,12 +1,73 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AuthShell } from "@/components/AuthShell";
 import { Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { addDays, todayKst, tripDays, tripLength } from "@/lib/format";
 import { useLoginRedirect } from "@/lib/hooks";
+
+// 브라우저 기본 날짜 칸은 브라우저 언어에 따라 mm/dd/yyyy로 보인다.
+// 달력은 브라우저 것을 그대로 쓰고, 칸에 보이는 글자만 YYYY/MM/DD로 그린다.
+function DateField({
+  id,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  min: string;
+  max: string;
+  onChange: (value: string) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        className="in"
+        aria-hidden="true"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          outline: focused ? "2px solid var(--accent)" : undefined,
+          outlineOffset: -2,
+        }}
+      >
+        <span>{value ? value.replaceAll("-", "/") : "YYYY/MM/DD"}</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="5" width="18" height="16" rx="2" />
+          <path d="M16 3v4M8 3v4M3 11h18" />
+        </svg>
+      </div>
+      {/* 진짜 입력칸은 보이지 않게 위에 겹쳐 두고, 누르면 달력을 연다 */}
+      <input
+        ref={ref}
+        id={id}
+        type="date"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onClick={() => {
+          try {
+            ref.current?.showPicker();
+          } catch {
+            // showPicker를 못 쓰는 브라우저는 기본 동작에 맡긴다
+          }
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        required
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }}
+      />
+    </div>
+  );
+}
 
 export default function NewRoomPage() {
   const router = useRouter();
@@ -75,23 +136,20 @@ export default function NewRoomPage() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div className="f">
             <label htmlFor="start">가는 날</label>
-            <input
+            <DateField
               id="start"
-              className="in"
-              type="date"
               min={minStart}
               max={maxStart}
               value={startDate}
-              onChange={(e) => {
-                setStartDate(e.target.value);
-                if (endDate < e.target.value) setEndDate(e.target.value);
+              onChange={(v) => {
+                setStartDate(v);
+                if (endDate < v) setEndDate(v);
               }}
-              required
             />
           </div>
           <div className="f">
             <label htmlFor="end">오는 날</label>
-            <input id="end" className="in" type="date" min={startDate} max={addDays(startDate, 30)} value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+            <DateField id="end" min={startDate} max={addDays(startDate, 30)} value={endDate} onChange={setEndDate} />
           </div>
         </div>
         <p className="small muted">
