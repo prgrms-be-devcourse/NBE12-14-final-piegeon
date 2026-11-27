@@ -10,6 +10,8 @@ public record PlaceCandidateItem(
         String name,
         String address,
         String placeType,
+        // 장소 종류(맛집, 자연 등). placeType을 우리 5종으로 묶은 값이고, 표에 없는 종류면 null
+        PlaceDetailResponse.CategoryLabel category,
         // 칸 (계산값, PlaceStage.of)
         PlaceStage stage,
         // 가고 싶어요 수
