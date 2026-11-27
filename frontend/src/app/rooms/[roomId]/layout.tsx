@@ -101,7 +101,7 @@ export default function RoomLayout({ children }: { children: React.ReactNode }) 
                 type="button"
                 className="btn btn-ghost"
                 onClick={async () => {
-                  if (!window.confirm("이 방에서 나갈까요? 나가면 다시 들어올 수 없어요.")) return;
+                  if (!window.confirm("이 방에서 나갈까요? 다시 들어올 수 없으며, 내 투표가 지워져 결과가 바로 확정될 수 있어요.")) return;
                   try {
                     await api.leave(roomId);
                     router.replace("/rooms");
