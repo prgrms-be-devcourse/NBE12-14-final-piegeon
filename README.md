@@ -205,8 +205,3 @@ backend
 | :---: | :---: | :---: |
 | 신시원 | 이동준 | 최세현 |
 | [![GitHub](https://img.shields.io/badge/GitHub-swshindev--beep-181717?logo=github)](https://github.com/swshindev-beep) | [![GitHub](https://img.shields.io/badge/GitHub-TASKKILLNAME-181717?logo=github)](https://github.com/TASKKILLNAME) | [![GitHub](https://img.shields.io/badge/GitHub-woneychl-181717?logo=github)](https://github.com/woneychl) |
-
-## Links
-
-- 서비스 URL: <!-- 추가 예정 -->
-- 시연 영상: <!-- 추가 예정 -->
