@@ -3,6 +3,8 @@
 
 > 함께 계획하고, 의견을 모아 완성하는 여행
 
+**서비스 바로 가기: [https://chakchak.world](https://chakchak.world/)**
+
 ## 프로젝트 소개
 
 착착은 여러 사람이 함께 여행을 계획하고, 여행에 필요한 의견을 조율하며 일정을 완성할 수 있는 여행 계획 서비스입니다.
@@ -203,8 +205,3 @@ backend
 | :---: | :---: | :---: |
 | 신시원 | 이동준 | 최세현 |
 | [![GitHub](https://img.shields.io/badge/GitHub-swshindev--beep-181717?logo=github)](https://github.com/swshindev-beep) | [![GitHub](https://img.shields.io/badge/GitHub-TASKKILLNAME-181717?logo=github)](https://github.com/TASKKILLNAME) | [![GitHub](https://img.shields.io/badge/GitHub-woneychl-181717?logo=github)](https://github.com/woneychl) |
-
-## Links
-
-- 서비스 URL: <!-- 추가 예정 -->
-- 시연 영상: <!-- 추가 예정 -->
