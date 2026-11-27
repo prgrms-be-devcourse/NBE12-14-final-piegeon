@@ -47,12 +47,25 @@ jobs:
       - name: 의존성 설치
         run: npm ci
 
-      # next build도 타입을 보지만, 따로 돌려서 타입 에러인지 빌드 에러인지 바로 구분되게 한다.
-      - name: 타입 검사
-        run: npm run typecheck
+      # next build가 이전 빌드 결과를 다시 쓰도록 .next/cache를 실행 사이에 남긴다.
+      # 의존성이나 소스가 바뀌면 키가 달라지고, 그때는 lock이 같은 가장 최근 캐시를 이어 쓴다.
+      # uses 스텝의 path는 working-directory가 적용되지 않으므로 저장소 최상위 기준으로 적는다.
+      - name: Next 빌드 캐시
+        uses: actions/cache@v6
+        with:
+          path: frontend/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/src/**', 'frontend/public/**', 'frontend/next.config.ts', 'frontend/tsconfig.json') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-
 
       # BACKEND_URL은 rewrites 주소로만 쓰여 빌드 때 백엔드가 떠 있을 필요는 없다. 비우면 localhost:8080을 쓴다.
       - name: 빌드
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
+
+      # next-env.d.ts는 .gitignore에 있어 CI에는 없고, next build가 만든다. 그래서 빌드 뒤에 돌린다.
+      # 빌드 전에 돌리면 CSS 모듈·이미지 import의 타입을 몰라 로컬에서만 통과하는 일이 생긴다.
+      # next build도 타입을 보지만, 따로 돌려서 tsconfig의 include 전체를 같은 규칙으로 한 번 더 본다.
+      - name: 타입 검사
+        run: npm run typecheck
