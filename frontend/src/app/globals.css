@@ -307,24 +307,248 @@ textarea.in { height: auto; padding: 12px 16px; resize: vertical; line-height: 1
 .cmt .bub .h { display: flex; gap: 8px; align-items: baseline; font-size: 13px; color: var(--ink-2); }
 .cmt .bub .h b { color: var(--ink); font-size: 14px; }
 
-/* 일정 */
-.dsel { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+/* 일정. 색·모서리·글꼴은 디자인 v4의 토큰을 쓰고, 하루 카드는 왼쪽 날짜 패널 대신 세로 시간 흐름으로 그린다 */
+/* 맨 위 최종 확정 카드. 일정 블록이 주인공이 되게 바닥에 가라앉힌다 */
+.card.finalbar { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 18px; padding: 14px 20px; border-radius: 16px; background: var(--sunk); box-shadow: none; }
+/* 블랙 테마에서 공용 .card가 그리는 테두리를 끈다 */
+:root[data-theme="dark"] .card.finalbar, :root[data-theme="dark"] .card.poolbox { box-shadow: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .card.finalbar, :root:not([data-theme="light"]) .card.poolbox { box-shadow: none; } }
+.finalbar > .stack { flex: 1 1 280px; min-width: 0; }
+.finalbar .btn-line { background: var(--surface); }
+.finalbar .notice { flex: 1 0 100%; }
+
+/* 날짜 카드 */
+.dsel { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .cd {
-  display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 16px; border: 0;
-  background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; box-shadow: 0 1px 2px var(--shadow);
+  display: flex; gap: 10px; align-items: center; min-width: 0; padding: 8px 12px 8px 8px; border: 0; border-radius: 16px;
+  background: var(--surface); color: var(--ink); font-family: inherit; text-align: left; cursor: pointer;
+  box-shadow: 0 1px 2px var(--shadow); transition: box-shadow 0.15s, background 0.15s, opacity 0.15s;
 }
-.cd[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
-.cd .ph { width: 48px; height: 48px; border-radius: 12px; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; flex: none; }
-.cd .ph b { font-size: 18px; }
-.cd .ph span { font-size: 12px; color: var(--ink-2); }
-.cd .tx { display: flex; flex-direction: column; min-width: 0; font-size: 13px; color: var(--ink-2); }
-.cd .tx b { font-size: 15px; color: var(--ink); }
-.slot { display: flex; gap: 14px; align-items: flex-start; padding: 14px 0; border-top: 1px solid var(--line); }
+/* 블랙 테마의 기본 테두리. :where로 선택자 무게를 0으로 낮춰서, 아래의 고른 날·올려 둔 날 테두리가 이기게 한다 */
+:where(:root[data-theme="dark"]) .cd { box-shadow: inset 0 0 0 1px var(--line); }
+@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) .cd { box-shadow: inset 0 0 0 1px var(--line); } }
+.cd:hover { box-shadow: inset 0 0 0 1.5px var(--ink-2); }
+.cd[aria-pressed="true"] { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.cd .ph { flex: none; width: 52px; height: 52px; border-radius: 10px; background: var(--sunk); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.cd .ph b { font-size: 20px; font-weight: 700; line-height: 1; }
+.cd .ph .t { font-size: 11px; color: var(--ink-2); }
+.cd .tx { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.cd .hd { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.cd .hd b { font-size: 17px; font-weight: 700; white-space: nowrap; }
+.cd .hd span { font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+/* 날짜는 왼쪽 칸과 아래 하루 카드의 제목에 이미 있다 */
+.cd .dt { display: none; }
+.cd .k { font-size: 13px; line-height: 1.4; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 블록이나 장소를 끌고 있을 때: 놓을 수 있는 날은 점선, 올려 둔 날은 강조색, 놓을 수 없는 날은 흐리게 */
+.cd.can-drop { box-shadow: none; outline: 2px dashed var(--ink-2); outline-offset: -2px; }
+/* 올려 둔 날은 강조색으로 뒤집는다. 연한 강조색은 '고른 날'이 쓰고 있어서 같은 모양이면 구분이 안 된다 */
+.cd.can-drop.over { background: var(--accent); color: var(--on-accent); outline: 2px solid var(--accent); }
+.cd.can-drop.over .ph { background: var(--surface); color: var(--ink); }
+.cd.can-drop.over .hd span, .cd.can-drop.over .k { color: var(--on-accent); }
+.cd.can-drop.over .hd span { font-weight: 700; }
+/* 고른 날도 놓을 수 있는 날이면 점선이 되는데, 연한 강조색 바탕 위라 선도 강조색으로 맞춘다 */
+.cd[aria-pressed="true"].can-drop:not(.over) { outline-color: var(--accent); }
+.cd.no-drop { opacity: 0.45; }
+.cd.dragging { opacity: 0.35; }
+/* 끄는 동안에는 안쪽 글자와 블록이 마우스를 가로채지 않게 한다. 가로채면 카드나 목록을 '벗어났다'는 신호가 잘못 와서 표시가 깜빡인다 */
+.cd.can-drop *, .daylist.accepting > * { pointer-events: none; }
+/* 날이 많은 여행: 날짜 카드를 여러 줄로 쌓지 않고 옆으로 넘기는 한 줄로 둔다. 여러 줄이 되면 블록 목록이 화면 밖으로 밀려 날짜 카드로 끌어 놓을 수가 없다 */
+.dsel.many { display: flex; gap: 12px; overflow-x: auto; padding: 2px 2px 8px; scroll-snap-type: x proximity; }
+.dsel.many .cd { flex: 0 0 240px; scroll-snap-align: start; }
+
+/* 하루 카드: 머리줄 + 세로 시간 흐름 */
+.card.daybox { gap: 20px; padding: 24px 26px; }
+.daybar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.daybar-main { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; min-width: 0; }
+.daybar h2 { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.2; }
+.daypill { display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 13px; font-weight: 700; }
+.daymeter { display: inline-flex; align-items: center; gap: 8px; }
+.daymeter-track { width: 72px; height: 6px; border-radius: 999px; background: var(--sunk); overflow: hidden; }
+.daymeter-track > span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+/* 끌 수 없는 화면(터치, 키보드)에서 두 날을 맞바꾸는 선택 상자 */
+.daybar select.swap {
+  height: 36px; padding: 0 12px; border: 0; border-radius: 12px; background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); font-family: inherit; font-size: 14px; cursor: pointer;
+}
+.daybar select.swap:hover:not(:disabled) { box-shadow: inset 0 0 0 1.5px var(--ink-2); }
+.daybar select.swap:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.cat { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; background: var(--sunk); color: var(--ink-2); flex: none; }
+.cat svg { display: block; }
+.daylist { display: flex; flex-direction: column; min-width: 0; }
+/* 바로 아래 자식만 고른다. 블록의 '미정' 시간도 none 클래스를 써서, 자손까지 고르면 거기에도 여백이 들어간다 */
+.daylist > .none { display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 14px; }
+.daylist > .none b { font-size: 18px; }
+.daylist > .none span { font-size: 14px; color: var(--ink-2); }
+.daylist > .none.drop { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); }
+
+/* 블록의 기본 모양. 전체 보기의 좁은 칸에서는 이 한 줄 모양을 그대로 쓴다 */
+.slot { position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--line); }
 .slot:first-child { border-top: 0; }
-.slot .tm { width: 64px; flex: none; font-size: 15px; font-weight: 700; padding-top: 2px; }
-.slot .tm.none { color: var(--ink-2); font-weight: 400; font-size: 13px; }
-.slot .memo { font-size: 13px; color: var(--ink-2); }
-.slot .acts { display: flex; gap: 2px; flex-wrap: wrap; justify-content: flex-end; }
+.slot .tm { font-size: 15px; padding-top: 2px; font-variant-numeric: tabular-nums; }
+.slot .tm.none { font-size: 13px; color: var(--ink-2); }
+/* 메모가 여러 줄로 길어져도 아이콘이 시간과 같은 높이에 있게 위로 맞춘다 */
+.slot .pl { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.slot .pl > span:last-child { min-width: 0; padding-top: 2px; }
+.slot .pl b { display: block; font-weight: 700; overflow-wrap: anywhere; }
+.slot .memo { display: block; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+
+/* 하루씩 보기의 블록: 시간 | 순번 | 카드. 블록 사이에는 세로 선과 시간 간격이 놓인다 */
+.slot.tl { grid-template-columns: 64px 28px minmax(0, 1fr); gap: 12px; align-items: center; padding: 0; border-top: 0; }
+.slot.tl .tm { padding-top: 0; font-size: 17px; font-weight: 700; text-align: right; }
+.slot.tl .tm.none { font-size: 13px; font-weight: 400; }
+.tl-node { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; }
+/* 하루의 시작점은 채워서 표시한다 */
+.slot.tl:first-child .tl-node { background: var(--accent); color: var(--on-accent); }
+.tl-card { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 14px 16px; border-radius: 16px; background: var(--bg); transition: box-shadow 0.15s; }
+/* 블랙 테마의 --bg는 화면 바탕색이라 카드 안에서 쓰면 구멍처럼 보인다. 한 단계 밝은 --sunk를 쓴다 */
+:where(:root[data-theme="dark"]) .tl-card { background: var(--sunk); }
+@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) .tl-card { background: var(--sunk); } }
+.tl-card .cat { background: var(--surface); }
+.tl-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.tl-text b { font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+.tl-text .memo { font-size: 14px; color: var(--ink); }
+.tl-text .addr { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.tl-card .tag { flex: none; }
+:where(:root[data-theme="dark"]) .tl-card .tag.n { background: var(--surface); }
+@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) .tl-card .tag.n { background: var(--surface); } }
+.tl-gap { display: grid; grid-template-columns: 64px 28px minmax(0, 1fr); gap: 12px; align-items: center; min-height: 30px; font-size: 12px; color: var(--ink-2); }
+.tl-line { grid-column: 2; justify-self: center; width: 2px; height: 22px; border-radius: 2px; background: var(--line); }
+.tl-gap > span:last-child { padding-left: 4px; }
+
+.slot.can-edit { cursor: grab; }
+.slot.can-edit:hover .tl-card, .slot.can-edit:focus-visible .tl-card { box-shadow: inset 0 0 0 1.5px var(--ink-2); }
+.slot .grip { display: grid; place-items: center; padding: 4px; color: var(--ink-2); opacity: 0.45; transition: opacity 0.15s; }
+.slot.can-edit:hover .grip, .slot.can-edit:focus-visible .grip { opacity: 1; }
+/* 터치 화면에서는 끌기가 되지 않는다. 되지 않는 일의 손잡이는 보여 주지 않는다 */
+@media (hover: none), (pointer: coarse) {
+  .slot .grip { display: none; }
+  .slot.can-edit { cursor: pointer; }
+}
+.slot.dragging { opacity: 0.35; }
+/* 끌던 것이 놓일 자리. 블록 사이의 한가운데에 긋는다 */
+.slot.drop-before::before, .slot.drop-after::after {
+  content: ""; position: absolute; left: 0; right: 0; height: 3px; border-radius: 2px; background: var(--accent);
+}
+.slot.drop-before::before { top: -17px; }
+.slot.tl:first-child.drop-before::before { top: -8px; }
+.slot.drop-after::after { bottom: -9px; }
+/* 내가 블록을 눌러 고치는 상태. 디자인 v4의 .slot.editing은 '다른 멤버가 고치는 중' 표시라서 이름을 달리 둔다 */
+.slot.open { display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: 16px; border-top: 0; box-shadow: inset 0 0 0 2px var(--ink); cursor: default; }
+.slot.open .pl { align-items: center; }
+.slot.open .tm-field { flex: 0 1 184px; min-width: 172px; }
+/* 지우기는 라벨 바로 옆에 붙인다. 줄 끝으로 보내면 옆 칸의 라벨에 붙어 보인다 */
+.lb-row { display: flex; align-items: center; gap: 10px; }
+/* 공용 btn-danger의 테두리는 연한 강조색이라 흰 바탕에서 거의 안 보인다. 이 화면의 빼기만 또렷하게 한다 */
+.slot.open .btn-danger { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.slot.open .btn-danger:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent-strong); }
+.slot.open .mv { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.slot.open select.to-day {
+  height: 36px; padding: 0 8px; border: 0; border-radius: 12px; background: var(--sunk);
+  color: var(--ink); font-family: inherit; font-size: 14px; cursor: pointer;
+}
+.slot.open select.to-day:disabled { opacity: 0.5; cursor: not-allowed; }
+.slot.open .mv .btn-danger { margin-left: 6px; }
+
+.add {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 16px; padding: 0 14px; border-radius: 12px;
+  border: 1.5px dashed var(--line); background: transparent; color: var(--ink-2); font-family: inherit; font-size: 14px; cursor: pointer; text-align: left;
+}
+.add:hover { border-color: var(--accent); color: var(--accent); }
+.addform { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.addgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.addgrid .f { min-width: 0; }
+.addgrid .span2 { grid-column: 1 / -1; }
+
+/* 보기 방식 고르기 (하루씩 / 전체) */
+.viewsw { display: inline-flex; gap: 2px; padding: 3px; border-radius: 14px; background: var(--sunk); }
+.viewsw button { min-height: 38px; padding: 0 16px; border: 0; border-radius: 11px; background: transparent; color: var(--ink-2); font-family: inherit; font-size: 14px; cursor: pointer; }
+.viewsw button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px var(--shadow); }
+
+/* 전체 보기: 모든 날을 칸으로 나란히 놓고 보기만 한다. 날이 많으면 옆으로 넘긴다 */
+.allboard { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(248px, 1fr); gap: 12px; align-items: stretch; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
+.daycol { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 10px 12px 14px; border-radius: 20px; background: var(--surface); box-shadow: 0 1px 2px var(--shadow); scroll-snap-align: start; }
+:where(:root[data-theme="dark"]) .daycol { box-shadow: inset 0 0 0 1px var(--line); }
+@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) .daycol { box-shadow: inset 0 0 0 1px var(--line); } }
+/* 칸 머리. 날짜 카드와 같은 모양이고, 누르면 그날만 보는 화면으로 간다 */
+.cd.sm { gap: 12px; width: 100%; padding: 6px 10px 6px 6px; border-radius: 14px; box-shadow: none; }
+.cd.sm:hover { box-shadow: none; background: var(--sunk); }
+.cd.sm:hover .ph { background: var(--surface); }
+.cd.sm .dt { display: block; font-size: 13px; color: var(--ink-2); }
+/* 곳 수와 화살표를 같은 줄에 묶는다 */
+.cd.sm .meta-go { display: inline-flex; align-items: center; gap: 4px; }
+.cd.sm .go { font-size: 16px; line-height: 1; color: var(--ink-2); }
+.cd.sm:hover .go { color: var(--accent); }
+.daycol .daylist { padding: 4px 4px 0; }
+.daycol .slot { grid-template-columns: 50px minmax(0, 1fr); gap: 4px 10px; }
+.daycol .slot .tm { font-size: 14px; }
+.daycol .cat { width: 40px; height: 40px; }
+.daycol .rest { margin: 0; padding: 10px 0 6px; font-size: 14px; color: var(--ink-2); }
+
+/* 넣을 수 있는 곳. 장소 종류별 칸으로 나눈 보드. 바깥 카드는 없애고 칸 하나하나가 카드가 된다 */
+.card.poolbox { gap: 14px; padding: 6px 0 0; background: transparent; box-shadow: none; }
+.poolbox h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.pool-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 0 2px; }
+.poolboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; align-items: start; }
+.poolcol { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; border-radius: 16px; background: var(--surface); box-shadow: 0 1px 2px var(--shadow); }
+:where(:root[data-theme="dark"]) .poolcol { box-shadow: inset 0 0 0 1px var(--line); }
+@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) .poolcol { box-shadow: inset 0 0 0 1px var(--line); } }
+.poolcol-h { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; }
+.poolcol-h .cat { width: 28px; height: 28px; border-radius: 8px; }
+.poolcol-h .cat svg { width: 16px; height: 16px; }
+.poolcol-h .n { margin-left: auto; padding-right: 4px; font-size: 13px; font-weight: 400; color: var(--ink-2); }
+/* 종류가 한두 가지뿐이라 칸이 넓어지면, 칸 안에서 칩을 여러 줄로 나눠 놓는다 */
+.poolcol-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+.pool { display: flex; gap: 8px; align-items: center; min-width: 0; padding: 9px 8px 9px 12px; border-radius: 12px; background: var(--bg); cursor: grab; transition: box-shadow 0.15s; }
+:where(:root[data-theme="dark"]) .pool { background: var(--sunk); }
+@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) .pool { background: var(--sunk); } }
+.pool:hover:not([aria-disabled="true"]) { box-shadow: inset 0 0 0 1.5px var(--ink-2); }
+.pool .pool-tx { display: flex; flex-direction: column; min-width: 0; flex: 1; font-size: 14px; line-height: 1.35; }
+.pool .pool-tx b, .pool .pool-tx .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 아직 일정에 넣지 않은 곳이 눈에 띄게 */
+.pool .fresh { color: var(--accent); font-weight: 700; }
+.pool:hover b { color: var(--accent); }
+.pool[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+.pool.dragging { opacity: 0.35; }
+.pool .pool-plus { flex: none; padding: 0 6px 0 2px; font-size: 18px; line-height: 1; color: var(--ink-2); }
+.pool:hover .pool-plus { color: var(--accent); }
+
+/* 제목과 보기 방식 버튼을 한 줄에 둔다 */
+.head-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+/* 결과 안내. 화면 아래쪽에서 한 일의 결과도 보이게 위쪽에 붙여 둔다.
+   블랙 테마의 안내 바탕색은 반투명이라, 붙어 있는 동안 아래 글이 비치지 않게 화면 바탕색을 한 겹 깐다 */
+.notice-stick { position: sticky; top: 12px; z-index: 20; border-radius: 14px; background: var(--bg); }
+.notice-stick:empty { display: none; }
+/* 끄는 동안에는 놓을 자리를 가리지 않게 비켜 준다 */
+.notice-stick.dragging { pointer-events: none; opacity: 0.4; }
+.notice-stick .notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; box-shadow: 0 4px 16px var(--shadow); }
+.notice-close { flex: none; min-height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+/* 글 안에 넣는 작은 버튼 */
+.linkbtn { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+
+@media (max-width: 760px) {
+  /* 날짜 카드를 세로로 쌓으면 블록 목록이 화면 밖으로 밀린다. 옆으로 넘기는 한 줄로 줄인다.
+     scroll-padding이 없으면 첫 카드가 안쪽 여백을 무시하고 화면 왼쪽 끝에 붙는다 */
+  .dsel, .dsel.many { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px; padding: 2px 16px 6px; scroll-snap-type: x proximity; scroll-padding-inline: 16px; }
+  .dsel .cd, .dsel.many .cd { flex: 0 0 auto; min-width: 156px; padding: 6px 12px 6px 6px; border-radius: 14px; scroll-snap-align: start; }
+  .dsel .cd .ph { width: 46px; height: 46px; }
+  .dsel .cd .ph b { font-size: 18px; }
+  .dsel .cd .k { display: none; }
+  .allboard { grid-auto-columns: 82vw; margin: 0 -16px; padding: 0 16px 8px; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; }
+  .card.daybox { padding: 18px 16px; gap: 16px; }
+  .daybar h2 { font-size: 20px; }
+  .slot.tl, .tl-gap { grid-template-columns: 46px 22px minmax(0, 1fr); gap: 8px; }
+  .slot.tl .tm { font-size: 14px; }
+  .tl-node { width: 22px; height: 22px; font-size: 11px; }
+  .tl-card { gap: 10px; padding: 12px; }
+  .tl-card .cat { width: 40px; height: 40px; }
+  /* 좁은 화면에서는 종류 이름을 빼고 장소 이름에 자리를 준다 */
+  .tl-card .tag { display: none; }
+  .addgrid { grid-template-columns: minmax(0, 1fr); }
+  .slot.open .tm-field { flex: 1 1 100%; min-width: 0; }
+  /* 손가락으로 누르는 것들은 44px 이상으로 */
+  .viewsw button, .daybar select.swap, .slot.open select.to-day, .slot.open .btn, .addform .btn { min-height: 44px; height: auto; }
+}
 
 /* 확정된 계획 */
 .pass { background: var(--surface); border-radius: 28px; overflow: hidden; box-shadow: 0 1px 2px var(--shadow); display: flex; flex-direction: column; }
