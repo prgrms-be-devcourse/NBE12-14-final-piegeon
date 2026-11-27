@@ -21,6 +21,8 @@ import world.chakchak.domain.schedule.dto.AddItemResponse;
 import world.chakchak.domain.schedule.dto.DayChangeResponse;
 import world.chakchak.domain.schedule.dto.MoveItemRequest;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
+import world.chakchak.domain.schedule.dto.SwapDayRequest;
+import world.chakchak.domain.schedule.dto.SwapDayResponse;
 import world.chakchak.domain.schedule.dto.UpdateItemRequest;
 import world.chakchak.domain.schedule.service.ScheduleBoardService;
 import world.chakchak.global.response.ApiResponse;
@@ -57,6 +59,21 @@ public class ScheduleController {
                 scheduleBoardService.addItem(roomId, dayId, loginUser.userId(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("SCHEDULE_ITEM_CREATED", response));
+    }
+
+    /** 두 날 맞바꾸기 (명세에 없는 새 API) */
+    @Operation(
+            summary = "두 날 맞바꾸기",
+            description = "경로의 날과 otherDayId의 날의 일정을 통째로 맞바꾸고, 바뀐 두 날의 모습을 일차 순서로 돌려준다.")
+    @PatchMapping("/schedule-days/{dayId}/position")
+    public ResponseEntity<ApiResponse<SwapDayResponse>> swapDays(
+            @PathVariable Long roomId,
+            @PathVariable Long dayId,
+            @AuthenticationPrincipal LoginUser loginUser,
+            @Valid @RequestBody SwapDayRequest request) {
+        SwapDayResponse response =
+                scheduleBoardService.swapDays(roomId, dayId, loginUser.userId(), request);
+        return ResponseEntity.ok(ApiResponse.success("SCHEDULE_DAYS_SWAPPED", response));
     }
 
     /** B-03 블록 이동 */

@@ -2,10 +2,12 @@ package world.chakchak.domain.schedule.service;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,8 @@ import world.chakchak.domain.schedule.dto.MoveItemRequest;
 import world.chakchak.domain.schedule.dto.ScheduleBoardResponse;
 import world.chakchak.domain.schedule.dto.ScheduleVersionConflictData;
 import world.chakchak.domain.schedule.dto.ScheduleWarning;
+import world.chakchak.domain.schedule.dto.SwapDayRequest;
+import world.chakchak.domain.schedule.dto.SwapDayResponse;
 import world.chakchak.domain.schedule.dto.UpdateItemRequest;
 import world.chakchak.domain.schedule.entity.ScheduleDay;
 import world.chakchak.domain.schedule.entity.ScheduleItem;
@@ -35,6 +39,7 @@ import world.chakchak.domain.schedule.errorcode.ScheduleErrorCode;
 import world.chakchak.domain.schedule.repository.ScheduleDayRepository;
 import world.chakchak.domain.schedule.repository.ScheduleItemRepository;
 import world.chakchak.global.error.BusinessException;
+import world.chakchak.global.error.CommonErrorCode;
 
 /** 일정 보드 기능. (B-01 보드 조회, B-02 블록 추가, B-03 블록 이동, B-04 블록 수정, B-05 블록 삭제) */
 @Service
@@ -249,6 +254,64 @@ public class ScheduleBoardService {
                 ActionStatus.DELETE,
                 day.getDayIndex() + "일차 " + item.getPlaceCandidate().getName() + ": 삭제됐어요");
         return new DayChangeResponse(DaySnapshot.of(day, items), List.of());
+    }
+
+    /**
+     * 두 날의 일정을 통째로 맞바꾼다. (명세에 없는 API)
+     *
+     * <p>블록은 건드리지 않고, 두 날의 일차만 서로 바꾼다. 날짜는 일차로 계산하고 블록은 날에 달려 있어서, 블록의 시간·메모·순서가 그대로 따라간다. 그래서 블록이
+     * 몇 개든 고치는 행은 둘뿐이고, 두 날이 모두 10칸이어도 바꿀 수 있다.
+     *
+     * @throws BusinessException 방이 없으면 ROOM_NOT_FOUND, 활동 멤버가 아니면 FORBIDDEN, 방이 PLANNING이 아니면
+     *     BOARD_LOCKED, 같은 날끼리면 INVALID_INPUT, 없거나 다른 방의 날이면 SCHEDULE_DAY_NOT_FOUND, 두 날 중 하나라도 버전이
+     *     다르면 SCHEDULE_VERSION_CONFLICT
+     */
+    @Transactional
+    public SwapDayResponse swapDays(Long roomId, Long dayId, Long userId, SwapDayRequest request) {
+        RoomMember me = lockBoard(roomId, userId);
+        if (dayId.equals(request.otherDayId())) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT);
+        }
+        ScheduleDay day = getDayInRoom(roomId, dayId);
+        ScheduleDay other = getDayInRoom(roomId, request.otherDayId());
+        checkVersion(day, request.dayVersion());
+        checkVersion(other, request.otherDayVersion());
+
+        int dayIndex = day.getDayIndex();
+        int otherIndex = other.getDayIndex();
+        // 같은 방에 같은 일차는 DB가 막는다. 바로 맞바꾸면 중간에 겹치므로, 아무도 안 쓰는 0으로 먼저 비켜 두고 DB에 반영한다
+        day.changeDayIndex(0);
+        scheduleDayRepository.flush();
+        other.changeDayIndex(dayIndex);
+        scheduleDayRepository.flush();
+        day.changeDayIndex(otherIndex);
+        day.increaseVersion();
+        other.increaseVersion();
+
+        // 예: "1일차와 2일차 일정을 서로 바꿨어요". 블록 하나가 아니라 방의 일정 전체에 대한 변경이라 방으로 남긴다
+        Room room = me.getRoom();
+        changeLogService.record(
+                room,
+                me,
+                EntityType.PLAN_ROOM,
+                room.getId(),
+                EventKind.SCHEDULE_CHANGED,
+                ActionStatus.UPDATE,
+                Math.min(dayIndex, otherIndex)
+                        + "일차와 "
+                        + Math.max(dayIndex, otherIndex)
+                        + "일차 일정을 서로 바꿨어요");
+        List<DaySnapshot> days =
+                Stream.of(day, other)
+                        .sorted(Comparator.comparingInt(ScheduleDay::getDayIndex))
+                        .map(d ->
+                                DaySnapshot.of(
+                                        d,
+                                        scheduleItemRepository
+                                                .findAllByScheduleDay_IdOrderBySortOrderAsc(
+                                                        d.getId())))
+                        .toList();
+        return new SwapDayResponse(days);
     }
 
     // 보드 쓰기의 공통 시작. 방을 잠그고, 멤버인지, 보드를 고칠 수 있는 단계인지 본다

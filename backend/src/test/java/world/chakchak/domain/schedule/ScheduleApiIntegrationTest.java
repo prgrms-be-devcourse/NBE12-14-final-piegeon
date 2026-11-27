@@ -368,6 +368,76 @@ class ScheduleApiIntegrationTest {
         }
     }
 
+    @Nested
+    class Swap {
+
+        @Nested
+        class Success {
+
+            @Test
+            @DisplayName("두 날을 맞바꾸면 200과 SCHEDULE_DAYS_SWAPPED, 바뀐 두 날이 일차 순서로 반환된다")
+            void swapsDays() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                List<ScheduleDay> days =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId);
+                ScheduleItem item =
+                        scheduleItemRepository.saveAndFlush(
+                                ScheduleItem.create(
+                                        days.get(0), saveConfirmedPlace(roomId), 1000, null, null));
+
+                HttpResponse<String> response =
+                        patch(
+                                "/api/rooms/"
+                                        + roomId
+                                        + "/schedule-days/"
+                                        + days.get(0).getId()
+                                        + "/position",
+                                "{\"dayVersion\":0,\"otherDayId\":"
+                                        + days.get(1).getId()
+                                        + ",\"otherDayVersion\":0}",
+                                cookie);
+
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.body())
+                        .contains("\"code\":\"SCHEDULE_DAYS_SWAPPED\"")
+                        // 1일차가 된 날은 비어 있고, 블록이 있던 날은 2일차가 됐다
+                        .contains(
+                                "\"days\":[{\"scheduleDayId\":"
+                                        + days.get(1).getId()
+                                        + ",\"dayIndex\":1,")
+                        .contains("{\"scheduleDayId\":" + days.get(0).getId() + ",\"dayIndex\":2,")
+                        .contains("\"itemId\":" + item.getId());
+            }
+        }
+
+        @Nested
+        class Exception {
+
+            @Test
+            @DisplayName("otherDayId나 버전이 없으면 400 INVALID_INPUT이다")
+            void rejectsMissingFields() throws java.lang.Exception {
+                String cookie = login();
+                long roomId = createPlanningRoom(cookie);
+                List<ScheduleDay> days =
+                        scheduleDayRepository.findAllByRoom_IdOrderByDayIndexAsc(roomId);
+
+                HttpResponse<String> response =
+                        patch(
+                                "/api/rooms/"
+                                        + roomId
+                                        + "/schedule-days/"
+                                        + days.get(0).getId()
+                                        + "/position",
+                                "{\"dayVersion\":0}",
+                                cookie);
+
+                assertThat(response.statusCode()).isEqualTo(400);
+                assertThat(response.body()).contains("\"code\":\"INVALID_INPUT\"");
+            }
+        }
+    }
+
     private HttpResponse<String> delete(String path, String cookie) throws java.lang.Exception {
         HttpRequest request =
                 HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
