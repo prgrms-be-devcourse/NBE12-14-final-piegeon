@@ -7,6 +7,7 @@ import { Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { addDays, todayKst, tripDays, tripLength } from "@/lib/format";
 import { useLoginRedirect } from "@/lib/hooks";
+import { useConfirm } from "@/components/ConfirmDialog";
 
 // 브라우저 기본 날짜 칸은 브라우저 언어에 따라 mm/dd/yyyy로 보인다.
 // 달력은 브라우저 것을 그대로 쓰고, 칸에 보이는 글자만 YYYY/MM/DD로 그린다.
@@ -72,6 +73,7 @@ function DateField({
 export default function NewRoomPage() {
   const router = useRouter();
   const toLogin = useLoginRedirect();
+  const { confirm, dialog } = useConfirm();
   const today = todayKst();
   // 백엔드 규칙: 출발일 0시가 지금부터 24시간 넘게 남아야 하고, 1년 안이어야 하고, 31일까지
   const minStart = addDays(today, 2);
@@ -91,6 +93,17 @@ export default function NewRoomPage() {
       setError("여행 기간은 1일부터 31일까지예요. 오는 날을 다시 골라 주세요.");
       return;
     }
+    const agreed = await confirm({
+      title: "방 만들기 전에 확인해 주세요",
+      notes: [
+        "설문 마감 안내: 기본 설문 기간은 3일이지만, 출발 당일(D-day) 00:00(자정)에도 설문이 진행 중이면 방이 자동으로 마감돼요. 출발일까지 3일이 안 남았다면 실제 설문 기간은 3일보다 짧을 수 있어요.",
+        "수정 불가 안내: 방을 만든 뒤에는 방 이름, 여행지, 날짜를 변경할 수 없어요.",
+      ],
+      confirmLabel: "확인",
+      cancelLabel: "취소",
+    });
+    if (!agreed) return;
+
     setBusy(true);
     setError(null);
     try {
@@ -174,6 +187,7 @@ export default function NewRoomPage() {
           {busy ? "만드는 중" : "방 만들기"}
         </button>
       </form>
+      {dialog}
     </AuthShell>
   );
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRoom } from "@/components/room";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { Avatar, Loading, Notice } from "@/components/ui";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { won } from "@/lib/format";
@@ -113,6 +114,7 @@ function SurveyForm({ options, onDone }: { options: SurveyOptionsResponse; onDon
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [closedNow, setClosedNow] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   function toggleAct(code: ActivityCode) {
     setActs((prev) =>
@@ -130,6 +132,19 @@ function SurveyForm({ options, onDone }: { options: SurveyOptionsResponse; onDon
     }
     if (acts.length < limits.actPrefsMin) return setError(`하고 싶은 것을 ${limits.actPrefsMin}개 이상 골라 주세요.`);
     if (!avoid.trim()) return setError("피하고 싶은 것을 적어 주세요. 없으면 '없어요'라고 적어도 돼요.");
+    const remaining = room.members.filter((member) => !member.surveySubmitted).length;
+    if (room.members.length === 1 || (room.members.length >= 2 && remaining === 1)) {
+      const message =
+        room.members.length === 1
+          ? "제출하면 설문이 마감되고 같이 정하기 없이 바로 가고 싶은 곳을 추가할 수 있어요"
+          : "제출하면 설문이 마감되고 투표가 시작돼요";
+      const confirmed = await confirm({ title: "설문 제출", body: message, confirmLabel: "확인", cancelLabel: "취소" });
+      if (!confirmed) return;
+    }
+    await submit(budgetWon);
+  }
+
+  async function submit(budgetWon: number | null) {
     setBusy(true);
     setError(null);
     try {
@@ -149,6 +164,8 @@ function SurveyForm({ options, onDone }: { options: SurveyOptionsResponse; onDon
   }
 
   return (
+    <>
+    {dialog}
     <form className="card" aria-label="내 답변" style={{ gap: 30 }} onSubmit={onSubmit}>
       {closedNow && <Notice kind="ok">모두 냈어요. 갈린 것은 같이 정하기에 올라왔어요.</Notice>}
       {late && <Notice>설문은 이미 마감됐어요. 예산, 숙소, 하루 속도는 지금 투표에는 들어가지 않고, 다시 투표할 때부터 선지에 들어가요.</Notice>}
@@ -227,5 +244,6 @@ function SurveyForm({ options, onDone }: { options: SurveyOptionsResponse; onDon
         </p>
       </div>
     </form>
+    </>
   );
 }

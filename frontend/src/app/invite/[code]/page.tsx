@@ -33,6 +33,13 @@ export default function InvitePage() {
   }
 
   const p = preview.data;
+  const statusNotice = p && {
+    SURVEYING: "설문 진행 중입니다.",
+    PLANNING: "일정 조율 중입니다. 하고 싶은 것과 피할 것 설문을 남겨주세요!",
+    REVIEWING: "일정 조율 완료! 지금 최종 일정 투표를 진행하고 있어요.",
+    FINALIZED: "모든 일정이 최종 확정되었습니다. 확정된 계획표를 확인하세요!",
+    EXPIRED: "만료된 초대입니다.",
+  }[p.status];
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 16px" }}>
       <main className="card" style={{ width: "100%", maxWidth: 520, padding: 0, overflow: "hidden", gap: 0 }}>
@@ -58,6 +65,7 @@ export default function InvitePage() {
                 </p>
                 <p className="small muted">지금 {p.memberCount}명이 기다리고 있어요</p>
               </div>
+              {statusNotice && <Notice kind="warn">{statusNotice}</Notice>}
               <ol className="stack" style={{ margin: 0, paddingLeft: 20, gap: 8 }}>
                 <li>
                   <b>1분 설문부터 해요</b>
